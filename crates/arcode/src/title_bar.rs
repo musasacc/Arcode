@@ -1,7 +1,9 @@
 //! The title bar: project dropdown, git branch, file search box, Run and
 //! settings buttons.
 
-use arcode_ui_kit::{ButtonStyle, IconName, Tooltip, button, icon, icon_button, kbd, theme};
+use arcode_ui_kit::{
+    ButtonStyle, IconName, Tooltip, button, icon, icon_button, kbd, theme, truncated,
+};
 use gpui::{AnyView, Context, IntoElement, SharedString, Window, div, prelude::*, px};
 
 use crate::actions::{OpenSettings, RunProject, ToggleFinder, shortcut_label};
@@ -38,7 +40,13 @@ pub fn render(
         .hover(|s| s.bg(c.hover))
         .when(menu_open, |el| el.bg(c.hover))
         .child(icon(IconName::Folder).size(px(14.)).color(c.accent))
-        .child(div().max_w(px(220.)).truncate().child(name))
+        .child(
+            div()
+                .max_w(px(220.))
+                .min_w_0()
+                .overflow_hidden()
+                .child(truncated(name)),
+        )
         .child(
             icon(IconName::ChevronDown)
                 .size(px(12.))
@@ -65,7 +73,7 @@ pub fn render(
                     .min_w_0()
                     .text_color(c.text_muted)
                     .child(icon(IconName::GitBranch).size(px(14.)))
-                    .child(div().truncate().child(branch))
+                    .child(div().min_w_0().overflow_hidden().child(truncated(branch)))
                     .tooltip(|_, cx| -> AnyView { Tooltip::text("Current branch", cx) }),
             )
         });

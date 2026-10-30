@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use arcode_ui_kit::{IconName, icon, icon_button, theme};
+use arcode_ui_kit::{IconName, icon, icon_button, theme, truncated};
 use gpui::{
     App, Context, EventEmitter, FocusHandle, Focusable, KeyBinding, ScrollStrategy, SharedString,
     UniformListScrollHandle, Window, actions, div, prelude::*, px, uniform_list,
@@ -97,6 +97,18 @@ impl FileTree {
         self.expanded.clear();
         self.rebuild();
         cx.notify();
+    }
+
+    /// Clears the selection (e.g. when the last tab closed).
+    pub fn clear_selection(&mut self, cx: &mut Context<Self>) {
+        if self.selected.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// The selected path, if any.
+    pub fn selected_path(&self) -> Option<&Path> {
+        self.selected.as_deref()
     }
 
     /// Expands the folders containing `path`, selects it and scrolls to it.
@@ -282,7 +294,13 @@ impl FileTree {
                     .when(row.is_dir, |el| el.child(icon(chevron).size(px(14.)))),
             )
             .child(icon(icon_name).size(px(14.)).color(icon_color))
-            .child(div().flex_1().min_w_0().truncate().child(row.name.clone()))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .child(truncated(row.name.clone())),
+            )
             .on_click(cx.listener(move |tree, _, window, cx| {
                 window.focus(&tree.focus_handle);
                 tree.click(ix, cx);
@@ -305,7 +323,13 @@ impl Render for FileTree {
             .text_xs()
             .font_weight(gpui::FontWeight::SEMIBOLD)
             .text_color(c.text_muted)
-            .child(div().truncate().child(self.title.to_uppercase()))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .child(truncated(self.title.to_uppercase())),
+            )
             .child(
                 div()
                     .flex()

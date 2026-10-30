@@ -260,7 +260,9 @@ impl Editor {
     }
 
     pub(crate) fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
-        if self.selections.len() > 1 {
+        if self.snippet_cancel() {
+            cx.notify();
+        } else if self.selections.len() > 1 {
             self.update_selections(cx, |_, s| s.collapse_to_primary());
         } else if !self.selections.primary().is_empty() {
             let head = self.selections.primary().head;

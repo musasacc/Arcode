@@ -63,11 +63,19 @@ pub enum ProblemRow {
     },
 }
 
-/// Flattens the store into header and problem rows, files sorted by path.
+/// Flattens the store into header and problem rows: files sorted by path,
+/// problems within a file by severity (errors first), then position.
 pub fn build_rows(store: &DiagnosticStore, root: Option<&Path>) -> Vec<ProblemRow> {
     let mut rows = Vec::new();
     for path in store.paths() {
-        let entries = store.for_path(path);
+        let mut entries = store.for_path(path);
+        entries.sort_by_key(|(_, d)| {
+            (
+                convert::severity(d),
+                d.range.start.line,
+                d.range.start.character,
+            )
+        });
         let label = match root {
             Some(root) => relative_display(root, path),
             None => path.display().to_string(),
@@ -135,7 +143,8 @@ impl ProblemsPanel {
         self.rebuild(cx);
     }
 
-    /// Number of problems listed.
+    /// Number of errors and warnings (the tab badge; hints and infos are
+    /// listed but not counted).
     pub fn count(&self) -> usize {
         self.count
     }
@@ -167,7 +176,9 @@ impl ProblemsPanel {
     fn rebuild(&mut self, cx: &mut Context<Self>) {
         let store = self.bridge.read(cx).store();
         let rows = build_rows(store, self.root.as_deref());
-        let count = store.counts().total();
+        // The badge counts what needs attention: errors and warnings.
+        let counts = store.counts();
+        let count = counts.errors + counts.warnings;
         if rows != self.rows || count != self.count {
             self.rows = rows;
             self.count = count;
@@ -341,5 +352,29 @@ mod tests {
             matches!(&rows[4], ProblemRow::Problem { message, .. } if message.as_ref() == "unused")
         );
         assert!(build_rows(&DiagnosticStore::new(), None).is_empty());
+    }
+
+    #[test]
+    fn problems_sort_by_severity_then_position() {
+        let mut store = DiagnosticStore::new();
+        let path = PathBuf::from("/p/a.rs");
+        store.update(
+            "ra",
+            path.clone(),
+            vec![
+                diag(1, Sev::HINT, "hint"),
+                diag(2, Sev::WARNING, "warn late"),
+                diag(9, Sev::ERROR, "error"),
+                diag(0, Sev::WARNING, "warn early"),
+            ],
+        );
+        let messages: Vec<String> = build_rows(&store, None)
+            .iter()
+            .filter_map(|r| match r {
+                ProblemRow::Problem { message, .. } => Some(message.to_string()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(messages, ["error", "warn early", "warn late", "hint"]);
     }
 }

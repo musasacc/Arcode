@@ -6,6 +6,11 @@
 //! error recovery on huge files can take seconds. While a job runs the tree
 //! is checked out: edits are queued and applied when it returns, and the
 //! last highlights stay on screen.
+//!
+//! Files above the `editor.large_file_bytes` / `editor.large_file_lines`
+//! cutoffs keep no tree at all: each viewport is highlighted from a parse
+//! of a small excerpt around it ([`arcode_syntax::highlight_excerpt`]), so
+//! memory stays close to the plain-text case.
 
 use std::ops::Range;
 
@@ -51,9 +56,29 @@ impl Editor {
         self.buffer.len_bytes() >= ASYNC_SYNTAX_BYTES
     }
 
+    /// Whether the buffer is above the large-file cutoffs in settings.
+    fn exceeds_large_file_cutoff(&self, cx: &Context<Self>) -> bool {
+        let ed = &arcode_ui_kit::settings(cx).editor;
+        self.buffer.len_bytes() as u64 >= ed.large_file_bytes.max(1)
+            || self.buffer.line_count() >= ed.large_file_lines.max(1)
+    }
+
+    /// Whether the editor treats this buffer as a large file (no tree).
+    pub fn is_large_file(&self) -> bool {
+        self.large_file
+    }
+
     /// Creates the syntax tree, in the background for large buffers.
     pub(crate) fn init_syntax(&mut self, cx: &mut Context<Self>) {
         if !self.language.has_grammar() {
+            return;
+        }
+        self.large_file = self.exceeds_large_file_cutoff(cx);
+        if self.large_file {
+            log::info!(
+                "{}: large file, highlighting from viewport excerpts",
+                self.title()
+            );
             return;
         }
         if self.uses_async_syntax() {
@@ -66,6 +91,11 @@ impl Editor {
 
     /// Feeds `edits` to the syntax tree and reparses.
     pub(crate) fn sync_syntax(&mut self, edits: &[Edit], cx: &mut Context<Self>) {
+        if self.large_file {
+            // The excerpt cache is keyed by version; the next layout
+            // requests a fresh excerpt.
+            return;
+        }
         if self.syntax_job_running() {
             self.pending_syntax_edits
                 .extend(edits.iter().map(input_edit));
@@ -105,6 +135,10 @@ impl Editor {
         }
         let start = range.start.saturating_sub(HIGHLIGHT_MARGIN);
         let end = (range.end + HIGHLIGHT_MARGIN).min(self.buffer.line_count());
+        if self.large_file {
+            self.spawn_excerpt_job(start..end, cx);
+            return;
+        }
         if self.uses_async_syntax() {
             if let Some(syntax) = self.syntax.take() {
                 let input = JobInput::Tree {
@@ -133,6 +167,34 @@ impl Editor {
         let start = visible.start.saturating_sub(HIGHLIGHT_MARGIN);
         let end = (visible.end + HIGHLIGHT_MARGIN).min(self.buffer.line_count());
         start..end
+    }
+
+    /// Highlights `range` of a large file from an excerpt parse.
+    fn spawn_excerpt_job(&mut self, range: Range<usize>, cx: &mut Context<Self>) {
+        let rope = self.buffer.text().clone();
+        let version = self.buffer.version();
+        let language = self.language;
+        let job = cx.background_spawn(async move {
+            let started = std::time::Instant::now();
+            let spans = arcode_syntax::highlight_excerpt(language, &rope, range.clone());
+            log::trace!(
+                "excerpt highlight of {range:?} took {:?}",
+                started.elapsed()
+            );
+            HighlightCache {
+                version,
+                lines: range,
+                spans,
+            }
+        });
+        self.syntax_task = Some(cx.spawn(async move |this, cx| {
+            let cache = job.await;
+            let _ = this.update(cx, |editor, cx| {
+                editor.syntax_task = None;
+                editor.highlights = Some(cache);
+                cx.notify();
+            });
+        }));
     }
 
     fn spawn_job(&mut self, input: JobInput, range: Range<usize>, cx: &mut Context<Self>) {

@@ -8,6 +8,7 @@ use arcode_ui_kit::ThemeColors;
 use gpui::{Bounds, Hsla, Pixels, UnderlineStyle, fill, outline, point, px, size};
 
 use crate::Editor;
+use crate::ext::CursorShape;
 use crate::layout::LayoutSnapshot;
 use crate::paint::Decorations;
 
@@ -89,23 +90,66 @@ pub(crate) fn text_decorations(
     bracket_pair(editor, layout, colors, d);
     diagnostic_underlines(editor, layout, colors, d);
 
-    if focused && editor.cursor_visible {
+    let shape = editor.ext.cursor_shape;
+    // Block-style cursors stay visible (hollow) when unfocused, like Vim.
+    let show = (focused && editor.cursor_visible) || (!focused && shape != CursorShape::Bar);
+    if show {
         for s in editor.selections.iter().filter(|s| in_view(s.head)) {
             let p = buffer.char_to_point(s.head);
             if !visible.contains(&p.line) {
                 continue;
             }
-            let x = layout.text_left() + layout.x_for(p.line, p.column);
-            let origin = point(x - px(1.), layout.line_top(p.line));
+            let shape = if focused { shape } else { CursorShape::Hollow };
             d.cursors
-                .push(fill(Bounds::new(origin, size(px(2.), lh)), colors.cursor));
+                .push(cursor_quad(editor, layout, p, shape, colors));
         }
+    }
+}
+
+/// The quad for a cursor of `shape` at `p`.
+fn cursor_quad(
+    editor: &Editor,
+    layout: &LayoutSnapshot,
+    p: BufPoint,
+    shape: CursorShape,
+    colors: &ThemeColors,
+) -> gpui::PaintQuad {
+    let lh = layout.line_height;
+    let top = layout.line_top(p.line);
+    let x = layout.text_left() + layout.x_for_glyph(p.line, p.column);
+    let width = if p.column < editor.buffer.line_len(p.line) {
+        (layout.x_for(p.line, p.column + 1) - layout.x_for_glyph(p.line, p.column)).max(px(2.))
+    } else {
+        layout.char_width
+    };
+    match shape {
+        CursorShape::Bar => {
+            let x = layout.text_left() + layout.x_for(p.line, p.column);
+            fill(
+                Bounds::new(point(x - px(1.), top), size(px(2.), lh)),
+                colors.cursor,
+            )
+        }
+        CursorShape::Block => {
+            let mut color = colors.cursor;
+            color.a *= 0.55;
+            fill(Bounds::new(point(x, top), size(width, lh)), color)
+        }
+        CursorShape::Underline => fill(
+            Bounds::new(point(x, top + lh - px(2.)), size(width, px(2.))),
+            colors.cursor,
+        ),
+        CursorShape::Hollow => outline(
+            Bounds::new(point(x, top + px(1.)), size(width, lh - px(2.))),
+            colors.cursor,
+            gpui::BorderStyle::Solid,
+        ),
     }
 }
 
 /// Per-line rectangles covering `start..end`, limited to visible lines.
 /// With `newline`, lines that continue get a small extra width.
-fn range_rects(
+pub(crate) fn range_rects(
     editor: &Editor,
     layout: &LayoutSnapshot,
     start: BufPoint,
@@ -126,7 +170,7 @@ fn range_rects(
         } else {
             editor.buffer.line_len(line)
         };
-        let x0 = layout.x_for(line, a);
+        let x0 = layout.x_for_glyph(line, a);
         let mut x1 = layout.x_for(line, b);
         if newline && line < end.line {
             x1 += layout.char_width * 0.6;
@@ -146,16 +190,23 @@ fn bracket_pair(
     colors: &ThemeColors,
     d: &mut Decorations,
 ) {
-    let (Some(syntax), true) = (&editor.syntax, editor.selections.primary().is_empty()) else {
+    if !editor.selections.primary().is_empty() {
         return;
-    };
+    }
     let buffer = &editor.buffer;
     let head = editor.selections.primary().head;
     for pos in [Some(head), head.checked_sub(1)].into_iter().flatten() {
         if !matches!(buffer.char_at(pos), Some('(' | ')' | '[' | ']' | '{' | '}')) {
             continue;
         }
-        let Some(partner) = syntax.matching_bracket(buffer.text(), buffer.char_to_byte(pos)) else {
+        let byte = buffer.char_to_byte(pos);
+        // Large files keep no tree: match brackets textually instead.
+        let partner = match &editor.syntax {
+            Some(syntax) => syntax.matching_bracket(buffer.text(), byte),
+            None if editor.large_file => arcode_syntax::matching_bracket_plain(buffer.text(), byte),
+            None => None,
+        };
+        let Some(partner) = partner else {
             continue;
         };
         let mut color: Hsla = colors.text_muted;
@@ -165,7 +216,7 @@ fn bracket_pair(
             if layout.visible(p.line).is_none() {
                 continue;
             }
-            let x0 = layout.x_for(p.line, p.column);
+            let x0 = layout.x_for_glyph(p.line, p.column);
             let x1 = layout.x_for(p.line, p.column + 1);
             let origin = point(layout.text_left() + x0, layout.line_top(p.line) + px(1.));
             let bounds = Bounds::new(
@@ -223,7 +274,7 @@ fn diagnostic_underlines(
             } else if a == b {
                 continue;
             } else {
-                let x0 = layout.x_for(line, a);
+                let x0 = layout.x_for_glyph(line, a);
                 (x0, layout.x_for(line, b) - x0)
             };
             let top = layout.line_top(line);

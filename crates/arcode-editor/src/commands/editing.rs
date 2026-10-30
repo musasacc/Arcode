@@ -50,9 +50,15 @@ impl Editor {
         self.edit_with(cx, ops::newline_and_indent);
     }
     pub(crate) fn tab(&mut self, _: &Tab, _: &mut Window, cx: &mut Context<Self>) {
+        if self.snippet_jump(true, cx) {
+            return;
+        }
         self.edit_with(cx, ops::insert_tab);
     }
     pub(crate) fn outdent(&mut self, _: &Outdent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.snippet_active() && self.snippet_jump(false, cx) {
+            return;
+        }
         self.edit_with(cx, |b, s, cfg| {
             ops::outdent_lines(b, s, cfg.indent, cfg.tab_width)
         });
@@ -95,7 +101,7 @@ impl Editor {
         }
         if let Some(result) = self.buffer.undo() {
             self.selections = result.selections;
-            self.apply_edits(result.edits, cx);
+            self.after_edits(result.edits, cx);
         }
     }
 
@@ -106,7 +112,7 @@ impl Editor {
         }
         if let Some(result) = self.buffer.redo() {
             self.selections = result.selections;
-            self.apply_edits(result.edits, cx);
+            self.after_edits(result.edits, cx);
         }
     }
 

@@ -165,7 +165,16 @@ fn caps_on_nodes_depth_and_strings() {
         nodes.push(node(1, stack(), &(2..=n).collect::<Vec<_>>()));
         view(1, nodes)
     };
+    let started = std::time::Instant::now();
     assert!(t.render(wide(MAX_NODES as u32)).is_ok());
+    let rendered = started.elapsed();
+    let started = std::time::Instant::now();
+    assert!(
+        t.apply(vec![Patch::Upsert(node(2, text("x"), &[]))])
+            .is_ok()
+    );
+    let patched = started.elapsed();
+    eprintln!("PanelTree, 20k nodes: render {rendered:?}, one-node patch {patched:?}");
     assert!(matches!(
         t.render(wide(MAX_NODES as u32 + 1)),
         Err(TreeError::TooLarge(_))

@@ -83,6 +83,9 @@ impl Editor {
         if event.button != MouseButton::Left {
             return;
         }
+        if self.mouse_down_ext(event, &layout, cx) {
+            return;
+        }
         let p = event.position;
         if let Some(bar) = layout.scrollbar
             && bar.track.contains(&p)
@@ -164,7 +167,8 @@ impl Editor {
                 } else {
                     None
                 };
-                if hover != self.hover {
+                let lens_changed = self.hover_lens(&layout, event.position);
+                if hover != self.hover || lens_changed {
                     self.hover = hover;
                     cx.notify();
                 }
@@ -220,8 +224,12 @@ impl Editor {
         if self.diagnostics.is_empty() || !layout.text_bounds.contains(&p) {
             return None;
         }
-        let rel_y = p.y - layout.text_bounds.top() + layout.scroll_y;
-        let line = (rel_y / layout.line_height).floor() as usize;
+        let crate::ext::RowKind::Text(line) = layout.row_at(p.y, self.buffer.line_count()) else {
+            return None;
+        };
+        if p.y >= layout.line_top(line) + layout.line_height {
+            return None;
+        }
         let visible = layout.visible(line)?;
         let x = p.x - layout.text_left();
         let line_len = self.buffer.line_len(line);

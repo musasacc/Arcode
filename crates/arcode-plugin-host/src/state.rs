@@ -1,4 +1,4 @@
-//! Data owned by an instance: the wasmtime store data ([`HostState`]), the
+//! Data owned by an instance: the wasmtime store data (`HostState`), the
 //! per-plugin state that survives instance recycling ([`Shared`]) and the
 //! services the app provides ([`Services`]).
 

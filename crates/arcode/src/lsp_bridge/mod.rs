@@ -243,7 +243,10 @@ impl LspBridge {
                 );
             }
             EditorEvent::Saved => manager.save_document(&doc.path),
-            EditorEvent::SelectionsChanged | EditorEvent::DirtyChanged(_) => {}
+            EditorEvent::SelectionsChanged
+            | EditorEvent::DirtyChanged(_)
+            | EditorEvent::GutterClicked { .. }
+            | EditorEvent::CodeLensClicked { .. } => {}
         }
     }
 

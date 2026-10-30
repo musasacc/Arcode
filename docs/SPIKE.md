@@ -185,3 +185,52 @@ Same VM, debug test build (`opt-level = 2` for dependencies), fixtures from
 | `stdout-flood`, 4 MiB | log keeps ≤ 1 MiB (newest lines), > 3000 lines dropped, call succeeds |
 | idle instance | 0 mailbox wake-ups and 0 epoch ticks over 500 ms; thread state `S` |
 | ticker without calls in flight | 0 increments over 1 s |
+
+## Plugin engine, Steps 6-8 measurements
+
+Same VM. Host code is a debug build (dependencies at `opt-level = 2`);
+fixtures are release builds.
+
+| measure | result |
+|---|---|
+| ureq 3.5 + rustls (ring, webpki roots), stripped release, `lto = "thin"` | 341,216 B → 2,312,048 B (**+1.97 MB**) for a hello-world that makes one request. Comes on top of wasmtime's +14.81 MB |
+| `http.send` cancel while the server stalls | returns 7.6-9.2 ms after `cancel()` (10 ms poll; the test requires < 100 ms) |
+| `ui-big`: settle a 1M-row table viewport (2 pages of 200 rows) | 0.2-0.9 ms per viewport, through the real instance thread |
+| `PanelTree`, 20,000 nodes | `render` 26-37 ms; one-node patch 19-29 ms (whole-map clone + full validation) |
+| 20,000-node view through the import, warm | 51-66 ms (guest flatten and diff, plus host validation) |
+| new fixtures | `net` 146 KB, `ui-big` 194 KB |
+
+## Plugin engine, Step 10 measurements (HTTP client)
+
+Same VM. `plugins/http-client` built by `scripts/build-plugins.sh`
+(release, `opt-level = "s"`, LTO); host tests are a debug build.
+
+| measure | result |
+|---|---|
+| `arcode.http-client` `plugin.wasm` | 387,505 B (design estimate ~300 KB; serde_json is most of the difference) |
+| cancel during a stalled response, end to end (lens command → `http.send` → panel shows "Cancelled") | `send` returns 10.3 ms after `cancel()` |
+| the four end-to-end tests (fresh manager, cold `.cwasm` compile each) | 0.75-1.5 s for all four, run in parallel |
+| native unit tests (`cargo test -p http-client`, SDK fakes) | 46 tests, 0.06 s |
+
+## Plugin engine, Step 11 measurements (DB viewer)
+
+Same VM. `plugins/db-viewer` built by `scripts/build-plugins.sh` (release,
+`opt-level = "s"`, LTO, bundled SQLite 3.54.1); host tests are a debug
+build. The 1M-row database is `plugins/db-viewer/tests/fixtures/big.sql`:
+tables `dense` (rowids 1..1M) and `gaps` (rowids 3, 6, ... 3M), 44 MB.
+
+| measure | result |
+|---|---|
+| `arcode.db-viewer` `plugin.wasm` | 1,722,386 B (design estimate ~1.5 MB) |
+| generate 2 × 1M rows through the plugin's own Query tab (writes on) | 3.3-4.5 s in wasm; 0.88 s natively |
+| `count(*)` of a 1M-row table (~5.4k pages, one uninterruptible `OP_Count`) | 350-380 ms in wasm, ~65 µs per 4 KiB page: file reads through WASI dominate (`allow_blocking_current_thread` is already on) |
+| `count(1)` of the same table under the 200 ms rule | stops at 200 ms → count unknown; **Count** on request: 354-543 ms |
+| `SELECT min(x), max(x)` vs two scalar subqueries | full scan (> 200 ms, stopped) vs two b-tree seeks (< 1 ms) |
+| `fetch-rows`, count unknown, no anchors: rows 500,000 / 999,800 / 250,000 | 190-277 ms / 240-256 ms / 100-140 ms (skip from the start or from an anchor) |
+| `fetch-rows` next to a seen page (anchor) | 0.7-1.8 ms |
+| `fetch-rows` once counted: dense rowids (direct seek) | 0.5-1 ms anywhere |
+| `fetch-rows` once counted: gapped rowids, rows 750,000 / 400,000 | 60 ms (walk back from the end) / 24 ms (from an anchor) |
+| same pages natively (`cargo test -p db-viewer --test big`) | 0.12-0.3 ms dense, ≤ 7.6 ms gapped |
+| cancel during a ~10M-row `GROUP BY` (task chip token, after 300 ms) | the call returns 9.8-14 ms after `cancel()`, no trap |
+| peak guest memory over the whole 1M-row test | 25-32 MiB (limit 128 MiB) |
+| native tests (`cargo test -p db-viewer`) | 28 unit + 22 integration tests, ~2 s including the 1M-row ones |

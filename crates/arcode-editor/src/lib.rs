@@ -5,29 +5,81 @@
 //! diagnostics. Only the visible lines are shaped and painted, and the view
 //! redraws only when something changes.
 //!
-//! Call [`init`] once at startup to register the key bindings, and make sure
-//! the `arcode_ui_kit` theme and settings globals are set before an editor
-//! is rendered.
+//! Call [`init`] once at startup to register the key bindings and the key
+//! routing hook, and make sure the `arcode_ui_kit` theme and settings
+//! globals are set before an editor is rendered.
+//!
+//! # Extension points
+//!
+//! Other features never patch the renderer; they describe what they need
+//! with the plain data types in [`ext`] and hand them to the editor. Every
+//! `set_*` call takes a **set key** chosen by the owner (`"git"`,
+//! `"debugger"`, ...) and replaces only that owner's items; positions follow
+//! edits until the owner replaces them. Colors are theme keys
+//! ([`ColorKey`]).
+//!
+//! | Need | API | Feedback |
+//! |------|-----|----------|
+//! | Gutter marks in ordered lanes (change bars, run icons, breakpoint dots) | [`Editor::set_gutter_decorations`], [`Editor::set_gutter_lane_visible`] | [`EditorEvent::GutterClicked`] (also for empty breakpoint slots) |
+//! | Line / text background (conflicts, current debug line, search matches) | [`Editor::set_background_highlights`] | - |
+//! | Virtual text inside a line (inlay hints) or after it (blame) | [`Editor::set_virtual_text`] | - |
+//! | Clickable code lenses above or at the end of a line | [`Editor::set_code_lenses`] | [`EditorEvent::CodeLensClicked`] |
+//! | Popovers at a buffer position with caller-built content | [`Editor::show_popover`], [`EditorPopover::on_key`] | keys routed to the popover first |
+//! | Intercepting keys before the bindings (Vim, completion) | [`Editor::add_key_interceptor`] | return `true` to consume |
+//! | Cursor shape (bar / block / underline / hollow) | [`Editor::set_cursor_shape`] | - |
+//!
+//! Programmatic APIs: [`Editor::scroll_to_line`], [`Editor::set_selections`]
+//! / [`Editor::select_ranges`], [`Editor::apply_edits`] (several ranges as
+//! one undo step), [`Editor::insert_snippet`] (tab stops, mirrors, Tab /
+//! Shift+Tab / Escape), [`Editor::text_in_range`], [`Editor::word_at`],
+//! [`Editor::point_to_lsp`] / [`Editor::lsp_to_point`] and
+//! [`Editor::position_for_point`] (window position of a buffer point).
+//!
+//! Virtual text is not part of the buffer: the cursor skips it, it cannot be
+//! selected and every reported column is a buffer column.
+//!
+//! # Large files
+//!
+//! Above `editor.large_file_bytes` / `editor.large_file_lines` no syntax tree
+//! is kept; each viewport is highlighted from a parse of a small excerpt
+//! ([`arcode_syntax::highlight_excerpt`]) and bracket matching is textual.
+//! See [`Editor::is_large_file`].
 
 mod actions;
+mod api;
 mod blink;
 mod commands;
 mod decorate;
+mod decorate_ext;
 mod diagnostics;
 mod display;
 mod editor;
 mod element;
+pub mod ext;
+mod ext_api;
+mod gutter;
 mod input;
 mod layout;
+mod layout_extras;
 mod mouse;
+mod mouse_ext;
 mod paint;
 mod render;
+mod scroll;
+mod snippet;
 mod style;
 mod syntax_sync;
 
 pub use actions::*;
+pub use api::ScrollAnchor;
+pub use arcode_ui_kit::ColorKey;
 pub use diagnostics::{DiagnosticSeverity, EditorDiagnostic};
 pub use editor::{Editor, EditorEvent};
+pub use ext::{
+    BackgroundHighlight, ChangeKind, CodeLens, CursorShape, DotStyle, EditorPopover,
+    GutterDecoration, GutterLane, GutterMark, HighlightRange, InterceptorId, KeyInterceptor,
+    LensItem, LensPlacement, PopoverPlacement, VirtualText, VirtualTextPosition,
+};
 pub use style::EditorStyle;
 
 use gpui::App;
@@ -36,4 +88,5 @@ use gpui::App;
 /// `secondary` means Cmd on macOS and Ctrl elsewhere.
 pub fn init(cx: &mut App) {
     actions::bind_keys(cx);
+    ext::keys::init(cx);
 }

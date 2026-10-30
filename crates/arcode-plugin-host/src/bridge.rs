@@ -110,8 +110,8 @@ pub trait ProjectIndex: Send + Sync {
 }
 
 /// Does the actual HTTP exchange for `http.send` once the host has checked
-/// gesture, master switch and consent. The ureq implementation lands in
-/// plan step 7.
+/// gesture, master switch and consent. The real implementation is
+/// [`crate::net::UreqTransport`].
 pub trait HttpTransport: Send + Sync {
     /// Sends `request`. `allow_redirect` is called with the `(host, port)`
     /// of every redirect target before following it and returns false to
@@ -185,7 +185,7 @@ impl ProjectIndex for NoIndex {
     }
 }
 
-/// No network stack: every request fails (until plan step 7).
+/// No network stack: every request fails (headless use, tests).
 #[derive(Debug, Default, Clone)]
 pub struct NoHttp;
 

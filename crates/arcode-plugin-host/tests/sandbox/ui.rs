@@ -98,7 +98,9 @@ fn ui_big_fetches_only_the_requested_pages() {
     let mut cache = RowCache::new(Some(1_000_000));
     for (first, last) in [(0, 40), (500_000, 500_040), (999_990, 999_999)] {
         cache.set_viewport(first, last);
+        let started = std::time::Instant::now();
         settle(&b, panel, table, &mut cache);
+        eprintln!("rows {first}..{last}: settled in {:?}", started.elapsed());
         assert!(cache.cached_rows() <= MAX_CACHED_PAGES * PAGE_ROWS as usize);
     }
     let rows = u64::from(PAGE_ROWS);
@@ -124,7 +126,10 @@ fn ui_big_fetches_only_the_requested_pages() {
 fn ui_caps_hold_through_the_import() {
     let b = big();
     let h = &b.h;
+    assert_eq!(render(h, json!({"depth": 2})), "ok"); // activates (compiles)
+    let started = std::time::Instant::now();
     assert_eq!(render(h, json!({"nodes": MAX_NODES})), "ok");
+    eprintln!("20k-node render, warm: {:?}", started.elapsed());
     let panel = h.open_panels()[0].0;
     let before = h.panel_view(panel).unwrap();
     assert_eq!(before.nodes.len(), MAX_NODES);

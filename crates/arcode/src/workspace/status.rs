@@ -91,10 +91,16 @@ impl Workspace {
                 }
             })
         });
-        if let (Some(editor), Some(tree)) = (&editor, &self.file_tree)
-            && let Some(path) = editor.read(cx).path().map(Path::to_path_buf)
-        {
-            tree.update(cx, |tree, cx| tree.reveal(&path, cx));
+        if let Some(tree) = &self.file_tree {
+            // Keep the tree selection in sync with the active tab: reveal
+            // its file, or clear the selection when no file is active.
+            match editor
+                .as_ref()
+                .and_then(|e| e.read(cx).path().map(Path::to_path_buf))
+            {
+                Some(path) => tree.update(cx, |tree, cx| tree.reveal(&path, cx)),
+                None => tree.update(cx, |tree, cx| tree.clear_selection(cx)),
+            }
         }
         self.refresh_status(cx);
         cx.emit(WorkspaceEvent::ActiveEditorChanged(editor));

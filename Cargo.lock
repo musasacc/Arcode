@@ -256,6 +256,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "arcode-buffer",
+ "arcode-completion",
  "arcode-config",
  "arcode-syntax",
  "arcode-ui-kit",

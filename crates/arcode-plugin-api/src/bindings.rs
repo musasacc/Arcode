@@ -3,7 +3,7 @@
 //! Plugin authors use the typed wrappers in the crate root instead; this
 //! module stays public as an escape hatch and for the `export_plugin!` macro.
 //! On non-wasm targets the generated imports are stubs that panic, which is
-//! why the SDK routes every import through [`crate::sys`].
+//! why the SDK routes every import through `crate::sys`.
 
 wit_bindgen::generate!({
     world: "plugin",

@@ -52,6 +52,11 @@ pub struct EditorSettings {
     pub auto_close_brackets: bool,
     /// Format the file (via LSP or the language formatter) when saving.
     pub format_on_save: bool,
+    /// Files at least this many bytes are "large": no full syntax tree is
+    /// kept; only the visible region is parsed for highlighting.
+    pub large_file_bytes: u64,
+    /// Files with at least this many lines are "large" too.
+    pub large_file_lines: usize,
 }
 
 impl Default for EditorSettings {
@@ -78,6 +83,8 @@ impl Default for EditorSettings {
             keymap: Keymap::Default,
             auto_close_brackets: true,
             format_on_save: false,
+            large_file_bytes: 4 * 1024 * 1024,
+            large_file_lines: 50_000,
         }
     }
 }
@@ -97,6 +104,8 @@ impl_section!(EditorSettings {
     keymap,
     auto_close_brackets,
     format_on_save,
+    large_file_bytes,
+    large_file_lines,
 });
 
 impl EditorSettings {

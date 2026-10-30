@@ -11,10 +11,11 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use crate::cancel::{CancelToken, lock};
+use crate::cancel::{CancelToken, lock, oneshot};
 use crate::grant_store::GrantStore;
 use crate::grants::{Capability, Decision, GrantScope, GrantState};
 use crate::manifest::{Capabilities, Manifest, PluginId, WorkspaceAccess};
+use crate::output::{OutputSender, PluginOutput};
 
 /// Longest plugin-supplied string shown in a prompt.
 pub const MAX_QUOTED_CHARS: usize = 80;
@@ -154,6 +155,36 @@ impl ConsentProvider for ScriptedConsent {
         lock(&self.answers)
             .pop_front()
             .or(self.fallback)
+            .unwrap_or(ConsentAnswer::Dismissed)
+    }
+}
+
+/// Turns every prompt into a [`PluginOutput::Consent`] on the output
+/// channel and waits for the app's answer, the same way quick picks work.
+/// A dropped reply, or a cancelled call, reads as
+/// [`ConsentAnswer::Dismissed`]. This is the [`crate::PluginManager`]'s
+/// default provider.
+#[derive(Debug, Clone)]
+pub struct ChannelConsent {
+    output: OutputSender,
+}
+
+impl ChannelConsent {
+    /// Prompts go to `output`.
+    pub fn new(output: OutputSender) -> Self {
+        Self { output }
+    }
+}
+
+impl ConsentProvider for ChannelConsent {
+    fn ask(&self, request: &ConsentRequest, cancel: &CancelToken) -> ConsentAnswer {
+        let (reply, answer) = oneshot();
+        self.output.send(PluginOutput::Consent {
+            request: request.clone(),
+            reply,
+        });
+        answer
+            .wait(cancel, None)
             .unwrap_or(ConsentAnswer::Dismissed)
     }
 }

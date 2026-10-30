@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use arcode_editor::{Editor, EditorEvent};
-use arcode_ui_kit::{IconName, Tooltip, icon, icon_button, kbd, theme};
+use arcode_ui_kit::{IconName, Tooltip, icon, icon_button, kbd, theme, truncated};
 use gpui::{
     AnyView, App, Context, Entity, EntityId, EventEmitter, FocusHandle, Focusable, MouseButton,
     PromptLevel, SharedString, Subscription, Window, div, prelude::*, px,
@@ -254,7 +254,13 @@ impl Pane {
             .when(!active, |el| el.hover(|s| s.bg(c.hover)))
             .tooltip(move |_, cx| -> AnyView { Tooltip::text(tooltip.clone(), cx) })
             .child(icon(icon_name).size(px(14.)).color(icon_color))
-            .child(div().whitespace_nowrap().child(title))
+            .child(
+                div()
+                    .max_w(px(220.))
+                    .min_w_0()
+                    .overflow_hidden()
+                    .child(truncated(title)),
+            )
             .child(
                 div()
                     .relative()

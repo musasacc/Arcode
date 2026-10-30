@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use arcode_ui_kit::{ButtonStyle, IconName, button, icon, kbd, theme};
+use arcode_ui_kit::{ButtonStyle, IconName, button, icon, kbd, theme, truncated};
 use gpui::{Context, FontWeight, IntoElement, MouseButton, SharedString, div, prelude::*, px};
 
 use crate::actions::{NewProject, OpenFolder, shortcut_label};
@@ -110,10 +110,10 @@ pub fn render(_ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement 
                         div()
                             .flex_1()
                             .min_w_0()
-                            .truncate()
+                            .overflow_hidden()
                             .text_xs()
                             .text_color(c.text_muted)
-                            .child(path.display().to_string()),
+                            .child(truncated(path.display().to_string()).middle()),
                     )
                     .child(
                         div()
