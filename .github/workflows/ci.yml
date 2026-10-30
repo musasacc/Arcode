@@ -8,6 +8,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  WASI_SDK_VERSION: "25"
 
 jobs:
   build:
@@ -16,12 +17,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            wasi_sdk: x86_64-linux
+          - os: macos-latest
+            wasi_sdk: arm64-macos
+          - os: windows-latest
+            wasi_sdk: x86_64-windows
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+          targets: wasm32-wasip2
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -29,13 +40,28 @@ jobs:
           sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
             libvulkan-dev libx11-xcb-dev libxcb1-dev libfontconfig-dev libfreetype-dev \
             libssl-dev libzstd-dev mesa-vulkan-drivers xvfb
+      - name: Install WASI SDK (clang + wasi-libc for plugins with C code)
+        run: |
+          name="wasi-sdk-${WASI_SDK_VERSION}.0-${{ matrix.wasi_sdk }}"
+          curl -sSfL -o wasi-sdk.tar.gz \
+            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/${name}.tar.gz"
+          mkdir -p "$RUNNER_TEMP/wasi-sdk"
+          tar -xzf wasi-sdk.tar.gz -C "$RUNNER_TEMP/wasi-sdk" --strip-components=1
+          sdk="$RUNNER_TEMP/wasi-sdk"
+          echo "WASI_INCLUDE=$sdk/share/wasi-sysroot/include/wasm32-wasip2" >> "$GITHUB_ENV"
+          echo "CC_wasm32_wasip2=$sdk/bin/clang" >> "$GITHUB_ENV"
+          echo "AR_wasm32_wasip2=$sdk/bin/llvm-ar" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
       - name: Format
         if: runner.os == 'Linux'
         run: cargo fmt --all -- --check
       - name: Build
         run: cargo build --workspace --locked
+      - name: Build plugins and plugin test fixtures
+        run: |
+          scripts/build-test-plugins.sh
+          scripts/build-plugins.sh
       - name: Test
         run: cargo test --workspace --locked
       - name: Clippy
-        run: cargo clippy --workspace --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
