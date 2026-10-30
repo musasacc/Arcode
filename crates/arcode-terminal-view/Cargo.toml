@@ -1,0 +1,19 @@
+[package]
+name = "arcode-terminal-view"
+description = "GPUI view for the integrated terminal: renders an arcode-terminal grid and forwards input."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+gpui.workspace = true
+arcode-terminal.workspace = true
+arcode-config.workspace = true
+arcode-ui-kit.workspace = true
+anyhow.workspace = true
+async-channel.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+env_logger.workspace = true

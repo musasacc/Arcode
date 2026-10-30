@@ -1,0 +1,20 @@
+[package]
+name = "arcode-editor"
+description = "GPUI code editor view: renders an arcode-buffer with highlighting, selections, multiple cursors and diagnostics."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+gpui.workspace = true
+arcode-buffer.workspace = true
+arcode-syntax.workspace = true
+arcode-config.workspace = true
+arcode-ui-kit.workspace = true
+log.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+env_logger.workspace = true
