@@ -217,3 +217,35 @@ fn undoing_a_snippet_ends_its_session(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("tab");
     assert_ne!(text(&editor, cx), "x\n", "Tab did nothing after the undo");
 }
+
+/// A text highlight (e.g. a search match on "foo") must not grow over text
+/// typed right after it: the match is still "foo", not "foox".
+#[gpui::test]
+fn text_highlight_does_not_grow_when_typing_at_its_end(cx: &mut TestAppContext) {
+    let (editor, cx, _) = open(cx, "foo bar\n");
+    editor.update(cx, |e, cx| {
+        e.set_background_highlights(
+            "search",
+            vec![BackgroundHighlight::text(
+                Point::new(0, 0)..Point::new(0, 3),
+                ColorKey::new("selection"),
+            )],
+            cx,
+        );
+        e.select_ranges(vec![Point::new(0, 3)..Point::new(0, 3)], cx);
+    });
+    cx.simulate_input("x");
+    assert_eq!(text(&editor, cx), "foox bar\n");
+    let ranges: Vec<_> = editor.read_with(cx, |e, _| {
+        e.background_highlights("search")
+            .iter()
+            .map(|h| h.range.clone())
+            .collect()
+    });
+    assert_eq!(
+        ranges,
+        vec![arcode_editor::HighlightRange::Text(
+            Point::new(0, 0)..Point::new(0, 3)
+        )]
+    );
+}
