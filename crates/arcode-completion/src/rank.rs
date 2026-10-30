@@ -236,3 +236,7 @@ pub fn merge_duplicates(candidates: Vec<CompletionCandidate>) -> Vec<CompletionC
 fn quality(c: &CompletionCandidate) -> (u8, bool, bool) {
     (c.source.priority(), c.preselect, c.detail.is_some())
 }
+
+#[cfg(test)]
+#[path = "rank_tests.rs"]
+mod tests;

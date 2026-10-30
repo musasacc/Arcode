@@ -129,6 +129,7 @@ mod tests {
         let result = rank(&files, "main", 10);
         assert_eq!(result[0].highlights, vec![4..8]);
         assert_eq!(char_indices_to_ranges("äbc", &[1, 2]), vec![2..4]);
-        assert_eq!(ranges_within(&[2..6], 4, 10), vec![0..2]);
+        let ranges = vec![2..6, 9..12];
+        assert_eq!(ranges_within(&ranges, 4, 6), vec![0..2, 5..6]);
     }
 }
