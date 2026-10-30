@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use arcode_plugin_host::bindings::editor::DocInfo;
 use arcode_plugin_host::bindings::ui::{Cell, Event, EventKind, Widget};
-use arcode_plugin_host::bindings::{Level, guest::CodeLens};
+use arcode_plugin_host::bindings::Level;
 use arcode_plugin_host::bridge::DocSnapshot;
 use arcode_plugin_host::consent::{ConsentAnswer, ScriptedConsent};
 use arcode_plugin_host::grants::GrantScope;
@@ -307,14 +307,18 @@ fn ui_and_guest_exports_round_trip() {
     let Ok(CallOutput::Lenses(lenses)) = lenses else {
         panic!("{lenses:?}")
     };
+    // `args` is JSON text whose key order depends on whether serde_json's
+    // `preserve_order` feature is on in the guest build, so compare parsed.
+    let [lens] = lenses.as_slice() else {
+        panic!("{lenses:?}")
+    };
     assert_eq!(
-        lenses,
-        [CodeLens {
-            line: 9,
-            title: "7|Some(\"a.echo\")|echo|3|10".into(),
-            command: "echo".into(),
-            args: json!({"op": "log", "message": "lens"}).to_string(),
-        }]
+        (lens.line, lens.title.as_str(), lens.command.as_str()),
+        (9, "7|Some(\"a.echo\")|echo|3|10", "echo")
+    );
+    assert_eq!(
+        serde_json::from_str::<Value>(&lens.args).ok(),
+        Some(json!({"op": "log", "message": "lens"}))
     );
 
     let (view_panel, p) = h.open_view("echo-file", r#"{"path":"a.echo-view"}"#);
