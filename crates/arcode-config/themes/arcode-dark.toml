@@ -1,0 +1,94 @@
+# Arcode Dark: flat, near-neutral dark grey with a soft blue accent and a
+# warm amber secondary accent.
+name = "Arcode Dark"
+appearance = "dark"
+
+[ui]
+background = "#1e1f22"
+surface = "#232428"
+surface_raised = "#2b2d31"
+border = "#34363b"
+border_focused = "#5b9cf5"
+text = "#d7dae0"
+text_muted = "#9a9fa8"
+text_disabled = "#62666e"
+accent = "#5b9cf5"
+accent_text = "#0f1114"
+accent_alt = "#e5a54b"
+selection = "#5b9cf54d"
+cursor = "#6ea8ff"
+line_highlight = "#26282c"
+gutter_text = "#6b7079"
+gutter_text_active = "#c3c7cf"
+error = "#f0707a"
+warning = "#e5b44b"
+info = "#5b9cf5"
+hint = "#8a9099"
+success = "#79c27c"
+scrollbar_thumb = "#4a4d5480"
+tab_active = "#1e1f22"
+tab_inactive = "#232428"
+title_bar = "#18191c"
+status_bar = "#18191c"
+activity_bar = "#18191c"
+panel_header = "#232428"
+hover = "#ffffff12"
+diff_added = "#6cbf73"
+diff_modified = "#5b9cf5"
+diff_deleted = "#e06c75"
+
+[syntax]
+keyword = { color = "#c58af9" }
+function = { color = "#6fb3f2" }
+"function.method" = { color = "#6fb3f2" }
+"function.macro" = { color = "#56c2d6" }
+"function.builtin" = { color = "#6fb3f2" }
+type = { color = "#e8b86d" }
+"type.builtin" = { color = "#e8b86d" }
+string = { color = "#a5d27a" }
+"string.escape" = { color = "#e8a66d" }
+"string.special" = { color = "#e8a66d" }
+character = { color = "#a5d27a" }
+comment = { color = "#848a94", italic = true }
+"comment.doc" = { color = "#8a909a", italic = true }
+number = { color = "#f2a36b" }
+constant = { color = "#f2a36b" }
+"constant.builtin" = { color = "#f2a36b" }
+boolean = { color = "#f2a36b" }
+variable = { color = "#d7dae0" }
+"variable.parameter" = { color = "#dcc2a8" }
+"variable.builtin" = { color = "#ef8a9a", italic = true }
+property = { color = "#86c9d9" }
+attribute = { color = "#b8a6f2" }
+operator = { color = "#b4bac4" }
+punctuation = { color = "#9da3ad" }
+"punctuation.bracket" = { color = "#b4bac4" }
+"punctuation.delimiter" = { color = "#9da3ad" }
+label = { color = "#f0a0c0" }
+module = { color = "#e0c38c" }
+namespace = { color = "#e0c38c" }
+constructor = { color = "#e8b86d" }
+escape = { color = "#e8a66d" }
+tag = { color = "#ef8a9a" }
+"tag.attribute" = { color = "#b8a6f2" }
+
+[terminal]
+foreground = "#d7dae0"
+background = "#1e1f22"
+cursor = "#6ea8ff"
+black = "#2b2d31"
+red = "#e06c75"
+green = "#98c379"
+yellow = "#e5c07b"
+blue = "#61afef"
+magenta = "#c678dd"
+cyan = "#56b6c2"
+white = "#c8ccd4"
+bright_black = "#5c6370"
+bright_red = "#f08a92"
+bright_green = "#b5e08f"
+bright_yellow = "#f0d197"
+bright_blue = "#82c0f5"
+bright_magenta = "#d699ea"
+bright_cyan = "#7fcfd9"
+bright_white = "#ffffff"

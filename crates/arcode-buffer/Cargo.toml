@@ -1,0 +1,14 @@
+[package]
+name = "arcode-buffer"
+description = "Rope-backed text buffer, selections, edits, undo/redo and coordinate conversion."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+ropey.workspace = true
+unicode-segmentation = "1.13"
+
+[dev-dependencies]
+tempfile.workspace = true

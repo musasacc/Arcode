@@ -13,6 +13,15 @@ rust-version = "1.90"
 # GUI: pinned exactly. Bumping GPUI is a deliberate, reviewed change.
 gpui = { version = "=0.2.2" }
 
+arcode-buffer = { path = "crates/arcode-buffer" }
+arcode-syntax = { path = "crates/arcode-syntax" }
+arcode-lsp = { path = "crates/arcode-lsp" }
+arcode-terminal = { path = "crates/arcode-terminal" }
+arcode-config = { path = "crates/arcode-config" }
+arcode-git = { path = "crates/arcode-git" }
+arcode-editor = { path = "crates/arcode-editor" }
+arcode-terminal-view = { path = "crates/arcode-terminal-view" }
+arcode-ui-kit = { path = "crates/arcode-ui-kit" }
 
 ropey = "1.6.1"
 tree-sitter = "0.25"
