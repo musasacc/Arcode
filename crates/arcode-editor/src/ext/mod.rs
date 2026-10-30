@@ -287,6 +287,10 @@ pub struct EditorPopover {
     pub content: AnyView,
     /// Side of the anchor.
     pub placement: PopoverPlacement,
+    /// A panel drawn next to `content` (right of it, or left when there is
+    /// no room), aligned with its edge nearest the anchor line, e.g. the
+    /// documentation of the selected completion.
+    pub side: Option<AnyView>,
     /// Key handler active while the popover is shown.
     pub on_key: Option<KeyInterceptor>,
 }
@@ -298,8 +302,15 @@ impl EditorPopover {
             anchor,
             content,
             placement: PopoverPlacement::Below,
+            side: None,
             on_key: None,
         }
+    }
+
+    /// Draws `side` next to the content.
+    pub fn side(mut self, side: AnyView) -> Self {
+        self.side = Some(side);
+        self
     }
 
     /// Opens above the anchor instead.
@@ -323,6 +334,7 @@ impl std::fmt::Debug for EditorPopover {
         f.debug_struct("EditorPopover")
             .field("anchor", &self.anchor)
             .field("placement", &self.placement)
+            .field("side", &self.side.is_some())
             .field("on_key", &self.on_key.is_some())
             .finish_non_exhaustive()
     }

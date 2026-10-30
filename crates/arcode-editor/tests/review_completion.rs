@@ -114,9 +114,7 @@ fn member_list_after_trigger_gets_snippets_on_incomplete_rerequest(cx: &mut Test
 /// Same root cause: when the incomplete re-request after `.` returns no
 /// items, buffer words fill the member list.
 #[gpui::test]
-fn member_list_after_trigger_gets_buffer_words_on_incomplete_rerequest(
-    cx: &mut TestAppContext,
-) {
+fn member_list_after_trigger_gets_buffer_words_on_incomplete_rerequest(cx: &mut TestAppContext) {
     let (editor, cx) = open(cx, "let item_word = 1;\nv");
     let fake = Fake::new(|_, _, n| {
         let items = if n == 0 {
@@ -191,9 +189,7 @@ fn add_signature() -> SignatureHelp {
 /// command that rust-analyzer attaches to every function item opens them
 /// on accept anyway.
 #[gpui::test]
-fn signature_setting_off_is_ignored_by_trigger_parameter_hints_command(
-    cx: &mut TestAppContext,
-) {
+fn signature_setting_off_is_ignored_by_trigger_parameter_hints_command(cx: &mut TestAppContext) {
     let mut config = config();
     config.editor.completion.signature_help = false;
     let (editor, cx) = open_at(cx, "", "test.rs", config);

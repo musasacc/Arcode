@@ -142,11 +142,17 @@ impl GitEditors {
         id: EntityId,
         editor: &Entity<Editor>,
         conflicts: Vec<Conflict>,
+        version: u64,
         cx: &mut Context<Self>,
     ) {
         let Some(state) = self.editors.get_mut(&id) else {
             return;
         };
+        if state.conflicts_version.is_some_and(|v| v > version) {
+            // A slower background parse of an older text: already superseded.
+            return;
+        }
+        state.conflicts_version = Some(version);
         if state.conflicts == conflicts {
             return;
         }
@@ -170,17 +176,44 @@ impl GitEditors {
     pub(crate) fn conflict_lens_clicked(
         &mut self,
         editor: &Entity<Editor>,
-        _line: usize,
+        line: usize,
         lens: u64,
         cx: &mut Context<Self>,
     ) {
-        let (ix, action) = ((lens / 8) as usize, (lens % 8) as usize);
-        if let Some(action) = ConflictAction::ALL.get(action) {
-            self.resolve_conflict(editor, ix, *action, cx);
+        let Some(action) = ConflictAction::ALL.get((lens % 8) as usize).copied() else {
+            return;
+        };
+        // The lens may belong to conflicts parsed before the latest edit
+        // (the re-parse is debounced); the editor keeps the lens on its
+        // line, so find the conflict that starts there now.
+        self.sync_conflicts(editor, cx);
+        let ix = self
+            .conflicts(editor.entity_id())
+            .iter()
+            .position(|c| c.start_line == line);
+        if let Some(ix) = ix {
+            self.resolve_conflict(editor, ix, action, cx);
         }
     }
 
-    /// Resolves conflict `ix` of `editor` (or opens the comparison).
+    /// Re-parses the conflicts of `editor` right away if the buffer changed
+    /// since they were last parsed.
+    fn sync_conflicts(&mut self, editor: &Entity<Editor>, cx: &mut Context<Self>) {
+        let id = editor.entity_id();
+        let version = editor.read(cx).buffer().version();
+        let Some(state) = self.editors.get(&id) else {
+            return;
+        };
+        if state.conflicts_version != Some(version) {
+            let text = editor.read(cx).buffer().text().to_string();
+            let conflicts = arcode_git::parse_conflicts(&text);
+            self.apply_conflicts(id, editor, conflicts, version, cx);
+        }
+    }
+
+    /// Resolves conflict `ix` of `editor` (or opens the comparison). Refused
+    /// when the buffer changed since the conflicts were parsed, as `ix`
+    /// and the line numbers may no longer match the text.
     pub fn resolve_conflict(
         &mut self,
         editor: &Entity<Editor>,
@@ -188,12 +221,19 @@ impl GitEditors {
         action: ConflictAction,
         cx: &mut Context<Self>,
     ) {
-        let Some(conflict) = self
-            .editors
-            .get(&editor.entity_id())
-            .and_then(|s| s.conflicts.get(ix))
-            .cloned()
-        else {
+        let id = editor.entity_id();
+        let version = editor.read(cx).buffer().version();
+        let Some(state) = self.editors.get(&id) else {
+            return;
+        };
+        if state.conflicts_version != Some(version) {
+            cx.emit(GitEditorsEvent::Message(
+                "The file changed; try again in a moment".into(),
+            ));
+            self.sync_conflicts(editor, cx);
+            return;
+        }
+        let Some(conflict) = state.conflicts.get(ix).cloned() else {
             return;
         };
         let text = editor.read(cx).buffer().text().to_string();
@@ -225,6 +265,9 @@ impl GitEditors {
             let range = line_range(e, conflict.lines());
             e.apply_edits(vec![(range, replacement)], cx);
         });
+        // Update the lenses now, so a quick second click acts on the
+        // conflicts as they are after this one.
+        self.sync_conflicts(editor, cx);
     }
 
     /// Moves the cursor of `editor` to the next (or previous) conflict,

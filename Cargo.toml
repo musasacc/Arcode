@@ -53,6 +53,7 @@ tempfile = "3"
 ignore = "0.4"
 nucleo-matcher = "0.3"
 memory-stats = "1"
+unicode-width = "0.2"
 notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
 
 # Plugin system (docs/PLUGINS.md). Pinned exactly, like GPUI.

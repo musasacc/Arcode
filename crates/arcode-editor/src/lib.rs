@@ -38,6 +38,16 @@
 //! Virtual text is not part of the buffer: the cursor skips it, it cannot be
 //! selected and every reported column is a buffer column.
 //!
+//! # Hover and definition links
+//!
+//! A [`HoverProvider`] (set with [`Editor::set_hover_provider`]) supplies
+//! documentation for the symbol under the resting mouse or the cursor
+//! ([`ShowHover`]) and the definition link underlined while Ctrl (Cmd) is
+//! held. Secondary-click dispatches [`GoToDefinition`]; it and the other
+//! navigation actions ([`GoToTypeDefinition`], [`GoToImplementation`],
+//! [`FindAllReferences`]) are bound in the editor context and handled by
+//! the application. See [`hover`].
+//!
 //! # Large files
 //!
 //! Above `editor.large_file_bytes` / `editor.large_file_lines` no syntax tree
@@ -59,6 +69,7 @@ mod element;
 pub mod ext;
 mod ext_api;
 mod gutter;
+pub mod hover;
 mod input;
 mod layout;
 mod layout_extras;
@@ -85,6 +96,7 @@ pub use ext::{
     GutterDecoration, GutterLane, GutterMark, HighlightRange, InterceptorId, KeyInterceptor,
     LensItem, LensPlacement, PopoverPlacement, VirtualText, VirtualTextPosition,
 };
+pub use hover::{HoverInfo, HoverProvider};
 pub use style::EditorStyle;
 
 use gpui::App;

@@ -19,6 +19,9 @@ pub(super) fn init(cx: &mut TestAppContext) {
         crate::actions::bind_keys(cx);
         crate::text_field::bind_keys(cx);
         crate::finder::bind_keys(cx);
+        crate::find_bar::bind_keys(cx);
+        crate::search_view::bind_keys(cx);
+        crate::commands::init(cx);
     });
 }
 

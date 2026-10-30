@@ -12,7 +12,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use gpui::{Font, FontFeatures, FontId, FontStyle, SharedString, TextRun, TextSystem, px};
+use gpui::{Font, FontFeatures, FontId, FontStyle, Pixels, SharedString, TextRun, TextSystem, px};
 
 #[derive(Default)]
 struct Cache {
@@ -137,6 +137,34 @@ pub fn apply_glyph_fallbacks(
         }
         keep_font_runs_distinct(&mut out);
         Some(out)
+    })
+}
+
+/// The advance of `c` drawn in `font` at `size`, using the same font choice
+/// as [`apply_glyph_fallbacks`]: the font itself when it has the glyph,
+/// else the first of `fallbacks` that has it. `None` when neither has it
+/// (the platform's own fallback picks a face we cannot know) or the font is
+/// not installed.
+pub fn glyph_advance(
+    font: &Font,
+    fallbacks: &[SharedString],
+    c: char,
+    size: Pixels,
+    ts: &TextSystem,
+) -> Option<Pixels> {
+    CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let primary = cache.font_id(font, ts)?;
+        let id = if cache.has_glyph(primary, c, ts) {
+            primary
+        } else {
+            let fallback = cache.replacement(font, c, fallbacks, ts)?;
+            if fallback.family == font.family {
+                return None; // Only the style changed: the platform decides.
+            }
+            cache.font_id(&fallback, ts)?
+        };
+        ts.advance(id, size, c).ok().map(|s| s.width)
     })
 }
 

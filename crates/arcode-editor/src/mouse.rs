@@ -1,16 +1,15 @@
 //! Mouse handling: clicks, drag selection, multi-cursor clicks, wheel
-//! scrolling, the scrollbar and diagnostic hover.
+//! scrolling and the scrollbar (hover lives in [`crate::hover`]).
 
 use std::ops::Range;
 
 use arcode_buffer::{Selection, SelectionSet, ops};
 use gpui::{
-    Context, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
-    ScrollWheelEvent, Window, point,
+    Context, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, ScrollWheelEvent,
+    Window, point,
 };
 
 use crate::Editor;
-use crate::diagnostics::EditorDiagnostic;
 use crate::editor::Autoscroll;
 use crate::layout::LayoutSnapshot;
 
@@ -32,13 +31,6 @@ pub(crate) enum DragState {
     },
     /// Dragging the scrollbar thumb, grabbed `grab` below its top.
     Scrollbar { grab: Pixels },
-}
-
-/// The diagnostics under the mouse and where to anchor their popover.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct HoverState {
-    pub diagnostics: Vec<EditorDiagnostic>,
-    pub anchor: Point<Pixels>,
 }
 
 impl Editor {
@@ -83,7 +75,7 @@ impl Editor {
         if event.button != MouseButton::Left {
             return;
         }
-        if self.mouse_down_ext(event, &layout, cx) {
+        if self.mouse_down_ext(event, &layout, cx) || self.link_click(event, &layout, window, cx) {
             return;
         }
         let p = event.position;
@@ -161,18 +153,7 @@ impl Editor {
                     self.selections_changed(cx);
                 }
             }
-            _ => {
-                let hover = if hovered {
-                    self.hover_at(&layout, event.position)
-                } else {
-                    None
-                };
-                let lens_changed = self.hover_lens(&layout, event.position);
-                if hover != self.hover || lens_changed {
-                    self.hover = hover;
-                    cx.notify();
-                }
-            }
+            _ => self.hover_mouse_move(&layout, event.position, event.modifiers, hovered, cx),
         }
     }
 
@@ -192,10 +173,10 @@ impl Editor {
         }
         let y = (self.scroll_y - delta.y).clamp(Pixels::ZERO, layout.max_scroll_y);
         let x = (self.scroll_x - delta.x).max(Pixels::ZERO);
-        if y != self.scroll_y || x != self.scroll_x || self.hover.is_some() {
+        let hid = self.hide_hover();
+        if y != self.scroll_y || x != self.scroll_x || hid {
             self.scroll_y = y;
             self.scroll_x = x;
-            self.hover = None;
             cx.notify();
         }
     }
@@ -217,60 +198,5 @@ impl Editor {
         let frac = ((y - grab - bar.track.top()) / range).clamp(0., 1.);
         self.scroll_y = layout.max_scroll_y * frac;
         cx.notify();
-    }
-
-    /// Diagnostics whose range covers the char under `p`.
-    fn hover_at(&self, layout: &LayoutSnapshot, p: Point<Pixels>) -> Option<HoverState> {
-        if self.diagnostics.is_empty() || !layout.text_bounds.contains(&p) {
-            return None;
-        }
-        let crate::ext::RowKind::Text(line) = layout.row_at(p.y, self.buffer.line_count()) else {
-            return None;
-        };
-        if p.y >= layout.line_top(line) + layout.line_height {
-            return None;
-        }
-        let visible = layout.visible(line)?;
-        let x = p.x - layout.text_left();
-        let line_len = self.buffer.line_len(line);
-        let col = if x >= visible.shaped.width {
-            // Past the end: only the one-char slot after the last char.
-            if x > visible.shaped.width + layout.char_width {
-                return None;
-            }
-            line_len
-        } else {
-            let byte = visible.shaped.index_for_x(x)?;
-            visible.display.col_at_byte(byte).min(line_len)
-        };
-        let hits: Vec<EditorDiagnostic> = self
-            .diagnostics
-            .iter()
-            .filter(|d| {
-                let (s, e) = (d.range.start, d.range.end);
-                if s == e {
-                    s.line == line && s.column.min(line_len) == col
-                } else {
-                    let after_start = (line, col) >= (s.line, s.column);
-                    let before_end = (line, col) < (e.line, e.column);
-                    after_start && before_end
-                }
-            })
-            .cloned()
-            .collect();
-        let first = hits.first()?;
-        let start_col = if first.range.start.line == line {
-            first.range.start.column
-        } else {
-            0
-        };
-        let anchor = point(
-            layout.text_left() + layout.x_for(line, start_col),
-            layout.line_top(line) + layout.line_height,
-        );
-        Some(HoverState {
-            diagnostics: hits,
-            anchor,
-        })
     }
 }

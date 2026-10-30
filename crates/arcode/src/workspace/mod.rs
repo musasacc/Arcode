@@ -2,14 +2,20 @@
 //! editor panes, the sidebar, the bottom panel and the status bar.
 
 mod actions;
+#[cfg(test)]
+mod feature_tests;
+mod features;
 mod git;
 #[cfg(test)]
 mod git_tests;
 #[cfg(test)]
 mod lsp_tests;
 mod overlays;
+mod palette;
 mod panes;
 mod render;
+#[cfg(test)]
+mod review_git;
 mod status;
 #[cfg(test)]
 mod tests;
@@ -87,6 +93,10 @@ pub struct Workspace {
     status_bar: Entity<StatusBar>,
     finder: Option<Entity<Finder>>,
     git: git::GitParts,
+    /// Search view, TODO list.
+    features: features::Features,
+    /// The command palette, while open.
+    palette: Option<Entity<crate::commands::palette::CommandPalette>>,
     branch_picker: Option<Entity<BranchPicker>>,
     path_prompt: Option<Entity<PathPrompt>>,
     path_prompt_then: Option<FolderCallback>,
@@ -95,6 +105,8 @@ pub struct Workspace {
     toast: Option<SharedString>,
     toast_task: Option<Task<()>>,
     active_editor_sub: Option<Subscription>,
+    /// Go to definition, symbol pickers and the back/forward history.
+    pub(crate) nav: crate::navigation::Navigator,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -122,6 +134,9 @@ impl Workspace {
         subscriptions.extend(Self::subscribe_lsp(&lsp, &bottom_panel, window, cx));
         let (git, git_subs) = git::GitParts::new(window, cx);
         subscriptions.extend(git_subs);
+        subscriptions.push(crate::navigation::Navigator::track(cx));
+        let (features, feature_subs) = features::Features::new(&bottom_panel, window, cx);
+        subscriptions.extend(feature_subs);
         Self {
             focus_handle: cx.focus_handle(),
             project: None,
@@ -141,6 +156,8 @@ impl Workspace {
             status_bar,
             finder: None,
             git,
+            features,
+            palette: None,
             branch_picker: None,
             path_prompt: None,
             path_prompt_then: None,
@@ -149,6 +166,7 @@ impl Workspace {
             toast: None,
             toast_task: None,
             active_editor_sub: None,
+            nav: Default::default(),
             _subscriptions: subscriptions,
         }
     }
@@ -249,8 +267,10 @@ impl Workspace {
             .update(cx, |panel, cx| panel.set_project_root(root.clone(), cx));
         self.git
             .store
-            .update(cx, |git, cx| git.set_project_root(root, cx));
+            .update(cx, |git, cx| git.set_project_root(root.clone(), cx));
+        self.features.set_root(root, cx);
         self.branch_picker = None;
+        self.palette = None;
         self.project = Some(project);
         self.project_files = Arc::default();
         self.reset_panes(window, cx);
@@ -281,6 +301,7 @@ impl Workspace {
             ws.git
                 .store
                 .update(cx, |git, cx| git.set_project_root(None, cx));
+            ws.features.set_root(None, cx);
             ws.branch_picker = None;
             window.set_window_title("Arcode");
             window.focus(&ws.focus_handle);
@@ -382,6 +403,7 @@ impl Workspace {
         self.git
             .editors
             .update(cx, |git, cx| git.register(&editor, cx));
+        self.track_feature_editor(&editor, cx);
         cx.emit(WorkspaceEvent::EditorOpened(editor));
         cx.notify();
     }

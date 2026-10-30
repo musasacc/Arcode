@@ -2,7 +2,7 @@
 //! [`replace_all`]. Line endings (LF/CRLF, mixed) and a UTF-8 BOM are kept
 //! byte for byte; only UTF-8 files are rewritten.
 
-use std::ops::ControlFlow;
+use std::ops::{ControlFlow, Range};
 use std::path::{Path, PathBuf};
 
 use grep_matcher::{Captures, Matcher};
@@ -71,6 +71,52 @@ pub fn replace_in_text(
         replacement,
         only_lines,
     ))
+}
+
+/// The non-empty matches of `query` in one `line` (no terminator) with the
+/// text each would be replaced by (regex groups expanded): char ranges
+/// within the line, in order. Lets an editor apply replacements as
+/// individual, undoable edits that leave the rest of the line alone.
+pub fn line_replacements(
+    line: &str,
+    query: &SearchQuery,
+    replacement: &str,
+) -> Result<Vec<(Range<usize>, String)>> {
+    let matcher = query.matcher()?;
+    let hay = line.as_bytes();
+    let mut caps = matcher
+        .new_captures()
+        .map_err(|e| SearchError::InvalidPattern(e.to_string()))?;
+    let mut out = Vec::new();
+    let (mut byte_pos, mut char_pos) = (0usize, 0usize);
+    let mut to_char = |b: usize| {
+        char_pos += line[byte_pos.min(b)..b].chars().count();
+        byte_pos = b;
+        char_pos
+    };
+    let result = matcher.captures_iter(hay, &mut caps, |caps| {
+        let Some(m) = caps.get(0) else { return true };
+        if m.is_empty() {
+            return true;
+        }
+        let mut dst = Vec::new();
+        if query.is_regex {
+            caps.interpolate(
+                |name| matcher.capture_index(name),
+                hay,
+                replacement.as_bytes(),
+                &mut dst,
+            );
+        } else {
+            dst.extend_from_slice(replacement.as_bytes());
+        }
+        let start = to_char(m.start());
+        let end = to_char(m.end());
+        out.push((start..end, String::from_utf8_lossy(&dst).into_owned()));
+        true
+    });
+    result.map_err(|e| SearchError::InvalidPattern(e.to_string()))?;
+    Ok(out)
 }
 
 /// Replace matches of `query` in the file at `path` and write it back if

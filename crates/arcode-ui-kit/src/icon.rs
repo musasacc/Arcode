@@ -5,17 +5,22 @@ use gpui::{App, Hsla, IntoElement, Pixels, RenderOnce, SharedString, Styled, Win
 /// Every icon shipped with Arcode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IconName {
+    ArrowDown,
     ArrowRight,
+    ArrowUp,
     Bug,
+    CaseSensitive,
     Check,
     ChevronDown,
     ChevronRight,
+    ChevronsDownUp,
     CircleAlert,
     CircleCheck,
     CircleDot,
     CirclePlay,
     CircleX,
     Columns,
+    Command,
     Copy,
     Ellipsis,
     ExternalLink,
@@ -44,6 +49,9 @@ pub enum IconName {
     Plus,
     Puzzle,
     Refresh,
+    Regex,
+    Replace,
+    ReplaceAll,
     Rows,
     Save,
     Search,
@@ -55,6 +63,7 @@ pub enum IconName {
     TriangleAlert,
     Type,
     Undo,
+    WholeWord,
     X,
 }
 
@@ -62,17 +71,22 @@ impl IconName {
     /// Asset path served by [`crate::Assets`].
     pub fn path(self) -> &'static str {
         match self {
+            Self::ArrowDown => "icons/arrow-down.svg",
             Self::ArrowRight => "icons/arrow-right.svg",
+            Self::ArrowUp => "icons/arrow-up.svg",
             Self::Bug => "icons/bug.svg",
+            Self::CaseSensitive => "icons/case-sensitive.svg",
             Self::Check => "icons/check.svg",
             Self::ChevronDown => "icons/chevron-down.svg",
             Self::ChevronRight => "icons/chevron-right.svg",
+            Self::ChevronsDownUp => "icons/chevrons-down-up.svg",
             Self::CircleAlert => "icons/circle-alert.svg",
             Self::CircleCheck => "icons/circle-check.svg",
             Self::CircleDot => "icons/circle-dot.svg",
             Self::CirclePlay => "icons/circle-play.svg",
             Self::CircleX => "icons/circle-x.svg",
             Self::Columns => "icons/columns-2.svg",
+            Self::Command => "icons/command.svg",
             Self::Copy => "icons/copy.svg",
             Self::Ellipsis => "icons/ellipsis.svg",
             Self::ExternalLink => "icons/external-link.svg",
@@ -101,6 +115,9 @@ impl IconName {
             Self::Plus => "icons/plus.svg",
             Self::Puzzle => "icons/puzzle.svg",
             Self::Refresh => "icons/refresh-cw.svg",
+            Self::Regex => "icons/regex.svg",
+            Self::Replace => "icons/replace.svg",
+            Self::ReplaceAll => "icons/replace-all.svg",
             Self::Rows => "icons/rows-2.svg",
             Self::Save => "icons/save.svg",
             Self::Search => "icons/search.svg",
@@ -112,6 +129,7 @@ impl IconName {
             Self::TriangleAlert => "icons/triangle-alert.svg",
             Self::Type => "icons/type.svg",
             Self::Undo => "icons/undo-2.svg",
+            Self::WholeWord => "icons/whole-word.svg",
             Self::X => "icons/x.svg",
         }
     }

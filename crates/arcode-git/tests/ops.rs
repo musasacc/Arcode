@@ -4,7 +4,7 @@ mod common;
 
 use arcode_git::{
     CommitOptions, GitError, Head, branches, commit_with, create_branch, discard_changes,
-    init_repo, last_commit_message, stage_all, stage_file, status, unstage_all,
+    init_repo, last_commit_message, stage_all, stage_file, stage_paths, status, unstage_all,
 };
 use common::{TestRepo, p};
 
@@ -120,4 +120,32 @@ fn stage_and_unstage_everything() {
     assert!(status(&repo).unwrap()[0].is_staged());
     unstage_all(&repo).unwrap();
     assert!(!status(&repo).unwrap()[0].is_staged());
+}
+
+#[test]
+fn stage_paths_stages_exactly_the_given_paths() {
+    let Some(t) = TestRepo::new() else { return };
+    t.commit_file("a.txt", "a\n", "first");
+    t.commit_file("gone.txt", "g\n", "second");
+    let repo = t.repo();
+    t.write("a.txt", "changed\n");
+    t.write("new one.txt", "n\n");
+    // Brackets are glob magic: without literal pathspecs "[a].txt" would
+    // also stage a.txt.
+    t.write("[a].txt", "literal\n");
+    std::fs::remove_file(t.dir.join("gone.txt")).unwrap();
+    stage_paths(&repo, &[]).unwrap();
+    let paths = ["[a].txt", "new one.txt", "gone.txt"].map(|s| p(s).to_path_buf());
+    stage_paths(&repo, &paths).unwrap();
+    let mut staged: Vec<_> = status(&repo)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.is_staged())
+        .map(|e| e.path)
+        .collect();
+    staged.sort();
+    assert_eq!(
+        staged,
+        ["[a].txt", "gone.txt", "new one.txt"].map(|s| p(s).to_path_buf())
+    );
 }

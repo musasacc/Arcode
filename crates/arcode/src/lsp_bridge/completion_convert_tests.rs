@@ -163,3 +163,37 @@ fn signature_parameters_become_char_ranges() {
     };
     assert!(signature_help(empty).is_none());
 }
+
+#[test]
+fn signature_help_round_trips_for_active_signature_help() {
+    let label = "fn größe(a: i32, b: &str)".to_string();
+    let lsp = lsp_types::SignatureHelp {
+        signatures: vec![SignatureInformation {
+            label: label.clone(),
+            documentation: Some(lsp_types::Documentation::String("doc".into())),
+            parameters: Some(vec![ParameterInformation {
+                label: ParameterLabel::LabelOffsets([17, 24]),
+                documentation: None,
+            }]),
+            active_parameter: Some(0),
+        }],
+        active_signature: Some(0),
+        active_parameter: Some(0),
+    };
+    let ours = signature_help(lsp.clone()).unwrap();
+    let back = to_lsp_signature_help(&ours);
+    assert_eq!(back, lsp);
+}
+
+#[test]
+fn rust_analyzer_commands_map_to_editor_commands() {
+    assert_eq!(
+        editor_command("rust-analyzer.triggerParameterHints"),
+        "editor.action.triggerParameterHints"
+    );
+    assert_eq!(
+        editor_command("editor.action.triggerSuggest"),
+        "editor.action.triggerSuggest"
+    );
+    assert_eq!(editor_command("x.run"), "x.run");
+}

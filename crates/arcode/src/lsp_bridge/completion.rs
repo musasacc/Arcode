@@ -26,6 +26,7 @@ use gpui::{App, AppContext as _, Context, Task, WeakEntity};
 use super::LspBridge;
 use super::completion_convert::{
     LspItemData, completion_item, merge_resolved, response_items, signature_help,
+    to_lsp_signature_help,
 };
 use super::convert::buffer_encoding;
 
@@ -207,7 +208,7 @@ impl CompletionProvider for LspCompletionProvider {
             trigger_kind,
             trigger_character: request.trigger_character.clone(),
             is_retrigger: request.is_retrigger,
-            active_signature_help: None,
+            active_signature_help: request.active.as_ref().map(to_lsp_signature_help),
         };
         let request = manager.request_with::<SignatureHelpRequest>(
             &path,

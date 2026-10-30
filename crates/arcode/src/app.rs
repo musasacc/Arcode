@@ -13,7 +13,8 @@ use gpui::{
 use crate::status_bar::Startup;
 use crate::workspace::Workspace;
 use crate::{
-    actions, app_state, finder, path_prompt, project, prompt, sidebar, text_field, theme_sync,
+    actions, app_state, commands, find_bar, finder, path_prompt, project, prompt, search_view,
+    sidebar, text_field, theme_sync,
 };
 
 /// What to open at startup, from the command line.
@@ -119,6 +120,9 @@ pub fn run() {
             text_field::bind_keys(cx);
             text_field::bind_multiline_keys(cx);
             finder::bind_keys(cx);
+            find_bar::bind_keys(cx);
+            search_view::bind_keys(cx);
+            commands::init(cx);
             path_prompt::bind_keys(cx);
             sidebar::file_tree::bind_keys(cx);
 

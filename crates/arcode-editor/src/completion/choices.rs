@@ -21,6 +21,8 @@ impl Editor {
             return;
         };
         let points = self.offset_to_point(range.start)..self.offset_to_point(range.end);
+        // Re-entering the placeholder selects the value it holds now.
+        let current = self.buffer.slice_to_string(range.clone());
         let items: Vec<CompletionItem> = choices
             .into_iter()
             .map(|choice| {
@@ -36,11 +38,20 @@ impl Editor {
             .collect();
         let candidates: Vec<CompletionCandidate> =
             items.iter().map(|i| i.candidate.clone()).collect();
-        let menu = MenuState::rank(&mut self.completion.ranker, "", &candidates);
+        let mut menu = MenuState::rank(&mut self.completion.ranker, "", &candidates);
+        if let Some(row) = menu
+            .ranked
+            .iter()
+            .position(|r| candidates[r.index].label == current)
+        {
+            menu.selected = row;
+            menu.reveal();
+        }
         self.completion.seq += 1;
         let session = Session {
             id: self.completion.seq,
             anchor: self.choice_anchor(range),
+            after_trigger: false,
             items,
             candidates,
             incomplete: false,

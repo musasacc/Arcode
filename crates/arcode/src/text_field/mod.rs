@@ -108,6 +108,13 @@ impl TextField {
         self.replace(0..len, text, cx);
     }
 
+    /// Selects the whole text (typing then replaces it).
+    pub fn select_all_text(&mut self, cx: &mut Context<Self>) {
+        self.selection = 0..self.text.len();
+        self.reversed = false;
+        cx.notify();
+    }
+
     fn cursor(&self) -> usize {
         if self.reversed {
             self.selection.start

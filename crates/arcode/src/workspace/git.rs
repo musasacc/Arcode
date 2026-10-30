@@ -13,6 +13,7 @@ use crate::git::branch_picker::{BranchPicker, BranchPickerEvent};
 use crate::git::diff_view::diff_editor;
 use crate::git::panel::{GitPanel, GitPanelEvent};
 use crate::git::{GitEditors, GitEditorsEvent, GitEvent, GitStore};
+use crate::pane::TabLabel;
 
 /// The git entities of a workspace.
 pub struct GitParts {
@@ -42,14 +43,23 @@ impl GitParts {
                     cx.notify();
                 }
                 GitEvent::IndexChanged => {}
+                GitEvent::FilesChanged { paths, overflow } => {
+                    ws.files_changed_on_disk(paths, *overflow, cx)
+                }
             }),
             cx.subscribe_in(
                 &editors,
                 window,
                 |ws, _, event: &GitEditorsEvent, window, cx| match event {
                     GitEditorsEvent::OpenDiff {
-                        title, old, new, ..
-                    } => ws.open_diff_tab(title.clone(), old, new, window, cx),
+                        title,
+                        path,
+                        old,
+                        new,
+                    } => {
+                        let label = diff_label(title.clone(), path.as_deref());
+                        ws.open_diff_tab(label, old, new, window, cx)
+                    }
                     GitEditorsEvent::Message(text) => ws.show_toast(text.clone(), cx),
                     GitEditorsEvent::ConflictsChanged => ws.refresh_status(cx),
                 },
@@ -122,7 +132,7 @@ impl Workspace {
         .on_action(cx.listener(|ws, _: &NextConflict, _, cx| ws.go_to_conflict(true, cx)))
         .on_action(cx.listener(|ws, _: &PreviousConflict, _, cx| ws.go_to_conflict(false, cx)))
         .on_action(cx.listener(|ws, _: &RefreshGit, _, cx| {
-            ws.git.store.update(cx, |s, cx| s.refresh(cx));
+            ws.git.store.update(cx, |s, cx| s.reload(cx));
         }))
         .on_action(cx.listener(|ws, _: &InitRepository, _, cx| {
             let has_repo = ws.git.store.read(cx).active_repo().is_some();
@@ -199,23 +209,23 @@ impl Workspace {
     }
 
     /// Opens a read-only tab with `old` against `new`, replacing an open
-    /// diff tab of the same title.
+    /// diff tab with the same key (the same file and comparison).
     pub fn open_diff_tab(
         &mut self,
-        title: String,
+        label: TabLabel,
         old: &str,
         new: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         for pane in self.panes.clone() {
-            if let Some(ix) = pane.read(cx).position_of_title(&title) {
+            if let Some(ix) = pane.read(cx).position_of_key(&label.key) {
                 pane.update(cx, |p, cx| p.close(ix, window, cx));
             }
         }
         let editor = diff_editor(old, new, cx);
         self.active_pane().clone().update(cx, |pane, cx| {
-            pane.add_titled_editor(editor, title.into(), window, cx)
+            pane.add_titled_editor(editor, label, window, cx)
         });
         cx.notify();
     }
@@ -245,16 +255,31 @@ impl Workspace {
         } else {
             format!("{name} (HEAD ↔ Working Tree)")
         };
+        let label = diff_label(title, Some(&path));
         let work =
             cx.background_spawn(async move { read_diff_sides(&repo, &path, staged, buffer) });
         cx.spawn_in(window, async move |this, cx| {
             let (old, new) = work.await;
             this.update_in(cx, |ws, window, cx| {
-                ws.open_diff_tab(title, &old, &new, window, cx)
+                ws.open_diff_tab(label, &old, &new, window, cx)
             })
             .ok();
         })
         .detach();
+    }
+}
+
+/// The tab label of a diff titled `title` of the file at `path`: keyed by
+/// the full path, so diffs of same-named files in different folders are
+/// separate tabs, with the path as tooltip.
+fn diff_label(title: String, path: Option<&Path>) -> TabLabel {
+    let Some(path) = path else {
+        return TabLabel::new(title);
+    };
+    TabLabel {
+        key: format!("{title}\u{0}{}", path.display()).into(),
+        tooltip: format!("{title} · {}", path.display()).into(),
+        title: title.into(),
     }
 }
 

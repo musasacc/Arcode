@@ -21,7 +21,11 @@ impl Editor {
 
     /// Opens the completion list at the cursor now (Ctrl+Space).
     pub fn show_completions(&mut self, cx: &mut Context<Self>) {
-        self.completion.no_results_at = None;
+        // Nothing can be inserted into a read-only buffer.
+        if self.read_only {
+            return;
+        }
+        self.completion.no_results = None;
         self.request_completions(CompletionTrigger::Invoked, Duration::ZERO, cx);
     }
 
@@ -85,7 +89,7 @@ impl Editor {
             return;
         }
         if !is_word_char(c) {
-            self.completion.no_results_at = None;
+            self.completion.no_results = None;
             return;
         }
         let Some(anchor) = self.completion_anchor() else {
@@ -95,10 +99,22 @@ impl Editor {
             .buffer
             .char_at(anchor.start)
             .is_some_and(|c| c.is_ascii_digit());
-        if starts_with_digit || self.completion.no_results_at == Some(anchor.start) {
+        if starts_with_digit || self.completion_known_empty(anchor.start, cursor) {
             return;
         }
         self.request_completions(CompletionTrigger::Invoked, delay, cx);
+    }
+
+    /// Whether the word from `start` to `cursor` extends a word whose
+    /// complete answer had nothing (typing on in it does not ask again; a
+    /// different word typed at the same place after deleting it does).
+    fn completion_known_empty(&self, start: usize, cursor: usize) -> bool {
+        self.completion
+            .no_results
+            .as_ref()
+            .is_some_and(|(at, word)| {
+                *at == start && self.buffer.slice_to_string(start..cursor).starts_with(word)
+            })
     }
 
     fn completion_path_open(&self) -> bool {
@@ -147,11 +163,14 @@ impl Editor {
         let Some(mut anchor) = self.completion_anchor() else {
             return;
         };
-        // An incomplete list is asked again for the same word.
+        // An incomplete list is asked again for the same word, and keeps
+        // knowing whether it opened after a trigger character.
+        let mut after_trigger = matches!(trigger, CompletionTrigger::Character(_));
         if trigger == CompletionTrigger::Incomplete
             && let Some(session) = &self.completion.session
         {
             anchor.start = session.anchor.start;
+            after_trigger = session.after_trigger;
         }
         let provider_task = match anchor.mode {
             Mode::Word => self
@@ -179,7 +198,7 @@ impl Editor {
         self.completion.pending = Some(Pending {
             id,
             anchor,
-            trigger,
+            after_trigger,
         });
         self.completion.request_task = Some(cx.spawn(async move |this, cx| {
             let list = match provider_task {
@@ -221,8 +240,9 @@ impl Editor {
         match pending.anchor.mode {
             Mode::Word => {
                 // After a trigger character (`.`, `(`) only the server knows
-                // what fits; words and snippets would be noise.
-                let after_trigger = matches!(pending.trigger, CompletionTrigger::Character(_));
+                // what fits; words and snippets would be noise. This holds
+                // for the re-requests of an incomplete member list too.
+                let after_trigger = pending.after_trigger;
                 if items.is_empty() && !after_trigger {
                     items.extend(self.buffer_word_items(&query, cx));
                 }
@@ -235,24 +255,35 @@ impl Editor {
         }
         let candidates: Vec<CompletionCandidate> =
             items.iter().map(|i| i.candidate.clone()).collect();
-        let menu = MenuState::rank(&mut self.completion.ranker, &query, &candidates);
-        if menu.ranked.is_empty() {
-            if !incomplete {
-                self.completion.no_results_at = Some(pending.anchor.start);
-            }
+        let mut menu = MenuState::rank(&mut self.completion.ranker, &query, &candidates);
+        if menu.ranked.is_empty() && !incomplete {
+            self.completion.no_results = Some((pending.anchor.start, query));
             self.hide_completions(cx);
             return;
         }
-        self.completion.no_results_at = None;
+        self.completion.no_results = None;
+        // Keep the row the user picked with the arrows while this answer
+        // was on its way.
+        if let Some(key) = self.completion_user_choice(&pending.anchor) {
+            menu.select_where(|r| key.matches(&items[r.index]));
+        }
         let session = Session {
             id,
             anchor: pending.anchor,
+            after_trigger: pending.after_trigger,
             items,
             candidates,
             incomplete,
             menu,
             query,
         };
+        if session.menu.ranked.is_empty() {
+            // An incomplete list with nothing for this word yet: keep it
+            // (hidden) so typing on asks again the same way.
+            self.completion.session = Some(session);
+            self.completion_hide_box(cx);
+            return;
+        }
         self.completion_open(session, cx);
     }
 

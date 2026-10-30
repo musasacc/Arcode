@@ -99,7 +99,11 @@ impl Editor {
                     let request = SignatureRequest {
                         trigger_character,
                         is_retrigger: editor.signature_help_visible(),
-                        active: editor.completion.signature.help.clone(),
+                        // With the overload the user is looking at.
+                        active: editor.completion.signature.help.clone().map(|mut help| {
+                            help.active_signature = editor.completion.signature.shown;
+                            help
+                        }),
                     };
                     provider.signature_help(editor, &request, cx)
                 })
@@ -132,10 +136,12 @@ impl Editor {
             self.hide_signature_help(cx);
             return;
         };
-        let Some(cursor) = self.single_cursor() else {
+        // One cursor; it may select a snippet placeholder (an argument).
+        if self.selections.len() != 1 {
             self.hide_signature_help(cx);
             return;
-        };
+        }
+        let cursor = self.selections.primary().range().start;
         let state = &mut self.completion.signature;
         let same = state.help.as_ref().map(|h| h.signatures.len()) == Some(help.signatures.len());
         if !same {

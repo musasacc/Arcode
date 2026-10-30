@@ -249,6 +249,26 @@ fn read_only_blocks_edits(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn read_only_editor_never_writes_its_file(cx: &mut TestAppContext) {
+    setup(cx);
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("lib.rs");
+    std::fs::write(&file, "library").unwrap();
+    let path = file.clone();
+    let (editor, cx) = cx.add_window_view(move |_, cx| {
+        let mut buffer = Buffer::new("library");
+        buffer.set_path(&path);
+        Editor::new(buffer, cx)
+    });
+    editor.update(cx, |e, cx| {
+        e.apply_edits(vec![(Point::new(0, 0)..Point::new(0, 0), "edited ".into())], cx);
+        e.set_read_only(true, cx);
+        assert!(e.save(cx).is_err(), "a read-only editor refuses to save");
+    });
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "library");
+}
+
+#[gpui::test]
 fn ime_composition_and_utf16(cx: &mut TestAppContext) {
     use gpui::EntityInputHandler;
     let (editor, cx, _) = open(cx, "😀\n😀\n");

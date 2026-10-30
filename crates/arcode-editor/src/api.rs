@@ -70,6 +70,15 @@ impl Editor {
         self.buffer.slice_to_string(a.min(b)..a.max(b))
     }
 
+    /// The document outline (functions, types, ...) from the syntax tree;
+    /// empty for languages without an outline query and for large files.
+    pub fn outline(&self) -> Vec<arcode_syntax::OutlineItem> {
+        self.syntax
+            .as_ref()
+            .map(|s| s.symbols(self.buffer.text()))
+            .unwrap_or_default()
+    }
+
     /// The word at or just before `point` and its range, if any.
     pub fn word_at(&self, point: Point) -> Option<(Range<Point>, String)> {
         let pos = self.point_to_offset(point);

@@ -121,6 +121,7 @@ impl SearchQuery {
             include_globs: &self.include_globs,
             exclude_globs: &self.exclude_globs,
             max_file_size: self.max_file_size,
+            only: None,
         }
     }
 }

@@ -79,6 +79,7 @@ impl Editor {
     /// lane and gutter marks.
     pub(crate) fn clickable_bounds(&self, layout: &LayoutSnapshot) -> Vec<Bounds<Pixels>> {
         let mut out: Vec<Bounds<Pixels>> = layout.lens_hits.iter().map(|h| h.bounds).collect();
+        out.extend(self.link_bounds(layout));
         let left = layout.bounds.left();
         for &(lane, lane_left, width) in &layout.gutter.lanes {
             if lane.clickable_when_empty() {
@@ -119,6 +120,10 @@ impl Editor {
             }
             out.push(PopoverSlot {
                 element: div().child(popover.content.clone()).into_any_element(),
+                side: popover
+                    .side
+                    .clone()
+                    .map(|side| div().child(side).into_any_element()),
                 x: layout.text_left() + layout.x_for_glyph(p.line, p.column),
                 line_top: layout.line_top(p.line),
                 line_height: layout.line_height,
@@ -132,6 +137,7 @@ impl Editor {
 /// A popover element and the line it attaches to (window coordinates).
 pub(crate) struct PopoverSlot {
     element: AnyElement,
+    side: Option<AnyElement>,
     x: Pixels,
     line_top: Pixels,
     line_height: Pixels,
@@ -142,13 +148,18 @@ pub(crate) struct PopoverSlot {
 const WINDOW_MARGIN: Pixels = px(8.);
 /// Gap between the anchor line and the popover.
 const ANCHOR_GAP: Pixels = px(2.);
+/// Gap between a popover and its side panel.
+const SIDE_GAP: Pixels = px(4.);
 
 /// The top-left corner for a popover of `size` attached to the line at
 /// `line_top`: on its preferred side, or the other side when it does not
 /// fit there but does (or fits better) on the other; shifted left to stay
-/// inside the window.
+/// inside the window. `fit_height` is what must fit on a side: the popover
+/// and its side panel, which is aligned with it.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn place_popover(
     size: Size<Pixels>,
+    fit_height: Pixels,
     x: Pixels,
     line_top: Pixels,
     line_height: Pixels,
@@ -159,8 +170,9 @@ pub(crate) fn place_popover(
     let above = line_top - ANCHOR_GAP - size.height;
     let room_below = viewport.height - WINDOW_MARGIN - below;
     let room_above = line_top - ANCHOR_GAP - WINDOW_MARGIN;
-    let fits_below = size.height <= room_below;
-    let fits_above = size.height <= room_above;
+    let fit = fit_height.max(size.height);
+    let fits_below = fit <= room_below;
+    let fits_above = fit <= room_above;
     let use_below = match placement {
         PopoverPlacement::Below => fits_below || (!fits_above && room_below >= room_above),
         PopoverPlacement::Above => !fits_above && (fits_below || room_below > room_above),
@@ -174,6 +186,34 @@ pub(crate) fn place_popover(
     point(x.min(max_x).max(WINDOW_MARGIN), y)
 }
 
+/// The top-left corner of a side panel of `size` next to a popover at
+/// `main`: right of it, or left when it does not fit there; top-aligned
+/// when the popover is below its line (`main` starts below `line_top`),
+/// bottom-aligned when above, so the panel never pushes the popover away
+/// from the line. Kept inside the window.
+pub(crate) fn place_side(
+    size: Size<Pixels>,
+    main: Bounds<Pixels>,
+    line_top: Pixels,
+    viewport: Size<Pixels>,
+) -> Point<Pixels> {
+    let right = main.right() + SIDE_GAP;
+    let left = main.left() - SIDE_GAP - size.width;
+    let max_x = viewport.width - WINDOW_MARGIN - size.width;
+    let x = if right <= max_x || left < WINDOW_MARGIN {
+        right.min(max_x).max(WINDOW_MARGIN)
+    } else {
+        left
+    };
+    let max_y = viewport.height - WINDOW_MARGIN - size.height;
+    let y = if main.top() > line_top {
+        main.top()
+    } else {
+        main.bottom() - size.height
+    };
+    point(x, y.min(max_y).max(WINDOW_MARGIN))
+}
+
 /// Lays out the popovers, places them (flipping to the other side of the
 /// anchor line when there is no room) and lets them draw over the rest of
 /// the window. Must be called during prepaint.
@@ -185,8 +225,19 @@ pub(crate) fn defer_popovers(slots: Vec<PopoverSlot>, window: &mut Window, cx: &
             window,
             cx,
         );
+        let side = slot.side.map(|mut side| {
+            let side_size = side.layout_as_root(
+                gpui::size(AvailableSpace::MaxContent, AvailableSpace::MaxContent),
+                window,
+                cx,
+            );
+            (side, side_size)
+        });
+        let side = side.filter(|(_, s)| s.width > px(0.) && s.height > px(0.));
+        let fit_height = side.as_ref().map_or(size.height, |(_, s)| s.height);
         let origin = place_popover(
             size,
+            fit_height,
             slot.x,
             slot.line_top,
             slot.line_height,
@@ -194,6 +245,11 @@ pub(crate) fn defer_popovers(slots: Vec<PopoverSlot>, window: &mut Window, cx: &
             viewport,
         );
         window.defer_draw(slot.element, origin, 2);
+        if let Some((side, side_size)) = side {
+            let main = Bounds::new(origin, size);
+            let at = place_side(side_size, main, slot.line_top, viewport);
+            window.defer_draw(side, at, 2);
+        }
     }
 }
 
@@ -204,12 +260,56 @@ mod tests {
     fn at(placement: PopoverPlacement, line_top: f32, height: f32) -> Point<Pixels> {
         place_popover(
             size(px(300.), px(height)),
+            px(0.),
             px(900.),
             px(line_top),
             px(20.),
             placement,
             size(px(1000.), px(600.)),
         )
+    }
+
+    #[test]
+    fn a_tall_side_panel_flips_a_short_popover() {
+        // 40 px fit below the line, the 150 px side panel next to it not:
+        // both go above, the popover's bottom at the line.
+        let origin = place_popover(
+            size(px(300.), px(40.)),
+            px(150.),
+            px(100.),
+            px(500.),
+            px(20.),
+            PopoverPlacement::Below,
+            size(px(1000.), px(600.)),
+        );
+        assert_eq!(origin, point(px(100.), px(458.)));
+    }
+
+    #[test]
+    fn side_panels_align_with_the_edge_nearest_the_line() {
+        let viewport = size(px(1000.), px(600.));
+        let side = size(px(200.), px(150.));
+        // Below the line: right of the list, tops aligned.
+        let main = Bounds::new(point(px(100.), px(122.)), size(px(300.), px(60.)));
+        assert_eq!(
+            place_side(side, main, px(100.), viewport),
+            point(px(404.), px(122.))
+        );
+        // Above the line: bottoms aligned, so the list stays at the line.
+        let main = Bounds::new(point(px(100.), px(438.)), size(px(300.), px(60.)));
+        assert_eq!(
+            place_side(side, main, px(500.), viewport),
+            point(px(404.), px(348.))
+        );
+        // No room on the right: left of the list.
+        let main = Bounds::new(point(px(650.), px(122.)), size(px(300.), px(60.)));
+        assert_eq!(
+            place_side(side, main, px(100.), viewport),
+            point(px(446.), px(122.))
+        );
+        // Taller than the room above the list's bottom: kept in the window.
+        let main = Bounds::new(point(px(100.), px(20.)), size(px(300.), px(60.)));
+        assert_eq!(place_side(side, main, px(100.), viewport).y, px(8.));
     }
 
     #[test]

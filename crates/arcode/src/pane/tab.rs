@@ -17,12 +17,17 @@ impl Pane {
         let c = theme(cx).colors.clone();
         let custom = self.titles.get(&editor.entity_id()).cloned();
         let e = editor.read(cx);
-        let title = custom.clone().unwrap_or_else(|| e.title());
+        let title = custom
+            .as_ref()
+            .map_or_else(|| e.title(), |t| t.title.clone());
         let dirty = e.is_dirty() && custom.is_none();
-        let tooltip: SharedString = e
-            .path()
-            .map(|p| p.display().to_string().into())
-            .unwrap_or_else(|| title.clone());
+        let tooltip: SharedString = match &custom {
+            Some(label) => label.tooltip.clone(),
+            None => e
+                .path()
+                .map(|p| p.display().to_string().into())
+                .unwrap_or_else(|| title.clone()),
+        };
         let active = index == self.active;
         let (icon_name, icon_color) = if custom.is_some() {
             (IconName::GitCompare, c.accent_alt)

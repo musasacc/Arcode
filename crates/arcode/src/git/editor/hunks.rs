@@ -70,7 +70,7 @@ impl GitEditors {
             let (hunks, conflicts) = work.await;
             this.update(cx, |this, cx| {
                 this.apply_hunks(id, &editor, hunks, version, cx);
-                this.apply_conflicts(id, &editor, conflicts, cx);
+                this.apply_conflicts(id, &editor, conflicts, version, cx);
             })
             .ok();
         });

@@ -1,16 +1,14 @@
 //! `Render` for [`Editor`]: key context, action handlers, the element and
-//! the diagnostic hover popover.
+//! the focus check that closes the hover.
 
-use arcode_ui_kit::{icon, settings, theme};
 use gpui::{
-    AnyElement, Context, IntoElement, ParentElement, Render, SharedString, Styled, Window,
-    anchored, deferred, div, prelude::*, px,
+    Context, IntoElement, ModifiersChangedEvent, ParentElement, Render, Styled, Window, div,
+    prelude::*,
 };
 
 use crate::Editor;
 use crate::actions::KEY_CONTEXT;
 use crate::element::EditorElement;
-use crate::mouse::HoverState;
 
 impl Render for Editor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -18,7 +16,7 @@ impl Render for Editor {
         if !self.focus_handle.is_focused(window) {
             self.completion_blurred(cx);
         }
-        let popover = self.hover.clone().map(|h| hover_popover(&h, cx));
+        self.hover_check_focus(window, cx);
         div()
             .id("editor")
             .key_context(KEY_CONTEXT)
@@ -75,63 +73,10 @@ impl Render for Editor {
             .on_action(
                 cx.listener(|e, _: &crate::ShowSignatureHelp, _, cx| e.show_signature_help(cx)),
             )
+            .on_action(cx.listener(|e, _: &crate::ShowHover, _, cx| e.show_hover(cx)))
+            .on_modifiers_changed(cx.listener(|e, ev: &ModifiersChangedEvent, window, cx| {
+                e.hover_modifiers_changed(ev.modifiers, window, cx)
+            }))
             .child(EditorElement::new(cx.entity()))
-            .children(popover)
     }
-}
-
-/// The popover listing the diagnostics under the mouse.
-fn hover_popover(hover: &HoverState, cx: &Context<Editor>) -> AnyElement {
-    let colors = &theme(cx).colors;
-    let ui = &settings(cx).ui;
-    let mut body = div()
-        .id("diagnostic-popover")
-        .occlude()
-        .flex()
-        .flex_col()
-        .gap_1()
-        .max_w(px(520.))
-        .px_2()
-        .py_1p5()
-        .bg(colors.surface_raised)
-        .border_1()
-        .border_color(colors.border)
-        .rounded_md()
-        .shadow_md()
-        .text_size(px(ui.font_size))
-        .text_color(colors.text);
-    if let Some(family) = &ui.font_family {
-        body = body.font_family(SharedString::from(family.clone()));
-    }
-    for d in &hover.diagnostics {
-        let color = d.severity.color(colors);
-        let mut row = div()
-            .flex()
-            .flex_row()
-            .items_start()
-            .gap_2()
-            .child(
-                div()
-                    .pt(px(2.))
-                    .child(icon(d.severity.icon()).size(px(14.)).color(color)),
-            )
-            .child(div().flex_1().child(SharedString::from(d.message.clone())));
-        if !d.source.is_empty() {
-            row = row.child(
-                div()
-                    .flex_none()
-                    .text_color(colors.text_muted)
-                    .child(SharedString::from(d.source.clone())),
-            );
-        }
-        body = body.child(row);
-    }
-    deferred(
-        anchored()
-            .position(hover.anchor)
-            .snap_to_window_with_margin(px(8.))
-            .child(div().pt(px(2.)).child(body)),
-    )
-    .with_priority(1)
-    .into_any_element()
 }

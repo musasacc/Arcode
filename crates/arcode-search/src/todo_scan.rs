@@ -96,6 +96,34 @@ pub fn scan_todos_with(
     opts: &TodoOptions,
     cancel: &CancelToken,
 ) -> Result<Vec<TodoItem>> {
+    scan(root, opts, None, cancel)
+}
+
+/// Rescan only `paths` (absolute files or folders under `root`, e.g. what
+/// changed since a full [`scan_todos_with`]) with the same filters: a path
+/// that is ignored, hidden, excluded by a glob, too large, binary or gone
+/// yields nothing, and a folder yields the TODOs of the files in it.
+/// Folders that do not lead to one of `paths` are not entered, so a file
+/// costs about one directory listing per path component.
+/// Sorted by relative path, then line.
+pub fn scan_todos_in_paths(
+    root: &Path,
+    paths: &[PathBuf],
+    opts: &TodoOptions,
+    cancel: &CancelToken,
+) -> Result<Vec<TodoItem>> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+    scan(root, opts, Some(paths), cancel)
+}
+
+fn scan(
+    root: &Path,
+    opts: &TodoOptions,
+    only: Option<&[PathBuf]>,
+    cancel: &CancelToken,
+) -> Result<Vec<TodoItem>> {
     let tag_refs: Vec<&str> = opts.tags.iter().map(String::as_str).collect();
     let tags = effective_tags(&tag_refs);
     let matcher = prefilter(&tags, opts.case_sensitive)?;
@@ -106,6 +134,7 @@ pub fn scan_todos_with(
         include_globs: &opts.include_globs,
         exclude_globs: &opts.exclude_globs,
         max_file_size: opts.max_file_size,
+        only,
     };
     let halt = Halt::new(cancel);
     let limit = if opts.max_items == 0 {

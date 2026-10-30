@@ -8,6 +8,7 @@
 mod completion;
 mod git;
 mod language;
+mod search;
 mod sections;
 
 use std::collections::BTreeMap;
@@ -26,6 +27,7 @@ pub use git::GitSettings;
 pub use language::{
     LanguageSettings, LspServerSettings, NamedServer, builtin_languages, builtin_servers,
 };
+pub use search::{SearchSettings, TodoSettings};
 pub use sections::{
     DEFAULT_EDITOR_FONT, EditorSettings, Keymap, TerminalSettings, ThemeChoice, UiSettings,
 };
@@ -49,6 +51,10 @@ pub struct Config {
     pub terminal: TerminalSettings,
     /// `[git]`
     pub git: GitSettings,
+    /// `[search]`
+    pub search: SearchSettings,
+    /// `[todo]`
+    pub todo: TodoSettings,
     /// `[language.<id>]`, keyed by language id (e.g. `rust`). Ids read from
     /// TOML are lowercased.
     #[serde(rename = "language")]
@@ -64,6 +70,8 @@ impl Default for Config {
             ui: UiSettings::default(),
             terminal: TerminalSettings::default(),
             git: GitSettings::default(),
+            search: SearchSettings::default(),
+            todo: TodoSettings::default(),
             languages: builtin_languages(),
             lsp: builtin_servers(),
         }
@@ -211,6 +219,8 @@ impl Config {
                 "ui" => apply_table(&mut self.ui, value, "ui", warnings),
                 "terminal" => apply_table(&mut self.terminal, value, "terminal", warnings),
                 "git" => apply_table(&mut self.git, value, "git", warnings),
+                "search" => apply_table(&mut self.search, value, "search", warnings),
+                "todo" => apply_table(&mut self.todo, value, "todo", warnings),
                 "language" => self.apply_languages(value, warnings),
                 "lsp" => self.apply_servers(value, warnings),
                 other => warnings.push(format!("unknown section `{other}` (ignored)")),
@@ -220,6 +230,8 @@ impl Config {
         self.ui.validate(warnings);
         self.terminal.validate(warnings);
         self.git.validate(warnings);
+        self.search.validate(warnings);
+        self.todo.validate(warnings);
     }
 
     /// Merges `[language.<id>]` tables. Ids are case-insensitive and stored

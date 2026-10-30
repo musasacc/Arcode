@@ -14,6 +14,8 @@ pub(crate) struct MenuState {
     pub selected: usize,
     /// First visible row.
     pub scroll_top: usize,
+    /// The user moved the selection (arrows, page keys).
+    pub user_moved: bool,
 }
 
 impl MenuState {
@@ -36,6 +38,7 @@ impl MenuState {
             ranked,
             selected,
             scroll_top: 0,
+            user_moved: false,
         };
         menu.reveal();
         menu
@@ -48,6 +51,7 @@ impl MenuState {
             return;
         }
         self.selected = (self.selected as isize + delta).rem_euclid(len) as usize;
+        self.user_moved = true;
         self.reveal();
     }
 
@@ -63,7 +67,20 @@ impl MenuState {
         } else {
             self.selected.saturating_sub(step)
         };
+        self.user_moved = true;
         self.reveal();
+    }
+
+    /// Selects the first row for which `f` holds, as if the user had
+    /// moved there; returns whether there was one.
+    pub fn select_where(&mut self, f: impl Fn(&RankedCandidate) -> bool) -> bool {
+        let Some(row) = self.ranked.iter().position(f) else {
+            return false;
+        };
+        self.selected = row;
+        self.user_moved = true;
+        self.reveal();
+        true
     }
 
     /// Scrolls so the selected row is visible.
@@ -130,5 +147,19 @@ mod tests {
         empty.move_by(1);
         empty.page(true);
         assert_eq!(empty.selected, 0);
+    }
+
+    #[test]
+    fn select_where_marks_the_choice_as_the_users() {
+        let labels: Vec<String> = (0..15).map(|i| format!("item{i:02}")).collect();
+        let refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+        let c = cands(&refs);
+        let mut m = MenuState::rank(&mut Ranker::new(), "", &c);
+        assert!(!m.user_moved);
+        assert!(m.select_where(|r| c[r.index].label == "item12"));
+        assert_eq!((m.selected, m.scroll_top), (12, 3));
+        assert!(m.user_moved);
+        assert!(!m.select_where(|r| c[r.index].label == "nope"));
+        assert_eq!(m.selected, 12);
     }
 }

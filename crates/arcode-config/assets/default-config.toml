@@ -35,6 +35,12 @@ format_on_save = false
 # visible region is parsed for highlighting, which keeps memory low.
 large_file_bytes = 4194304
 large_file_lines = 50000
+# Show documentation when the mouse rests on a symbol (Ctrl+K Ctrl+I shows
+# it at the cursor), after this many milliseconds.
+hover = true
+hover_delay_ms = 300
+# Highlight the other occurrences of the symbol under the cursor.
+occurrence_highlight = true
 
 [editor.completion]
 # Open the completion popup while typing. When false, only Ctrl+Space
@@ -85,6 +91,22 @@ gutter = true
 inline_blame = true
 # How long the cursor rests on a line before its blame appears (ms).
 inline_blame_delay_ms = 500
+
+[search]
+# A project search stops after this many matches ("Show more" raises it).
+max_results = 2000
+# How long to wait after the last keystroke before searching (ms).
+debounce_ms = 250
+# Skip what .gitignore / .ignore list.
+respect_gitignore = true
+# Also search hidden files and folders (dot files).
+include_hidden = false
+# Globs always excluded from project search, e.g. ["*.min.js", "dist"].
+exclude = []
+
+[todo]
+# Comment tags listed in the TODO view (case-sensitive, whole words).
+tags = ["TODO", "FIXME", "HACK", "XXX", "BUG", "NOTE"]
 
 # Per-language settings. Built-in assignments:
 #   rust -> rust-analyzer, typescript/javascript/tsx/jsx ->

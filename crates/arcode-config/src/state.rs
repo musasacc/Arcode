@@ -17,6 +17,8 @@ use crate::paths;
 
 /// Maximum number of entries kept in [`AppState::recent_projects`].
 pub const MAX_RECENT_PROJECTS: usize = 20;
+/// Maximum number of entries kept in [`AppState::recent_commands`].
+pub const MAX_RECENT_COMMANDS: usize = 30;
 
 /// A project shown on the welcome screen.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,6 +70,9 @@ pub struct AppState {
     pub recent_projects: Vec<RecentProject>,
     /// Projects open when Arcode last exited (restored on start).
     pub open_projects: Vec<PathBuf>,
+    /// Command palette entries run recently (action names), most recent
+    /// first, at most [`MAX_RECENT_COMMANDS`].
+    pub recent_commands: Vec<String>,
     /// Main window placement.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window: Option<WindowState>,
@@ -135,6 +140,14 @@ impl AppState {
             },
         );
         self.recent_projects.truncate(MAX_RECENT_PROJECTS);
+    }
+
+    /// Moves the command `name` to the front of [`AppState::recent_commands`]
+    /// (adding it if needed), keeping at most [`MAX_RECENT_COMMANDS`].
+    pub fn touch_recent_command(&mut self, name: &str) {
+        self.recent_commands.retain(|c| c != name);
+        self.recent_commands.insert(0, name.to_owned());
+        self.recent_commands.truncate(MAX_RECENT_COMMANDS);
     }
 
     /// Removes `path` from the recent list. Returns whether it was present.

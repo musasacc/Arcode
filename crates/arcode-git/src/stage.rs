@@ -1,6 +1,6 @@
 //! Staging and unstaging single hunks or whole files.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::exec::{RepoPath, exec, exec_text, repo_path};
 use crate::hunk::{Base, blob_text, diff_hunks};
@@ -109,6 +109,30 @@ fn text_of(repo: &Repo, path: &RepoPath, prefix: &str) -> GitResult<Option<Strin
 pub fn stage_file(repo: &Repo, rel_path: &Path) -> GitResult<()> {
     let path = repo_path(repo, rel_path)?;
     run_literal(repo, &["add", "-A", "--", &path.git])
+}
+
+/// Stages the working tree state of exactly `rel_paths` (`git add -A` with
+/// the paths fed on stdin, so any number of them fits): modifications,
+/// deletions and untracked files, nothing else. An unmerged path in the
+/// list is marked resolved, so callers leave conflicts out unless the user
+/// picked them. Pathspec magic is disabled.
+pub fn stage_paths(repo: &Repo, rel_paths: &[PathBuf]) -> GitResult<()> {
+    if rel_paths.is_empty() {
+        return Ok(());
+    }
+    let mut input = Vec::new();
+    for rel in rel_paths {
+        input.extend_from_slice(repo_path(repo, rel)?.git.as_bytes());
+        input.push(0);
+    }
+    let args = [
+        "--literal-pathspecs",
+        "add",
+        "-A",
+        "--pathspec-from-file=-",
+        "--pathspec-file-nul",
+    ];
+    exec(repo, &args, Some(&input)).map(drop)
 }
 
 /// Removes staged changes of `rel_path` from the index, keeping the working

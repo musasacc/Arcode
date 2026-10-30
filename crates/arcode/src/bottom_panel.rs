@@ -1,7 +1,7 @@
 //! The bottom panel: tabs for Terminal, Problems, Todo and Debug.
 //!
-//! Terminal and Problems have real content ([`TerminalPanel`],
-//! [`ProblemsPanel`]); Todo and Debug are placeholders in Milestone 1.
+//! Terminal, Problems and Todo have real content ([`TerminalPanel`],
+//! [`ProblemsPanel`], [`TodoView`]); Debug is a placeholder.
 
 use std::path::PathBuf;
 
@@ -15,6 +15,7 @@ use crate::actions::{ToggleBottomPanel, shortcut_label};
 use crate::lsp_bridge::LspBridge;
 use crate::problems::ProblemsPanel;
 use crate::terminal_panel::{self, TerminalPanel};
+use crate::todo::{TodoStore, TodoView};
 
 /// Default panel height.
 pub const DEFAULT_HEIGHT: f32 = 240.;
@@ -77,6 +78,8 @@ pub struct BottomPanel {
     active: BottomTab,
     terminals: Entity<TerminalPanel>,
     problems: Entity<ProblemsPanel>,
+    /// The TODO list and its store (set by the workspace).
+    todo: Option<(Entity<TodoStore>, Entity<TodoView>, Subscription)>,
     _subscriptions: [Subscription; 2],
 }
 
@@ -103,6 +106,7 @@ impl BottomPanel {
             active: BottomTab::Terminal,
             terminals,
             problems,
+            todo: None,
             _subscriptions: subscriptions,
         }
     }
@@ -115,6 +119,19 @@ impl BottomPanel {
     /// The Problems tab content.
     pub fn problems(&self) -> &Entity<ProblemsPanel> {
         &self.problems
+    }
+
+    /// Shows `view` (over `store`) in the Todo tab; the tab counts the
+    /// store's items.
+    pub fn set_todo(
+        &mut self,
+        store: Entity<TodoStore>,
+        view: Entity<TodoView>,
+        cx: &mut Context<Self>,
+    ) {
+        let sub = cx.observe(&store, |_, _, cx| cx.notify());
+        self.todo = Some((store, view, sub));
+        cx.notify();
     }
 
     /// Sets the project root: terminals start there and problem paths are
@@ -162,13 +179,18 @@ impl BottomPanel {
         match self.active {
             BottomTab::Terminal => self.terminals.update(cx, |t, cx| t.focus(window, cx)),
             BottomTab::Problems => window.focus(&self.problems.focus_handle(cx)),
-            BottomTab::Todo | BottomTab::Debug => window.focus(&self.focus_handle),
+            BottomTab::Todo => match &self.todo {
+                Some((_, view, _)) => window.focus(&view.focus_handle(cx)),
+                None => window.focus(&self.focus_handle),
+            },
+            BottomTab::Debug => window.focus(&self.focus_handle),
         }
     }
 
     fn render_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let c = theme(cx).colors.clone();
         let problem_count = self.problems.read(cx).count();
+        let todo_count = self.todo.as_ref().map_or(0, |(s, _, _)| s.read(cx).count());
         div()
             .flex()
             .h_full()
@@ -201,6 +223,16 @@ impl BottomPanel {
                                 .bg(c.surface_raised)
                                 .text_color(c.text)
                                 .child(problem_count.to_string()),
+                        )
+                    })
+                    .when(tab == BottomTab::Todo && todo_count > 0, |el| {
+                        el.child(
+                            div()
+                                .px_1()
+                                .rounded_full()
+                                .bg(c.surface_raised)
+                                .text_color(c.text_muted)
+                                .child(todo_count.to_string()),
                         )
                     })
                     .when(active, |el| {
@@ -240,7 +272,16 @@ impl BottomPanel {
                     .child(self.problems.clone())
                     .into_any_element();
             }
-            BottomTab::Todo => "TODO and FIXME comments will be listed here.".into(),
+            BottomTab::Todo => match &self.todo {
+                Some((_, view, _)) => {
+                    return div()
+                        .flex_1()
+                        .min_h_0()
+                        .child(view.clone())
+                        .into_any_element();
+                }
+                None => "TODO and FIXME comments will be listed here.".into(),
+            },
             BottomTab::Debug => "The debug console will appear here.".into(),
         };
         div()

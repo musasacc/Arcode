@@ -190,6 +190,7 @@ dependencies = [
  "arcode-editor",
  "arcode-git",
  "arcode-lsp",
+ "arcode-search",
  "arcode-syntax",
  "arcode-terminal",
  "arcode-terminal-view",
@@ -204,6 +205,7 @@ dependencies = [
  "nucleo-matcher",
  "serde_json",
  "tempfile",
+ "unicode-width",
 ]
 
 [[package]]

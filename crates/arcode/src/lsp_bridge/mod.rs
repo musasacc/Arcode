@@ -10,6 +10,12 @@ pub mod completion;
 pub mod completion_convert;
 pub mod convert;
 mod events;
+pub mod highlights;
+pub mod hover;
+pub mod nav_convert;
+#[cfg(test)]
+mod nav_convert_tests;
+pub mod navigation;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -60,6 +66,8 @@ pub struct LspBridge {
     store: DiagnosticStore,
     servers: HashMap<String, ServerState>,
     docs: HashMap<EntityId, Doc>,
+    /// Debounced occurrence-highlight requests per editor.
+    highlight_tasks: HashMap<EntityId, Task<()>>,
     _events: Option<Task<()>>,
     _quit: Subscription,
 }
@@ -84,6 +92,7 @@ impl LspBridge {
             store: DiagnosticStore::new(),
             servers: HashMap::new(),
             docs: HashMap::new(),
+            highlight_tasks: HashMap::new(),
             _events: None,
             _quit: quit,
         }
@@ -191,8 +200,10 @@ impl LspBridge {
         }
         if synced {
             let provider = completion::LspCompletionProvider::new(cx.entity().downgrade());
+            let hover = hover::LspHoverProvider::new(cx.entity().downgrade());
             editor.update(cx, |e, _| {
-                e.set_completion_provider(Some(Rc::new(provider)))
+                e.set_completion_provider(Some(Rc::new(provider)));
+                e.set_hover_provider(Some(Rc::new(hover)));
             });
         }
         let events = cx.subscribe(editor, |bridge, editor, event: &EditorEvent, cx| {
@@ -213,6 +224,7 @@ impl LspBridge {
     }
 
     fn forget(&mut self, id: EntityId) {
+        self.highlight_tasks.remove(&id);
         let Some(doc) = self.docs.remove(&id) else {
             return;
         };
@@ -256,8 +268,8 @@ impl LspBridge {
                 );
             }
             EditorEvent::Saved => manager.save_document(&doc.path),
-            EditorEvent::SelectionsChanged
-            | EditorEvent::DirtyChanged(_)
+            EditorEvent::SelectionsChanged => self.schedule_highlights(editor, cx),
+            EditorEvent::DirtyChanged(_)
             | EditorEvent::GutterClicked { .. }
             | EditorEvent::CodeLensClicked { .. } => {}
         }

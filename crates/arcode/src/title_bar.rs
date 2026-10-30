@@ -103,6 +103,12 @@ pub fn render(
         .hover(|s| s.border_color(c.border_focused))
         .child(icon(IconName::Search).size(px(14.)))
         .child(div().flex_1().child("Search files"))
+        .child(
+            div()
+                .text_xs()
+                .text_color(c.text_disabled)
+                .child("> commands"),
+        )
         .child(kbd(shortcut_label("secondary-p")))
         .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleFinder), cx));
 

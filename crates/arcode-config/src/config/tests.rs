@@ -329,3 +329,16 @@ fn large_file_cutoffs() {
     assert_eq!(config.editor.large_file_bytes, 1000);
     assert_eq!(config.editor.large_file_lines, 20);
 }
+
+#[test]
+fn hover_settings_parse_and_cap() {
+    let config = Config::default();
+    assert!(config.editor.hover && config.editor.occurrence_highlight);
+    assert_eq!(config.editor.hover_delay_ms, 300);
+    let (config, warnings) = Config::from_toml_str(
+        "[editor]\nhover = false\nhover_delay_ms = 99999\noccurrence_highlight = false\n",
+    );
+    assert!(!config.editor.hover && !config.editor.occurrence_highlight);
+    assert_eq!(config.editor.hover_delay_ms, 5000);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+}

@@ -16,8 +16,9 @@ use crate::api::ScrollAnchor;
 use crate::completion::CompletionState;
 use crate::diagnostics::{EditorDiagnostic, adjust_for_edit};
 use crate::ext::{ExtState, GutterLane};
+use crate::hover::{HoverState, HoverTracker};
 use crate::layout::LayoutSnapshot;
-use crate::mouse::{DragState, HoverState};
+use crate::mouse::DragState;
 use crate::style::{EditorStyle, ops_config};
 
 /// Events emitted by an [`Editor`].
@@ -99,6 +100,8 @@ pub struct Editor {
     pub(crate) marked: Option<Vec<Range<usize>>>,
     pub(crate) drag: Option<DragState>,
     pub(crate) hover: Option<HoverState>,
+    /// Hover requests and the definition link.
+    pub(crate) hovering: HoverTracker,
     pub(crate) cursor_visible: bool,
     pub(crate) blink_epoch: u64,
     pub(crate) blink_task: Option<Task<()>>,
@@ -153,6 +156,7 @@ impl Editor {
             marked: None,
             drag: None,
             hover: None,
+            hovering: HoverTracker::default(),
             cursor_visible: true,
             blink_epoch: 0,
             blink_task: None,
@@ -215,7 +219,14 @@ impl Editor {
     }
 
     /// Writes the buffer to its path and emits [`EditorEvent::Saved`].
+    /// A read-only editor (library sources, diffs) never writes its file.
     pub fn save(&mut self, cx: &mut Context<Self>) -> std::io::Result<()> {
+        if self.read_only {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "the editor is read-only",
+            ));
+        }
         self.buffer.save()?;
         if self
             .path()
@@ -232,7 +243,7 @@ impl Editor {
     /// Replaces all diagnostics.
     pub fn set_diagnostics(&mut self, diagnostics: Vec<EditorDiagnostic>, cx: &mut Context<Self>) {
         self.diagnostics = diagnostics;
-        self.hover = None;
+        self.hover_after_diagnostics();
         cx.notify();
     }
 
@@ -293,6 +304,7 @@ impl Editor {
     pub(crate) fn selections_changed(&mut self, cx: &mut Context<Self>) {
         self.marked = None;
         self.snippet_check_cursor();
+        self.hover_after_cursor_move();
         self.completion_sync(cx);
         self.signature_refresh(cx);
         self.autoscroll.get_or_insert(Autoscroll::Fit);
@@ -339,7 +351,7 @@ impl Editor {
         self.words_after_edits(&edits);
         self.completion_sync(cx);
         self.signature_refresh(cx);
-        self.hover = None;
+        self.hide_hover();
         let version = self.buffer.version();
         cx.emit(EditorEvent::Edited { edits, version });
         self.check_dirty(cx);

@@ -85,7 +85,7 @@ impl GitPanel {
         let line_height = window.line_height();
         let focused = self.message.focus_handle(cx).is_focused(window);
         let staged = self.store.read(cx).snapshot().summary().staged;
-        let busy = self.store.read(cx).is_busy();
+        let busy = self.store.read(cx).is_busy() || self.committing;
         let can_commit =
             !busy && (staged > 0 || self.amend || self.store.read(cx).snapshot().merging);
         let label = if self.amend { "Amend" } else { "Commit" };
@@ -188,6 +188,15 @@ impl GitPanel {
 
     /// Commits the staged changes with the message (or amends).
     pub fn commit(&mut self, _: &GitCommit, _: &mut Window, cx: &mut Context<Self>) {
+        self.commit_staged(cx);
+    }
+
+    /// Starts the commit unless one is already running (a double Ctrl+Enter
+    /// or click must not commit, or amend, twice).
+    pub(crate) fn commit_staged(&mut self, cx: &mut Context<Self>) {
+        if self.committing {
+            return;
+        }
         let text = self.message.read(cx).text().to_string();
         if text.trim().is_empty() {
             self.store.update(cx, |_, cx| {
@@ -197,15 +206,32 @@ impl GitPanel {
         }
         let options = CommitOptions { amend: self.amend };
         let panel = cx.entity().downgrade();
+        self.committing = true;
+        cx.notify();
         self.store.update(cx, |s, cx| {
             s.run(
-                move |repo| arcode_git::commit_with(repo, &text, options),
-                move |_, sha, cx| {
-                    cx.emit(GitEvent::Message(format!("Committed {sha}")));
+                // The outer result is always Ok so the callback below also
+                // runs on failure and clears the in-flight flag.
+                move |repo| Ok(arcode_git::commit_with(repo, &text, options)),
+                move |_, result, cx| {
+                    let committed = match result {
+                        Ok(sha) => {
+                            cx.emit(GitEvent::Message(format!("Committed {sha}")));
+                            true
+                        }
+                        Err(err) => {
+                            cx.emit(GitEvent::Message(err.to_string()));
+                            false
+                        }
+                    };
                     panel
                         .update(cx, |p, cx| {
-                            p.amend = false;
-                            p.message.update(cx, |m, cx| m.set_text("", cx));
+                            p.committing = false;
+                            if committed {
+                                p.amend = false;
+                                p.message.update(cx, |m, cx| m.set_text("", cx));
+                            }
+                            cx.notify();
                         })
                         .ok();
                 },

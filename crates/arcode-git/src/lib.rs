@@ -57,7 +57,7 @@ pub use ops::{
     last_commit_message, stage_all, unstage_all,
 };
 pub use repo::{Repo, find_repo};
-pub use stage::{stage_file, stage_hunk, unstage_file, unstage_hunk};
+pub use stage::{stage_file, stage_hunk, stage_paths, unstage_file, unstage_hunk};
 pub use status::{
     ConflictKind, FileStatus, StatusCode, StatusSummary, conflicted_files, status, status_summary,
     status_with_ignored,

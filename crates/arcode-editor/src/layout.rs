@@ -133,6 +133,7 @@ impl Editor {
         cx: &mut Context<Self>,
     ) -> Rc<LayoutSnapshot> {
         let started = std::time::Instant::now();
+        let previous_scroll = self.layout.as_ref().map(|l| (l.scroll_x, l.scroll_y));
         let style = self.style(cx);
         let lh = style.line_height;
         let text_system = window.text_system().clone();
@@ -235,6 +236,7 @@ impl Editor {
         self.layout_extras(&mut snapshot, window, cx);
         let snapshot = Rc::new(snapshot);
         self.layout = Some(snapshot.clone());
+        self.hover_after_layout(previous_scroll);
         log::trace!(
             "layout of {} lines took {:?}",
             snapshot.lines.len(),

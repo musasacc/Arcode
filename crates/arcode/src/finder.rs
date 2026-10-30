@@ -17,7 +17,8 @@ use crate::text_field::{TextChanged, TextField};
 
 actions!(finder, [SelectPrev, SelectNext, Confirm, Dismiss]);
 
-const CONTEXT: &str = "Finder";
+/// Key context of the finder (also used by the command palette).
+pub(crate) const CONTEXT: &str = "Finder";
 const MAX_RESULTS: usize = 200;
 const ROW_HEIGHT: f32 = 28.;
 const MAX_VISIBLE_ROWS: usize = 12;
@@ -39,6 +40,9 @@ pub enum FinderEvent {
     Open(PathBuf),
     /// The finder should close.
     Dismissed,
+    /// The query starts with `>`: switch to the command palette with the
+    /// rest of it.
+    SwitchToCommands(String),
 }
 
 /// The finder modal.
@@ -97,8 +101,17 @@ impl Finder {
         self.update_matches(cx);
     }
 
+    /// Replaces the query text.
+    pub fn set_query(&mut self, query: &str, cx: &mut Context<Self>) {
+        self.input.update(cx, |f, cx| f.set_text(query, cx));
+    }
+
     fn update_matches(&mut self, cx: &mut Context<Self>) {
         let query = self.input.read(cx).text().to_string();
+        if let Some(rest) = query.strip_prefix('>') {
+            cx.emit(FinderEvent::SwitchToCommands(rest.to_owned()));
+            return;
+        }
         let files = self.files.clone();
         let work = cx.background_spawn(async move { rank(&files, &query, MAX_RESULTS) });
         self.match_task = Some(cx.spawn(async move |this, cx| {

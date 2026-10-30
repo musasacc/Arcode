@@ -3,6 +3,7 @@
 //! before initialization completes are queued in the channel.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use lsp_types::Uri;
@@ -53,6 +54,8 @@ pub(crate) struct ServerSlot {
     pub(crate) root: PathBuf,
     tx: mpsc::UnboundedSender<Command>,
     client: Arc<OnceLock<LspClient>>,
+    /// Set when the server failed to start or its actor ended.
+    stopped: Arc<AtomicBool>,
 }
 
 impl ServerSlot {
@@ -65,6 +68,13 @@ impl ServerSlot {
     pub(crate) fn running_client(&self) -> Option<&LspClient> {
         self.client.get().filter(|c| c.is_alive())
     }
+
+    /// Starting or running: not failed, stopped or exited.
+    pub(crate) fn is_usable(&self) -> bool {
+        !self.stopped.load(Ordering::Relaxed)
+            && !self.tx.is_closed()
+            && self.client.get().is_none_or(|c| c.is_alive())
+    }
 }
 
 /// Spawns the actor for `config` at `root` on `runtime`.
@@ -76,13 +86,19 @@ pub(crate) fn spawn(
 ) -> Arc<ServerSlot> {
     let (tx, rx) = mpsc::unbounded_channel();
     let client = Arc::new(OnceLock::new());
+    let stopped = Arc::new(AtomicBool::new(false));
     let slot = Arc::new(ServerSlot {
         name: config.name.clone(),
         root: root.clone(),
         tx,
         client: client.clone(),
+        stopped: stopped.clone(),
     });
-    runtime.spawn(run(config.clone(), root, events, rx, client));
+    let config = config.clone();
+    runtime.spawn(async move {
+        run(config, root, events, rx, client, &stopped).await;
+        stopped.store(true, Ordering::Relaxed);
+    });
     slot
 }
 
@@ -92,6 +108,7 @@ async fn run(
     events: EventSink,
     mut rx: mpsc::UnboundedReceiver<Command>,
     slot: Arc<OnceLock<LspClient>>,
+    stopped: &AtomicBool,
 ) {
     // The slot is filled before `Running` is emitted, so a UI reacting to
     // that event can route requests to this server right away.
@@ -102,6 +119,7 @@ async fn run(
         Ok(client) => client,
         Err(e) => {
             log::warn!("[{}] failed to start: {e}", config.name);
+            stopped.store(true, Ordering::Relaxed);
             // Keep draining so queued requests resolve (their senders drop).
             while let Some(cmd) = rx.recv().await {
                 if let Command::Shutdown(ack) = cmd {

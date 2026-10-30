@@ -5,7 +5,7 @@ mod config;
 mod requests;
 mod text;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -38,6 +38,9 @@ struct State {
     workspace_root: Option<PathBuf>,
     servers: HashMap<(String, PathBuf), Arc<ServerSlot>>,
     documents: HashMap<PathBuf, OpenDoc>,
+    /// Files outside the workspace that join its server when opened; see
+    /// [`LspManager::attach_to_workspace`].
+    attached: HashSet<PathBuf>,
 }
 
 /// Owns a small tokio runtime and every running language server.
@@ -115,6 +118,10 @@ impl LspManager {
     /// Opens a document, starting (once) each server configured for
     /// `language_id` for the file's project root. Re-opening an open path
     /// closes it first. Messages are queued until servers are initialized.
+    ///
+    /// A file marked with [`LspManager::attach_to_workspace`] (a standard
+    /// library source a definition led to) joins a server already running
+    /// for the workspace instead of starting one for its own root.
     pub fn open_document(
         &self,
         path: &Path,
@@ -171,7 +178,10 @@ impl LspManager {
                 log::warn!("language {language_id} references unknown server {name}");
                 continue;
             };
-            let root = find_root(&path, &config.root_markers, state.workspace_root.as_deref());
+            let mut root = find_root(&path, &config.root_markers, state.workspace_root.as_deref());
+            if let Some(shared) = config::shared_root(&state, &name, &path, &root) {
+                root = shared;
+            }
             let slot = state
                 .servers
                 .entry((name, root.clone()))
