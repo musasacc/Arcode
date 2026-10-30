@@ -11,7 +11,11 @@ use crate::workspace::Workspace;
 pub const TITLE_BAR_HEIGHT: f32 = 36.;
 
 /// Renders the title bar for `ws`.
-pub fn render(ws: &Workspace, _window: &mut Window, cx: &mut Context<Workspace>) -> impl IntoElement + use<> {
+pub fn render(
+    ws: &Workspace,
+    _window: &mut Window,
+    cx: &mut Context<Workspace>,
+) -> impl IntoElement + use<> {
     let c = theme(cx).colors.clone();
     let project = ws.project();
     let name: SharedString = project
@@ -35,7 +39,11 @@ pub fn render(ws: &Workspace, _window: &mut Window, cx: &mut Context<Workspace>)
         .when(menu_open, |el| el.bg(c.hover))
         .child(icon(IconName::Folder).size(px(14.)).color(c.accent))
         .child(div().max_w(px(220.)).truncate().child(name))
-        .child(icon(IconName::ChevronDown).size(px(12.)).color(c.text_muted))
+        .child(
+            icon(IconName::ChevronDown)
+                .size(px(12.))
+                .color(c.text_muted),
+        )
         .on_click(cx.listener(|ws, _, _, cx| ws.toggle_project_menu(cx)));
 
     let left = div()

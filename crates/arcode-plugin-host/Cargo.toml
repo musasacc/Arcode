@@ -9,6 +9,17 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+globset.workspace = true
+dirs.workspace = true
+wasmtime.workspace = true
+wasmtime-wasi.workspace = true
+sha2.workspace = true
+bytes.workspace = true
+ropey.workspace = true
+async-channel.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

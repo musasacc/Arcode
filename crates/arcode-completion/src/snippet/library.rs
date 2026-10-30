@@ -105,13 +105,14 @@ pub fn builtin_snippets() -> Vec<SnippetDef> {
     BUILTIN
         .iter()
         .flat_map(|(languages, defs)| {
-            defs.iter().map(move |(prefix, body, description)| SnippetDef {
-                name: None,
-                prefix: (*prefix).to_string(),
-                body: (*body).to_string(),
-                description: Some((*description).to_string()),
-                languages: languages.iter().map(|l| (*l).to_string()).collect(),
-            })
+            defs.iter()
+                .map(move |(prefix, body, description)| SnippetDef {
+                    name: None,
+                    prefix: (*prefix).to_string(),
+                    body: (*body).to_string(),
+                    description: Some((*description).to_string()),
+                    languages: languages.iter().map(|l| (*l).to_string()).collect(),
+                })
         })
         .collect()
 }

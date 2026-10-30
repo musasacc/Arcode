@@ -52,6 +52,7 @@ struct Entry {
     index: usize,
     prefix: PrefixClass,
     score: u32,
+    label_len: usize,
 }
 
 impl Ranker {
@@ -105,19 +106,35 @@ impl Ranker {
                 index,
                 prefix: prefix_class(hay, query, folded_query.as_deref()),
                 score,
+                label_len: cand.label.chars().count(),
             });
         }
-        entries.sort_unstable_by(|a, b| {
+        let cmp = |a: &Entry, b: &Entry| {
             b.prefix
                 .cmp(&a.prefix)
                 .then(b.score.cmp(&a.score))
-                .then_with(|| tie_break(&candidates[a.index], &candidates[b.index]))
+                .then_with(|| source_order(&candidates[a.index], &candidates[b.index]))
+                .then(a.label_len.cmp(&b.label_len))
+                .then_with(|| candidates[a.index].label.cmp(&candidates[b.index].label))
                 .then(a.index.cmp(&b.index))
-        });
+        };
+        // Only the head needs full sorting; leave room for dropped duplicates.
+        let head = limit.saturating_mul(4).max(64);
+        let split = if entries.len() > head {
+            entries.select_nth_unstable_by(head, cmp);
+            head
+        } else {
+            entries.len()
+        };
+        entries[..split].sort_unstable_by(cmp);
 
         let mut seen: HashSet<(&str, CandidateKind)> = HashSet::new();
         let mut out = Vec::new();
-        for entry in entries {
+        for i in 0..entries.len() {
+            if i == split {
+                entries[split..].sort_unstable_by(cmp);
+            }
+            let entry = &entries[i];
             let cand = &candidates[entry.index];
             if !seen.insert((cand.label.as_str(), cand.kind)) {
                 continue;
@@ -200,12 +217,6 @@ fn source_order(a: &CompletionCandidate, b: &CompletionCandidate) -> Ordering {
             _ => Ordering::Equal,
         }
     }
-}
-
-fn tie_break(a: &CompletionCandidate, b: &CompletionCandidate) -> Ordering {
-    source_order(a, b)
-        .then_with(|| a.label.chars().count().cmp(&b.label.chars().count()))
-        .then_with(|| a.label.cmp(&b.label))
 }
 
 /// Merges candidates with the same label and kind (e.g. from several

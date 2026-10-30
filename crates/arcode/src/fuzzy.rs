@@ -120,7 +120,10 @@ mod tests {
     fn empty_query_lists_in_order_and_respects_limit() {
         let files = paths(&["a", "b", "c"]);
         let result = rank(&files, "  ", 2);
-        assert_eq!(result.iter().map(|m| m.index).collect::<Vec<_>>(), vec![0, 1]);
+        assert_eq!(
+            result.iter().map(|m| m.index).collect::<Vec<_>>(),
+            vec![0, 1]
+        );
     }
 
     #[test]

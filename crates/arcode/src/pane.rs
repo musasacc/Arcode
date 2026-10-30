@@ -49,7 +49,9 @@ impl Pane {
     /// Creates an empty pane.
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus_handle = cx.focus_handle();
-        let sub = cx.on_focus_in(&focus_handle, window, |_, _, cx| cx.emit(PaneEvent::Focused));
+        let sub = cx.on_focus_in(&focus_handle, window, |_, _, cx| {
+            cx.emit(PaneEvent::Focused)
+        });
         Self {
             focus_handle,
             items: Vec::new(),
@@ -86,14 +88,23 @@ impl Pane {
     }
 
     /// Adds `editor` after the active tab and activates it.
-    pub fn add_editor(&mut self, editor: Entity<Editor>, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn add_editor(
+        &mut self,
+        editor: Entity<Editor>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let sub = cx.subscribe(&editor, |_, _, event: &EditorEvent, cx| {
             if matches!(event, EditorEvent::DirtyChanged(_) | EditorEvent::Saved) {
                 cx.notify();
             }
         });
         self.subscriptions.push((editor.entity_id(), sub));
-        let index = if self.items.is_empty() { 0 } else { self.active + 1 };
+        let index = if self.items.is_empty() {
+            0
+        } else {
+            self.active + 1
+        };
         self.items.insert(index, editor);
         self.activate(index, window, cx);
     }
@@ -157,7 +168,8 @@ impl Pane {
 
     fn remove(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let editor = self.items.remove(index);
-        self.subscriptions.retain(|(id, _)| *id != editor.entity_id());
+        self.subscriptions
+            .retain(|(id, _)| *id != editor.entity_id());
         if self.active > index || self.active >= self.items.len() {
             self.active = self.active.saturating_sub(1);
         }
@@ -178,7 +190,12 @@ impl Pane {
         }
     }
 
-    fn render_tab(&self, index: usize, editor: &Entity<Editor>, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn render_tab(
+        &self,
+        index: usize,
+        editor: &Entity<Editor>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let c = theme(cx).colors.clone();
         let e = editor.read(cx);
         let title = e.title();
@@ -199,8 +216,12 @@ impl Pane {
             .justify_center()
             .rounded_sm()
             .hover(|s| s.bg(c.hover))
-            .when(!active, |el| el.opacity(0.).group_hover(group.clone(), |s| s.opacity(1.)))
-            .when(dirty, |el| el.opacity(0.).group_hover(group.clone(), |s| s.opacity(1.)))
+            .when(!active, |el| {
+                el.opacity(0.).group_hover(group.clone(), |s| s.opacity(1.))
+            })
+            .when(dirty, |el| {
+                el.opacity(0.).group_hover(group.clone(), |s| s.opacity(1.))
+            })
             .child(icon(IconName::X).size(px(12.)).color(c.text_muted))
             .on_click(cx.listener(move |pane, _, window, cx| {
                 cx.stop_propagation();
@@ -326,19 +347,27 @@ impl Render for Pane {
                         icon_button("split-right", IconName::Columns)
                             .size(px(24.))
                             .tooltip(format!("Split right ({})", shortcut_label("secondary-\\")))
-                            .on_click(|_, window, cx| window.dispatch_action(Box::new(SplitRight), cx)),
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(SplitRight), cx)
+                            }),
                     )
                     .when(self.closable && self.items.is_empty(), |el| {
                         el.child(
                             icon_button("close-pane", IconName::X)
                                 .size(px(24.))
                                 .tooltip("Close pane")
-                                .on_click(cx.listener(|_, _, _, cx| cx.emit(PaneEvent::CloseRequested))),
+                                .on_click(
+                                    cx.listener(|_, _, _, cx| cx.emit(PaneEvent::CloseRequested)),
+                                ),
                         )
                     }),
             );
         let body = match self.active_editor() {
-            Some(editor) => div().flex_1().min_h_0().child(editor.clone()).into_any_element(),
+            Some(editor) => div()
+                .flex_1()
+                .min_h_0()
+                .child(editor.clone())
+                .into_any_element(),
             None => div()
                 .flex_1()
                 .min_h_0()

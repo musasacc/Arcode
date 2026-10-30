@@ -1,7 +1,6 @@
 //! Opening a transport to an adapter: spawning its process (stdio) or
 //! connecting over TCP, and supervising the process.
 
-use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -124,11 +123,7 @@ fn spawn(spec: &AdapterSpec, cmd: &AdapterCommand, stdio: bool) -> Result<Child>
     }
     command
         .spawn()
-        .map_err(|e| DapError::Io(format!("failed to start {}: {e}", display(&program))))
-}
-
-fn display(path: &PathBuf) -> String {
-    path.to_string_lossy().into_owned()
+        .map_err(|e| DapError::Io(format!("failed to start {}: {e}", program.display())))
 }
 
 /// Asks the OS for a free port on `host`.
@@ -180,8 +175,8 @@ async fn connect(
 /// Reads what an exited process left on a pipe, formatted as `": last lines"`.
 async fn read_tail(stream: impl AsyncRead + Unpin) -> String {
     let mut buf = Vec::new();
-    let read = (stream).take(64 * 1024).read_to_end(&mut buf);
-    let _ = tokio::time::timeout(EXIT_GRACE, read).await;
+    let mut limited = stream.take(64 * 1024);
+    let _ = tokio::time::timeout(EXIT_GRACE, limited.read_to_end(&mut buf)).await;
     let text = String::from_utf8_lossy(&buf);
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     let tail = lines[lines.len().saturating_sub(5)..].join("\n");
@@ -195,7 +190,11 @@ async fn read_tail(stream: impl AsyncRead + Unpin) -> String {
 /// Waits for the process to exit, or kills it when `kill` fires or is
 /// dropped; then terminates the connection (after letting the reader
 /// drain the final messages).
-pub(crate) async fn supervise(conn: Arc<Connection>, mut child: Child, kill: oneshot::Receiver<()>) {
+pub(crate) async fn supervise(
+    conn: Arc<Connection>,
+    mut child: Child,
+    kill: oneshot::Receiver<()>,
+) {
     let status = tokio::select! {
         status = child.wait() => status,
         _ = kill => {
@@ -222,7 +221,11 @@ where
     let mut errors = 0u32;
     loop {
         buf.clear();
-        match (&mut reader).take(MAX_LOG_LINE).read_until(b'\n', &mut buf).await {
+        match (&mut reader)
+            .take(MAX_LOG_LINE)
+            .read_until(b'\n', &mut buf)
+            .await
+        {
             Ok(0) => return,
             Ok(_) => {
                 errors = 0;
@@ -283,6 +286,7 @@ mod tests {
                 cwd: None,
             },
             install_hint: Some("install the Rust language pack".into()),
+            configure_before_launch: false,
         };
         let err = open(&spec).await.err().unwrap();
         assert_eq!(
@@ -304,8 +308,12 @@ mod tests {
                 connect_timeout: Duration::from_millis(150),
             },
             install_hint: None,
+            configure_before_launch: false,
         };
         let err = open(&spec).await.err().unwrap();
-        assert!(err.to_string().contains("could not connect to remote"), "{err}");
+        assert!(
+            err.to_string().contains("could not connect to remote"),
+            "{err}"
+        );
     }
 }

@@ -1,0 +1,22 @@
+# Fixture guests for arcode-plugin-host's integration tests (docs/PLUGINS.md §14).
+# Built for wasm32-wasip2 by scripts/build-test-plugins.sh; excluded from the
+# root workspace so a plain `cargo test` never builds wasm.
+[workspace]
+resolver = "2"
+members = ["echo"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+arcode-plugin = { package = "arcode-plugin-api", path = "../../arcode-plugin-api" }
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = "debuginfo"

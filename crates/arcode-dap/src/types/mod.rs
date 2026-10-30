@@ -8,6 +8,7 @@
 
 mod capabilities;
 mod events;
+mod inspect;
 mod requests;
 
 pub use capabilities::{Capabilities, ExceptionBreakpointsFilter};
@@ -16,14 +17,17 @@ pub use events::{
     RunInTerminalRequestArguments, RunInTerminalResponseBody, StartDebuggingRequestArguments,
     StoppedEventBody, TerminatedEventBody, ThreadEventBody,
 };
+pub use inspect::{
+    ContinueArguments, ContinueResponseBody, DisconnectArguments, EvaluateArguments,
+    EvaluateContext, EvaluateResponseBody, PauseArguments, RestartArguments, Scope,
+    ScopesArguments, ScopesResponseBody, StackFrame, StackTraceArguments, StackTraceResponseBody,
+    StepArguments, TerminateArguments, Thread, ThreadsResponseBody, Variable, VariablesArguments,
+    VariablesResponseBody,
+};
 pub use requests::{
-    Breakpoint, ContinueArguments, ContinueResponseBody, DisconnectArguments, EvaluateArguments,
-    EvaluateContext, EvaluateResponseBody, FunctionBreakpoint, InitializeRequestArguments,
-    PauseArguments, RestartArguments, Scope, ScopesArguments, ScopesResponseBody,
-    SetBreakpointsArguments, SetBreakpointsResponseBody, SetExceptionBreakpointsArguments,
-    SetFunctionBreakpointsArguments, Source, SourceBreakpoint, StackFrame, StackTraceArguments,
-    StackTraceResponseBody, StepArguments, TerminateArguments, Thread, ThreadsResponseBody,
-    Variable, VariablesArguments, VariablesResponseBody,
+    Breakpoint, FunctionBreakpoint, InitializeRequestArguments, SetBreakpointsArguments,
+    SetBreakpointsResponseBody, SetExceptionBreakpointsArguments, SetFunctionBreakpointsArguments,
+    Source, SourceBreakpoint,
 };
 
 use serde::{Deserialize, Serialize};

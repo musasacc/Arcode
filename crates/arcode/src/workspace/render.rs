@@ -2,9 +2,7 @@
 //! bottom panel and status bar, plus divider dragging.
 
 use arcode_ui_kit::{settings, theme};
-use gpui::{
-    Context, CursorStyle, Div, MouseButton, MouseMoveEvent, Window, div, prelude::*, px,
-};
+use gpui::{Context, CursorStyle, Div, MouseButton, MouseMoveEvent, Window, div, prelude::*, px};
 
 use super::{Resize, Workspace};
 use crate::activity_bar::{self, Activity};
@@ -17,8 +15,15 @@ use crate::{title_bar, welcome};
 const HANDLE: f32 = 6.;
 
 impl Workspace {
-    fn on_mouse_move(&mut self, event: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(resizing) = self.resizing else { return };
+    fn on_mouse_move(
+        &mut self,
+        event: &MouseMoveEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(resizing) = self.resizing else {
+            return;
+        };
         if !event.dragging() {
             self.resizing = None;
             cx.notify();
@@ -136,10 +141,7 @@ impl Render for Workspace {
         let ui = settings(cx).ui.clone();
         let welcome = self.shows_welcome(cx);
         let body = if welcome {
-            div()
-                .flex_1()
-                .min_h_0()
-                .child(welcome::render(self, cx))
+            div().flex_1().min_h_0().child(welcome::render(self, cx))
         } else {
             let activity = self.activity;
             let bar = activity_bar::render(
@@ -148,7 +150,8 @@ impl Render for Workspace {
                 {
                     let this = cx.entity().downgrade();
                     std::rc::Rc::new(move |activity, _: &mut Window, cx: &mut gpui::App| {
-                        this.update(cx, |ws, cx| ws.select_activity(activity, cx)).ok();
+                        this.update(cx, |ws, cx| ws.select_activity(activity, cx))
+                            .ok();
                     })
                 },
                 cx,
@@ -191,6 +194,13 @@ impl Render for Workspace {
                 })
             })
             .on_mouse_move(cx.listener(Self::on_mouse_move))
+            .on_key_down(cx.listener(|ws, event: &gpui::KeyDownEvent, _, cx| {
+                if ws.project_menu_open && event.keystroke.key == "escape" {
+                    ws.project_menu_open = false;
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|ws, _, _, cx| {

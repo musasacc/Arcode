@@ -62,10 +62,16 @@ fn root_for_file_prefers_git_then_markers() {
     let dir = tempfile::tempdir().expect("tempdir");
     let root = dir.path();
     touch(&root.join("loose/notes.txt"));
-    assert_eq!(root_for_file(&root.join("loose/notes.txt")), root.join("loose"));
+    assert_eq!(
+        root_for_file(&root.join("loose/notes.txt")),
+        root.join("loose")
+    );
     touch(&root.join("pkg/package.json"));
     touch(&root.join("pkg/src/index.js"));
-    assert_eq!(root_for_file(&root.join("pkg/src/index.js")), root.join("pkg"));
+    assert_eq!(
+        root_for_file(&root.join("pkg/src/index.js")),
+        root.join("pkg")
+    );
     fs::create_dir_all(root.join("repo/.git")).expect("mkdir");
     touch(&root.join("repo/crates/a/Cargo.toml"));
     touch(&root.join("repo/crates/a/src/lib.rs"));
@@ -87,5 +93,8 @@ fn new_project_dirs_are_unique() {
 #[test]
 fn relative_display_uses_slashes() {
     let root = Path::new("/p");
-    assert_eq!(relative_display(root, &root.join("a").join("b.rs")), "a/b.rs");
+    assert_eq!(
+        relative_display(root, &root.join("a").join("b.rs")),
+        "a/b.rs"
+    );
 }

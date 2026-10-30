@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::core::{Core, Phase};
+use super::core::Core;
 use super::startup;
 use crate::connection::Connection;
 use crate::error::{DapError, Result};
@@ -24,7 +24,11 @@ pub(crate) async fn shutdown(core: &Core, conn: Arc<Connection>, terminate: bool
             restart: restart.then_some(true),
         })
         .ok();
-        if conn.request("terminate", args, Some(STOP_TIMEOUT)).await.is_ok() {
+        if conn
+            .request("terminate", args, Some(STOP_TIMEOUT))
+            .await
+            .is_ok()
+        {
             let terminated = state.wait_for(|s| *s == SessionState::Terminated);
             tokio::select! {
                 _ = tokio::time::timeout(STOP_TIMEOUT, terminated) => {}
@@ -42,7 +46,10 @@ pub(crate) async fn shutdown(core: &Core, conn: Arc<Connection>, terminate: bool
             log::debug!("disconnect failed: {e}");
         }
     }
-    if tokio::time::timeout(STOP_TIMEOUT, conn.closed()).await.is_err() {
+    if tokio::time::timeout(STOP_TIMEOUT, conn.closed())
+        .await
+        .is_err()
+    {
         conn.kill("adapter did not exit after disconnect");
     } else {
         // The connection is closed; make sure the process is gone too.
@@ -64,7 +71,8 @@ pub(crate) async fn stop(core: Arc<Core>) -> Result<()> {
     Ok(())
 }
 
-/// Ends `generation` after a deliberate stop (no-op if already ended).
+/// Ends `generation` after a deliberate stop and kills its adapter
+/// (reports [`DebugEvent::AdapterExited`] unless already ended).
 pub(crate) fn finish_stopped(core: &Core, generation: u64, reason: &str) {
     let conn = {
         let mut data = core.lock();
@@ -72,16 +80,11 @@ pub(crate) fn finish_stopped(core: &Core, generation: u64, reason: &str) {
             return;
         }
         data.stopping = true;
-        let conn = data.conn.take();
-        if !data.ended {
-            data.ended = true;
-            core.events
-                .send(DebugEvent::AdapterExited(reason.to_string()));
-        }
-        conn
+        data.conn.clone()
     };
-    core.set_phase(generation, Phase::Ended(reason.to_string()));
-    core.set_state(generation, SessionState::Terminated);
+    core.end_generation(generation, reason.to_string(), |_| {
+        DebugEvent::AdapterExited(reason.to_string())
+    });
     if let Some(conn) = conn {
         conn.kill(reason);
     }

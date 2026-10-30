@@ -36,7 +36,12 @@ pub fn placeholder(activity: Activity, cx: &App) -> impl IntoElement + use<> {
                 .text_color(c.text_muted)
                 .child(icon(activity.icon()).size(px(32.)).color(c.text_disabled))
                 .child(div().text_sm().child(activity.label()))
-                .child(div().text_xs().text_color(c.text_disabled).child("Coming soon")),
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(c.text_disabled)
+                        .child("Coming soon"),
+                ),
         )
 }
 

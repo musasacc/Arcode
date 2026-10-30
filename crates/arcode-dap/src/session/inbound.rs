@@ -59,14 +59,15 @@ fn on_event(core: &Arc<Core>, generation: u64, conn: &Arc<Connection>, e: Event)
     let not_terminated = |s: &SessionState| *s != SessionState::Terminated;
     match e.event.as_str() {
         "initialized" => {
-            send(DebugEvent::Initialized);
             let waiting = core.lock().initialized_tx.take();
             match waiting {
+                // Startup reports it, after the capabilities.
                 Some(tx) => {
                     let _ = tx.send(());
                 }
                 // A later `initialized` (e.g. after `restart`): configure again.
                 None => {
+                    send(DebugEvent::Initialized);
                     let (core, conn) = (core.clone(), conn.clone());
                     tokio::spawn(async move {
                         if let Err(e) = startup::configure(&core, generation, &conn).await {
@@ -77,7 +78,9 @@ fn on_event(core: &Arc<Core>, generation: u64, conn: &Arc<Connection>, e: Event)
             }
         }
         "stopped" => {
-            let Some(body) = parse::<StoppedEventBody>(&e) else { return };
+            let Some(body) = parse::<StoppedEventBody>(&e) else {
+                return;
+            };
             let state = SessionState::Stopped {
                 thread_id: body.thread_id,
                 reason: body.reason.clone(),
@@ -86,12 +89,16 @@ fn on_event(core: &Arc<Core>, generation: u64, conn: &Arc<Connection>, e: Event)
             core.transition(generation, not_terminated, state);
         }
         "continued" => {
-            let Some(body) = parse::<ContinuedEventBody>(&e) else { return };
+            let Some(body) = parse::<ContinuedEventBody>(&e) else {
+                return;
+            };
             send(DebugEvent::Continued(body));
             core.transition(generation, SessionState::is_stopped, SessionState::Running);
         }
         "exited" => {
-            let Some(body) = parse::<ExitedEventBody>(&e) else { return };
+            let Some(body) = parse::<ExitedEventBody>(&e) else {
+                return;
+            };
             core.lock().exit_code = Some(body.exit_code);
             send(DebugEvent::Exited(body));
         }
@@ -115,16 +122,20 @@ fn on_event(core: &Arc<Core>, generation: u64, conn: &Arc<Connection>, e: Event)
             }
         }
         "thread" => {
-            let Some(body) = parse::<ThreadEventBody>(&e) else { return };
+            let Some(body) = parse::<ThreadEventBody>(&e) else {
+                return;
+            };
             {
                 let mut data = core.lock();
                 if body.reason == "exited" {
                     data.threads.remove(&body.thread_id);
                 } else {
-                    data.threads.entry(body.thread_id).or_insert_with(|| Thread {
-                        id: body.thread_id,
-                        name: format!("Thread {}", body.thread_id),
-                    });
+                    data.threads
+                        .entry(body.thread_id)
+                        .or_insert_with(|| Thread {
+                            id: body.thread_id,
+                            name: format!("Thread {}", body.thread_id),
+                        });
                 }
             }
             send(DebugEvent::Thread(body));
@@ -155,11 +166,12 @@ fn on_request(core: &Core, conn: &Arc<Connection>, r: Request) {
         "runInTerminal" => {
             let args = r.arguments.clone().unwrap_or_default();
             match serde_json::from_value::<RunInTerminalRequestArguments>(args) {
-                Ok(arguments) => core
-                    .events
-                    .send(DebugEvent::RunInTerminal(RunInTerminalRequest::new(
-                        arguments, conn, r.seq,
-                    ))),
+                Ok(arguments) => {
+                    core.events
+                        .send(DebugEvent::RunInTerminal(RunInTerminalRequest::new(
+                            arguments, conn, r.seq,
+                        )))
+                }
                 Err(e) => {
                     let _ = conn.respond(r.seq, &r.command, Err(format!("bad arguments: {e}")));
                 }

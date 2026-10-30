@@ -13,6 +13,9 @@ struct Tracked {
     text: Option<String>,
     /// Edited inside since the last mirror sync.
     changed: bool,
+    /// Stops (positions in `stops`) with a range nested in this one; this
+    /// range grows with them while one of them is active.
+    encloses: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -39,7 +42,10 @@ pub struct SnippetSession {
 }
 
 fn char_slice(s: &str, range: Range<usize>) -> (usize, usize) {
-    let mut it = s.char_indices().map(|(i, _)| i).chain(std::iter::once(s.len()));
+    let mut it = s
+        .char_indices()
+        .map(|(i, _)| i)
+        .chain(std::iter::once(s.len()));
     let start = it.nth(range.start).unwrap_or(s.len());
     let end = if range.end > range.start {
         it.nth(range.end - range.start - 1).unwrap_or(s.len())
@@ -65,6 +71,7 @@ impl SnippetSession {
                         range: r.start + offset..r.end + offset,
                         text: Some(snippet.text.chars().skip(r.start).take(r.len()).collect()),
                         changed: false,
+                        encloses: Vec::new(),
                     })
                     .collect(),
                 choices: t.choices.clone(),
@@ -78,10 +85,12 @@ impl SnippetSession {
                     range: offset + len..offset + len,
                     text: Some(String::new()),
                     changed: false,
+                    encloses: Vec::new(),
                 }],
                 choices: None,
             });
         }
+        link_nesting(&mut stops);
         let finished = stops.len() == 1;
         SnippetSession {
             stops,
@@ -89,6 +98,7 @@ impl SnippetSession {
                 range: offset..offset + len,
                 text: None,
                 changed: false,
+                encloses: Vec::new(),
             },
             active: 0,
             finished,
@@ -155,6 +165,7 @@ impl SnippetSession {
 
     /// Moves to the next tabstop and returns its selections; reaching `$0`
     /// finishes the session. `None` when already finished.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<SelectionSet> {
         if self.finished {
             return None;
@@ -193,15 +204,9 @@ impl SnippetSession {
             .iter()
             .position(|(r, t)| *r == edit.range && *t == edit.new_text);
         let mirror = mirror.map(|i| self.pending.remove(i).0);
-        let active: Vec<Range<usize>> = self.active_ranges();
-        let encloses_active = |r: &Range<usize>| {
-            active
-                .iter()
-                .any(|a| r.start <= a.start && a.end <= r.end)
-        };
         for (si, stop) in self.stops.iter_mut().enumerate() {
             for t in &mut stop.ranges {
-                let sticky = si == self.active || encloses_active(&t.range);
+                let sticky = si == self.active || t.encloses.contains(&self.active);
                 let exact = mirror.as_ref() == Some(&t.range);
                 map_range(t, edit, new_len, sticky || exact);
             }
@@ -231,6 +236,33 @@ impl SnippetSession {
         }
         self.pending.clone_from(&updates);
         updates
+    }
+}
+
+/// Whether `inner` is nested in `outer`. An empty range at a boundary of
+/// another is adjacent, not nested (`$1${2:x}`).
+fn nests(outer: &Range<usize>, inner: &Range<usize>) -> bool {
+    outer.start <= inner.start
+        && inner.end <= outer.end
+        && !outer.is_empty()
+        && !(inner.is_empty() && (inner.start == outer.start || inner.start == outer.end))
+}
+
+/// Fills [`Tracked::encloses`] from the initial ranges.
+fn link_nesting(stops: &mut [Stop]) {
+    let all: Vec<(usize, Range<usize>)> = stops
+        .iter()
+        .enumerate()
+        .flat_map(|(si, s)| s.ranges.iter().map(move |t| (si, t.range.clone())))
+        .collect();
+    for (si, stop) in stops.iter_mut().enumerate() {
+        for t in &mut stop.ranges {
+            for (sj, inner) in &all {
+                if *sj != si && nests(&t.range, inner) && !t.encloses.contains(sj) {
+                    t.encloses.push(*sj);
+                }
+            }
+        }
     }
 }
 

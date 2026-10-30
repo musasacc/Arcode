@@ -69,6 +69,11 @@ pub struct AdapterSpec {
     pub transport: AdapterTransport,
     /// Shown when the executable is missing, e.g. "install the Rust language pack".
     pub install_hint: Option<String>,
+    /// Quirk: send `launch`/`attach` only after `configurationDone`, for
+    /// adapters that start the debuggee as soon as they see `launch`
+    /// (gdb ≤ 15). Requires the adapter to send `initialized` before
+    /// `launch`. Normally false.
+    pub configure_before_launch: bool,
 }
 
 impl AdapterSpec {
@@ -175,6 +180,7 @@ mod tests {
                 cwd: None,
             },
             install_hint: hint.map(Into::into),
+            configure_before_launch: false,
         }
     }
 
@@ -206,6 +212,7 @@ mod tests {
                 connect_timeout: DEFAULT_CONNECT_TIMEOUT,
             },
             install_hint: None,
+            configure_before_launch: false,
         };
         assert_eq!(spec.executable(), None);
         assert_eq!(spec.resolve_executable(), Ok(None));

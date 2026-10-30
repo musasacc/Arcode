@@ -100,7 +100,10 @@ mod tests {
         .unwrap();
         assert!(caps.supports_configuration_done_request);
         assert!(!caps.supports_terminate_request);
-        assert_eq!(caps.exception_breakpoint_filters.unwrap()[0].filter, "raised");
+        assert_eq!(
+            caps.exception_breakpoint_filters.unwrap()[0].filter,
+            "raised"
+        );
         let empty: Capabilities = serde_json::from_value(json!({})).unwrap();
         assert_eq!(empty, Capabilities::default());
     }

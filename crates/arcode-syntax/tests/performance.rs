@@ -94,3 +94,27 @@ fn viewport_highlight_is_fast_and_reparse_is_incremental() {
         "incremental reparse {reparse:?} not faster than initial parse {initial_parse:?}"
     );
 }
+
+#[test]
+fn whole_file_outline_and_runnables_are_fast() {
+    let src = big_rust_file();
+    let rust = language_by_id("rust").expect("rust");
+    let text = Rope::from_str(&src);
+    let syntax = Syntax::new(rust, &text).expect("parse");
+    assert!(rust.outline_query().is_some() && rust.runnables_query().is_some());
+
+    let started = Instant::now();
+    let symbols = syntax.symbols(&text);
+    let outline = started.elapsed();
+    assert_eq!(symbols.len(), LINES.div_ceil(9));
+
+    let started = Instant::now();
+    let runnables = syntax.runnables(&text);
+    let run = started.elapsed();
+    assert!(runnables.is_empty());
+
+    println!("outline {outline:?}, runnables {run:?}");
+    let max = limit(500, 5_000);
+    assert!(outline < max, "outline took {outline:?} (limit {max:?})");
+    assert!(run < max, "runnables took {run:?} (limit {max:?})");
+}

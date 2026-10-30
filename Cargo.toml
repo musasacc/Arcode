@@ -54,6 +54,15 @@ ignore = "0.4"
 nucleo-matcher = "0.3"
 memory-stats = "1"
 
+# Plugin system (docs/PLUGINS.md). Pinned exactly, like GPUI.
+wit-bindgen = { version = "=0.63.0", default-features = false, features = ["macros", "realloc"] }
+globset = "0.4"
+# wasmtime/wasmtime-wasi pinned exactly (§2): runtime + cranelift + component model, sync API only.
+wasmtime = { version = "=50.0.1", default-features = false, features = ["runtime", "cranelift", "component-model", "std"] }
+wasmtime-wasi = { version = "=50.0.1", default-features = false, features = ["p2"] }
+sha2 = "0.10"
+bytes = "1"
+
 [profile.dev]
 # GPUI is unusably slow unoptimized; keep deps fast, our code debuggable.
 debug = "line-tables-only"

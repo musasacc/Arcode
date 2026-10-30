@@ -3,6 +3,7 @@
 
 mod control;
 mod core;
+mod execution;
 mod inbound;
 mod runtime;
 mod startup;
@@ -11,7 +12,6 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -25,15 +25,14 @@ pub use startup::{INITIALIZE_TIMEOUT, REQUEST_TIMEOUT};
 
 use crate::config::DebugConfig;
 use crate::error::{DapError, Result};
-use crate::process::{BoxReader, BoxWriter};
 use crate::event::{EventReceiver, EventSink, SessionState};
+use crate::process::{BoxReader, BoxWriter};
 use crate::types::{
-    Breakpoint, Capabilities, ContinueArguments, ContinueResponseBody, EvaluateArguments,
-    EvaluateContext, EvaluateResponseBody, FunctionBreakpoint, PauseArguments, Scope,
-    ScopesArguments, ScopesResponseBody, SetBreakpointsResponseBody,
+    Breakpoint, Capabilities, EvaluateArguments, EvaluateContext, EvaluateResponseBody,
+    FunctionBreakpoint, Scope, ScopesArguments, ScopesResponseBody, SetBreakpointsResponseBody,
     SetFunctionBreakpointsArguments, SourceBreakpoint, StackFrame, StackTraceArguments,
-    StackTraceResponseBody, StepArguments, Thread, ThreadsResponseBody, Variable,
-    VariablesArguments, VariablesResponseBody,
+    StackTraceResponseBody, Thread, ThreadsResponseBody, Variable, VariablesArguments,
+    VariablesResponseBody,
 };
 
 /// Entry point: starts debug sessions on the crate's own tokio runtime.
@@ -152,7 +151,10 @@ impl DebugSessionHandle {
 
     /// Runs `work` on the session runtime; the returned future only waits
     /// for its result.
-    fn spawn<T, F>(&self, work: impl FnOnce(Arc<Core>) -> F) -> impl Future<Output = Result<T>> + Send + 'static
+    fn spawn<T, F>(
+        &self,
+        work: impl FnOnce(Arc<Core>) -> F,
+    ) -> impl Future<Output = Result<T>> + Send + 'static
     where
         T: Send + 'static,
         F: Future<Output = Result<T>> + Send + 'static,
@@ -181,11 +183,16 @@ impl DebugSessionHandle {
         let command = command.into();
         self.spawn(move |core| async move {
             let conn = core.connection(false).await?;
-            conn.request(&command, arguments, Some(REQUEST_TIMEOUT)).await
+            conn.request(&command, arguments, Some(REQUEST_TIMEOUT))
+                .await
         })
     }
 
-    fn typed<A, T>(&self, command: &'static str, args: A) -> impl Future<Output = Result<T>> + Send + 'static
+    fn typed<A, T>(
+        &self,
+        command: &'static str,
+        args: A,
+    ) -> impl Future<Output = Result<T>> + Send + 'static
     where
         A: Serialize,
         T: DeserializeOwned + Default + Send + 'static,
@@ -209,7 +216,9 @@ impl DebugSessionHandle {
             if breakpoints.is_empty() {
                 data.config.breakpoints.remove(&path);
             } else {
-                data.config.breakpoints.insert(path.clone(), breakpoints.clone());
+                data.config
+                    .breakpoints
+                    .insert(path.clone(), breakpoints.clone());
             }
         }
         self.spawn(move |core| async move {
@@ -254,7 +263,10 @@ impl DebugSessionHandle {
     }
 
     /// Stack frames of a stopped thread, innermost first.
-    pub fn stack_trace(&self, thread_id: i64) -> impl Future<Output = Result<Vec<StackFrame>>> + Send + 'static {
+    pub fn stack_trace(
+        &self,
+        thread_id: i64,
+    ) -> impl Future<Output = Result<Vec<StackFrame>>> + Send + 'static {
         let args = StackTraceArguments {
             thread_id,
             start_frame: None,
@@ -265,14 +277,22 @@ impl DebugSessionHandle {
     }
 
     /// Scopes of a frame.
-    pub fn scopes(&self, frame_id: i64) -> impl Future<Output = Result<Vec<Scope>>> + Send + 'static {
+    pub fn scopes(
+        &self,
+        frame_id: i64,
+    ) -> impl Future<Output = Result<Vec<Scope>>> + Send + 'static {
         let fut = self.typed::<_, ScopesResponseBody>("scopes", ScopesArguments { frame_id });
         async move { Ok(fut.await?.scopes) }
     }
 
     /// Children of a scope or structured variable.
-    pub fn variables(&self, variables_reference: i64) -> impl Future<Output = Result<Vec<Variable>>> + Send + 'static {
-        let args = VariablesArguments { variables_reference };
+    pub fn variables(
+        &self,
+        variables_reference: i64,
+    ) -> impl Future<Output = Result<Vec<Variable>>> + Send + 'static {
+        let args = VariablesArguments {
+            variables_reference,
+        };
         let fut = self.typed::<_, VariablesResponseBody>("variables", args);
         async move { Ok(fut.await?.variables) }
     }
@@ -290,96 +310,6 @@ impl DebugSessionHandle {
             context: Some(context),
         };
         self.typed("evaluate", args)
-    }
-
-    /// Resumes `thread_id` (usually all threads). The state becomes
-    /// `Running` right away and is restored if the request fails.
-    pub fn continue_(&self, thread_id: i64) -> impl Future<Output = Result<ContinueResponseBody>> + Send + 'static {
-        self.resume("continue", serde_json::to_value(ContinueArguments { thread_id }))
-    }
-
-    /// Steps over.
-    pub fn next(&self, thread_id: i64) -> impl Future<Output = Result<()>> + Send + 'static {
-        self.step("next", thread_id)
-    }
-
-    /// Steps into.
-    pub fn step_in(&self, thread_id: i64) -> impl Future<Output = Result<()>> + Send + 'static {
-        self.step("stepIn", thread_id)
-    }
-
-    /// Steps out.
-    pub fn step_out(&self, thread_id: i64) -> impl Future<Output = Result<()>> + Send + 'static {
-        self.step("stepOut", thread_id)
-    }
-
-    fn step(&self, command: &'static str, thread_id: i64) -> impl Future<Output = Result<()>> + Send + 'static {
-        let fut = self.resume::<Value>(command, serde_json::to_value(StepArguments { thread_id }));
-        async move { fut.await.map(|_| ()) }
-    }
-
-    fn resume<T>(
-        &self,
-        command: &'static str,
-        args: serde_json::Result<Value>,
-    ) -> impl Future<Output = Result<T>> + Send + 'static
-    where
-        T: DeserializeOwned + Default + Send + 'static,
-    {
-        self.spawn(move |core| async move {
-            let args = args?;
-            let conn = core.connection(false).await?;
-            let generation = core.generation();
-            let previous = core.transition(generation, SessionState::is_stopped, SessionState::Running);
-            let result = conn.request(command, Some(args), Some(REQUEST_TIMEOUT)).await;
-            if result.is_err()
-                && let Some(previous) = previous
-            {
-                core.transition(generation, |s| *s == SessionState::Running, previous);
-            }
-            parse_body(result?)
-        })
-    }
-
-    /// Asks the adapter to pause `thread_id`; a `stopped` event follows.
-    pub fn pause(&self, thread_id: i64) -> impl Future<Output = Result<()>> + Send + 'static {
-        let fut = self.typed::<_, Value>("pause", PauseArguments { thread_id });
-        async move { fut.await.map(|_| ()) }
-    }
-
-    /// Restarts: the adapter's `restart` if supported, otherwise disconnect
-    /// and start a fresh adapter with the same config and current
-    /// breakpoints. Resolves once the new run is configured.
-    pub fn restart(&self) -> impl Future<Output = Result<()>> + Send + 'static {
-        self.spawn(control::restart)
-    }
-
-    /// Stops: `terminate` if supported (else `disconnect`), then kills the
-    /// adapter after [`STOP_TIMEOUT`]. The state ends as `Terminated`.
-    pub fn stop(&self) -> impl Future<Output = Result<()>> + Send + 'static {
-        self.spawn(control::stop)
-    }
-
-    /// Kills the adapter immediately.
-    pub fn kill(&self) {
-        let generation = self.core().generation();
-        control::finish_stopped(self.core(), generation, "killed");
-    }
-
-    /// Waits until the state satisfies `pred` (or `timeout` passes);
-    /// returns the state reached. Must be awaited inside tokio for the
-    /// timeout; useful in tests and scripted runs.
-    pub async fn wait_for_state(
-        &self,
-        timeout: Duration,
-        pred: impl Fn(&SessionState) -> bool,
-    ) -> Option<SessionState> {
-        let mut rx = self.core().subscribe_state();
-        let reached = tokio::time::timeout(timeout, rx.wait_for(|s| pred(s))).await;
-        match reached {
-            Ok(Ok(state)) => Some(state.clone()),
-            _ => None,
-        }
     }
 }
 

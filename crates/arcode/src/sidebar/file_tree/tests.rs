@@ -24,7 +24,10 @@ fn lazy_expand_reveal_and_refresh(cx: &mut TestAppContext) {
     tree.update(cx, |tree, cx| {
         assert_eq!(names(tree), vec!["src", "README.md"]);
         tree.click(0, cx);
-        assert_eq!(names(tree), vec!["src", "  nested", "  lib.rs", "README.md"]);
+        assert_eq!(
+            names(tree),
+            vec!["src", "  nested", "  lib.rs", "README.md"]
+        );
         tree.click(0, cx);
         assert_eq!(names(tree), vec!["src", "README.md"]);
 

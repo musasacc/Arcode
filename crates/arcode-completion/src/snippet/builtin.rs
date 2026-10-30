@@ -10,11 +10,7 @@ const JS_LIKE: &[&str] = &[
 ];
 
 const RUST: &[Def] = &[
-    (
-        "fn",
-        "fn ${1:name}(${2}) {\n\t$0\n}",
-        "function",
-    ),
+    ("fn", "fn ${1:name}(${2}) {\n\t$0\n}", "function"),
     ("main", "fn main() {\n\t$0\n}", "main function"),
     (
         "test",
@@ -22,11 +18,7 @@ const RUST: &[Def] = &[
         "test function",
     ),
     ("if", "if ${1:condition} {\n\t$0\n}", "if block"),
-    (
-        "for",
-        "for ${1:item} in ${2:iter} {\n\t$0\n}",
-        "for loop",
-    ),
+    ("for", "for ${1:item} in ${2:iter} {\n\t$0\n}", "for loop"),
     (
         "match",
         "match ${1:expr} {\n\t${2:pattern} => ${3:()},\n\t_ => $0,\n}",
@@ -46,11 +38,7 @@ const RUST: &[Def] = &[
 ];
 
 const PYTHON: &[Def] = &[
-    (
-        "def",
-        "def ${1:name}(${2}):\n\t${0:pass}",
-        "function",
-    ),
+    ("def", "def ${1:name}(${2}):\n\t${0:pass}", "function"),
     (
         "class",
         "class ${1:Name}:\n\tdef __init__(self${2}):\n\t\t${0:pass}",
@@ -91,11 +79,7 @@ const JS: &[Def] = &[
 ];
 
 const GO: &[Def] = &[
-    (
-        "func",
-        "func ${1:name}(${2}) {\n\t$0\n}",
-        "function",
-    ),
+    ("func", "func ${1:name}(${2}) {\n\t$0\n}", "function"),
     ("main", "func main() {\n\t$0\n}", "main function"),
     (
         "iferr",
@@ -108,11 +92,7 @@ const GO: &[Def] = &[
         "for ${1:i} := ${2:0}; $1 < ${3:n}; $1++ {\n\t$0\n}",
         "for loop",
     ),
-    (
-        "struct",
-        "type ${1:Name} struct {\n\t$0\n}",
-        "struct type",
-    ),
+    ("struct", "type ${1:Name} struct {\n\t$0\n}", "struct type"),
     (
         "test",
         "func Test${1:Name}(t *testing.T) {\n\t$0\n}",

@@ -55,7 +55,10 @@ impl Project {
 /// `path` relative to `root` with `/` separators (the full path if outside).
 pub fn relative_display(root: &Path, path: &Path) -> String {
     let rel = path.strip_prefix(root).unwrap_or(path);
-    let parts: Vec<_> = rel.components().map(|c| c.as_os_str().to_string_lossy()).collect();
+    let parts: Vec<_> = rel
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect();
     parts.join("/")
 }
 

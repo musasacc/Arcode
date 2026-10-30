@@ -1,23 +1,35 @@
 //! A minimal single-line text input (used by the file finder).
 //!
-//! Supports typing (including IME through [`EntityInputHandler`]), cursor
+//! Supports typing (including IME through `EntityInputHandler`), cursor
 //! movement, selection with shift, select-all and clipboard. Offsets are
 //! UTF-8 byte indices on char boundaries.
 
 use std::ops::Range;
 
 use gpui::{
-    App, Bounds, ClipboardItem, Context, ElementInputHandler, Entity, EntityInputHandler,
-    EventEmitter, FocusHandle, Focusable, KeyBinding, Pixels, ShapedLine, SharedString, TextRun,
-    UTF16Selection, UnderlineStyle, Window, actions, canvas, div, fill, point, prelude::*, px,
-    size,
+    App, Bounds, ClipboardItem, Context, ElementInputHandler, Entity, EventEmitter, FocusHandle,
+    Focusable, KeyBinding, Pixels, ShapedLine, SharedString, TextRun, UnderlineStyle, Window,
+    actions, canvas, div, fill, point, prelude::*, px, size,
 };
 
 use arcode_ui_kit::theme;
 
 actions!(
     text_field,
-    [Backspace, Delete, Left, Right, SelectLeft, SelectRight, SelectAll, Home, End, Paste, Copy, Cut]
+    [
+        Backspace,
+        Delete,
+        Left,
+        Right,
+        SelectLeft,
+        SelectRight,
+        SelectAll,
+        Home,
+        End,
+        Paste,
+        Copy,
+        Cut
+    ]
 );
 
 /// Key context of the text field.
@@ -81,6 +93,12 @@ impl TextField {
     /// The current text.
     pub fn text(&self) -> &str {
         &self.text
+    }
+
+    /// Replaces the text and puts the cursor at the end.
+    pub fn set_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        let len = self.text.len();
+        self.replace(0..len, text, cx);
     }
 
     fn cursor(&self) -> usize {
@@ -210,7 +228,9 @@ impl TextField {
     }
 
     fn offset_to_utf16(&self, offset: usize) -> usize {
-        self.text[..offset.min(self.text.len())].encode_utf16().count()
+        self.text[..offset.min(self.text.len())]
+            .encode_utf16()
+            .count()
     }
 
     fn offset_from_utf16(&self, offset: usize) -> usize {
@@ -279,7 +299,9 @@ impl TextField {
             .collect();
         }
         let font_size = style.font_size.to_pixels(window.rem_size());
-        let line = window.text_system().shape_line(text, font_size, &runs, None);
+        let line = window
+            .text_system()
+            .shape_line(text, font_size, &runs, None);
         let line_height = bounds.size.height;
         if !selection.is_empty() {
             let x0 = line.x_for_index(selection.start);
@@ -293,113 +315,25 @@ impl TextField {
             ));
         }
         let text_top = bounds.top() + (line_height - window.line_height()) / 2.;
-        line.paint(point(bounds.left(), text_top), window.line_height(), window, cx)
-            .ok();
+        line.paint(
+            point(bounds.left(), text_top),
+            window.line_height(),
+            window,
+            cx,
+        )
+        .ok();
         if focused {
             let x = line.x_for_index(cursor);
             window.paint_quad(fill(
-                Bounds::new(point(bounds.left() + x, text_top), size(px(1.5), window.line_height())),
+                Bounds::new(
+                    point(bounds.left() + x, text_top),
+                    size(px(1.5), window.line_height()),
+                ),
                 c.cursor,
             ));
         }
         window.handle_input(&focus, ElementInputHandler::new(bounds, this.clone()), cx);
         this.update(cx, |field, _| field.layout = Some((line, bounds)));
-    }
-}
-
-impl EntityInputHandler for TextField {
-    fn text_for_range(
-        &mut self,
-        range: Range<usize>,
-        actual: &mut Option<Range<usize>>,
-        _: &mut Window,
-        _: &mut Context<Self>,
-    ) -> Option<String> {
-        let range = self.range_from_utf16(&range);
-        actual.replace(self.range_to_utf16(&range));
-        Some(self.text[range].to_string())
-    }
-
-    fn selected_text_range(
-        &mut self,
-        _: bool,
-        _: &mut Window,
-        _: &mut Context<Self>,
-    ) -> Option<UTF16Selection> {
-        Some(UTF16Selection {
-            range: self.range_to_utf16(&self.selection),
-            reversed: self.reversed,
-        })
-    }
-
-    fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
-        self.marked.as_ref().map(|r| self.range_to_utf16(r))
-    }
-
-    fn unmark_text(&mut self, _: &mut Window, _: &mut Context<Self>) {
-        self.marked = None;
-    }
-
-    fn replace_text_in_range(
-        &mut self,
-        range: Option<Range<usize>>,
-        text: &str,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let range = range
-            .map(|r| self.range_from_utf16(&r))
-            .or(self.marked.clone())
-            .unwrap_or(self.selection.clone());
-        self.replace(range, text, cx);
-    }
-
-    fn replace_and_mark_text_in_range(
-        &mut self,
-        range: Option<Range<usize>>,
-        text: &str,
-        selected: Option<Range<usize>>,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let range = range
-            .map(|r| self.range_from_utf16(&r))
-            .or(self.marked.clone())
-            .unwrap_or(self.selection.clone());
-        self.replace(range.clone(), text, cx);
-        let len = self.text.len().min(range.start + text.len());
-        self.marked = (!text.is_empty()).then_some(range.start..len);
-        if let Some(sel) = selected {
-            let a = (range.start + sel.start).min(self.text.len());
-            let b = (range.start + sel.end).min(self.text.len());
-            self.selection = a..b;
-        }
-    }
-
-    fn bounds_for_range(
-        &mut self,
-        range: Range<usize>,
-        _: Bounds<Pixels>,
-        _: &mut Window,
-        _: &mut Context<Self>,
-    ) -> Option<Bounds<Pixels>> {
-        let (line, bounds) = self.layout.as_ref()?;
-        let range = self.range_from_utf16(&range);
-        Some(Bounds::from_corners(
-            point(bounds.left() + line.x_for_index(range.start), bounds.top()),
-            point(bounds.left() + line.x_for_index(range.end), bounds.bottom()),
-        ))
-    }
-
-    fn character_index_for_point(
-        &mut self,
-        p: gpui::Point<Pixels>,
-        _: &mut Window,
-        _: &mut Context<Self>,
-    ) -> Option<usize> {
-        let (line, bounds) = self.layout.as_ref()?;
-        let index = line.index_for_x(p.x - bounds.left())?;
-        Some(self.offset_to_utf16(index))
     }
 }
 
@@ -425,33 +359,16 @@ impl Render for TextField {
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::cut))
             .child(
-                canvas(|_, _, _| {}, move |bounds, _, window, cx| {
-                    Self::paint_text(this.clone(), bounds, window, cx)
-                })
+                canvas(
+                    |_, _, _| {},
+                    move |bounds, _, window, cx| Self::paint_text(this.clone(), bounds, window, cx),
+                )
                 .size_full(),
             )
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use gpui::TestAppContext;
+mod tests;
 
-    use super::*;
-
-    #[gpui::test]
-    fn editing_and_utf16_mapping(cx: &mut TestAppContext) {
-        let field = cx.new(|cx| TextField::new("", cx));
-        field.update(cx, |f, cx| {
-            f.replace(0..0, "aé😀b", cx);
-            assert_eq!(f.text(), "aé😀b");
-            assert_eq!(f.offset_to_utf16(f.text.len()), 5);
-            assert_eq!(f.offset_from_utf16(3), "aé".len());
-            let end = f.text.len();
-            assert_eq!(f.prev_boundary(end - 1), "aé".len());
-            f.selection = 1..1;
-            f.replace(0..1, "", cx);
-            assert_eq!(f.text(), "é😀b");
-        });
-    }
-}
+mod ime;

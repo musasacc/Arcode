@@ -21,11 +21,7 @@ impl Peer {
     }
 }
 
-fn pair() -> (
-    Arc<Connection>,
-    mpsc::UnboundedReceiver<Inbound>,
-    Peer,
-) {
+fn pair() -> (Arc<Connection>, mpsc::UnboundedReceiver<Inbound>, Peer) {
     let (client, adapter) = tokio::io::duplex(64 * 1024);
     let (cr, cw) = tokio::io::split(client);
     let (ar, aw) = tokio::io::split(adapter);
@@ -52,7 +48,8 @@ async fn sequence_numbers_increase_and_responses_match_out_of_order() {
     assert_eq!((ra["seq"].as_i64(), rb["seq"].as_i64()), (Some(1), Some(2)));
     assert_eq!(ra["type"], "request");
     assert_eq!(rb["arguments"]["frameId"], 1);
-    peer.send(response(2, "scopes", json!({"scopes": []}))).await;
+    peer.send(response(2, "scopes", json!({"scopes": []})))
+        .await;
     peer.send(response(1, "threads", json!({"threads": []})))
         .await;
     assert_eq!(b.await.unwrap(), Some(json!({"scopes": []})));
@@ -64,9 +61,11 @@ async fn failed_response_is_adapter_error() {
     let (conn, _inbound, mut peer) = pair();
     let fut = conn.request("evaluate", None, None);
     let req = peer.recv().await;
-    peer.send(json!({"seq": 9, "type": "response", "request_seq": req["seq"],
-        "success": false, "command": "evaluate", "message": "notStopped"}))
-        .await;
+    peer.send(
+        json!({"seq": 9, "type": "response", "request_seq": req["seq"],
+        "success": false, "command": "evaluate", "message": "notStopped"}),
+    )
+    .await;
     assert_eq!(
         fut.await,
         Err(DapError::Adapter {
@@ -81,9 +80,11 @@ async fn events_and_reverse_requests_are_forwarded_in_order_then_closed() {
     let (_conn, mut inbound, mut peer) = pair();
     peer.send(json!({"seq": 1, "type": "event", "event": "initialized"}))
         .await;
-    peer.send(json!({"seq": 2, "type": "request", "command": "runInTerminal",
-        "arguments": {"cwd": "/", "args": []}}))
-        .await;
+    peer.send(
+        json!({"seq": 2, "type": "request", "command": "runInTerminal",
+        "arguments": {"cwd": "/", "args": []}}),
+    )
+    .await;
     drop(peer);
     assert!(matches!(inbound.recv().await, Some(Inbound::Event(e)) if e.event == "initialized"));
     assert!(
