@@ -1,13 +1,12 @@
 [package]
 name = "arcode-dap"
-description = "Debug Adapter Protocol client: JSON-RPC-like transport, session state machine."
+description = "Debug Adapter Protocol client: Content-Length transport over stdio or TCP, session state machine, known adapters."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
 
 [dependencies]
-anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "process", "io-util", "sync", "macros", "time", "net"] }
@@ -15,4 +14,11 @@ async-channel.workspace = true
 log.workspace = true
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "process", "io-util", "sync", "macros", "time", "net", "io-std"] }
 tempfile.workspace = true
+
+# Runs its own `main`: doubles as a fake debug adapter process (stdio or TCP)
+# when ARCODE_FAKE_DAP is set, so process transports need no real adapter.
+[[test]]
+name = "process_transport"
+harness = false

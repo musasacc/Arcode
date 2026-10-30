@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+exclude = ["plugins", "crates/arcode-plugin-host/test-programs"]
 
 [workspace.package]
 version = "0.0.1"
@@ -27,6 +28,8 @@ arcode-dap = { path = "crates/arcode-dap" }
 arcode-completion = { path = "crates/arcode-completion" }
 arcode-project = { path = "crates/arcode-project" }
 arcode-vim = { path = "crates/arcode-vim" }
+arcode-plugin-api = { path = "crates/arcode-plugin-api" }
+arcode-plugin-host = { path = "crates/arcode-plugin-host" }
 
 ropey = "1.6.1"
 tree-sitter = "0.25"
@@ -47,6 +50,9 @@ alacritty_terminal = "0.26"
 async-channel = "2"
 futures = "0.3"
 tempfile = "3"
+ignore = "0.4"
+nucleo-matcher = "0.3"
+memory-stats = "1"
 
 [profile.dev]
 # GPUI is unusably slow unoptimized; keep deps fast, our code debuggable.

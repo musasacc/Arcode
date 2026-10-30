@@ -166,6 +166,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
 
 [[package]]
+name = "arcode"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "arcode-buffer",
+ "arcode-config",
+ "arcode-editor",
+ "arcode-git",
+ "arcode-lsp",
+ "arcode-syntax",
+ "arcode-terminal",
+ "arcode-terminal-view",
+ "arcode-ui-kit",
+ "env_logger",
+ "gpui",
+ "ignore",
+ "log",
+ "memory-stats",
+ "nucleo-matcher",
+ "tempfile",
+]
+
+[[package]]
 name = "arcode-buffer"
 version = "0.0.1"
 dependencies = [
@@ -202,7 +225,6 @@ dependencies = [
 name = "arcode-dap"
 version = "0.0.1"
 dependencies = [
- "anyhow",
  "async-channel 2.5.0",
  "log",
  "serde",
@@ -247,6 +269,19 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "arcode-plugin-api"
+version = "0.0.1"
+
+[[package]]
+name = "arcode-plugin-host"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "log",
+ "tempfile",
 ]
 
 [[package]]
@@ -3641,6 +3676,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "memory-stats"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c73f5c649995a115e1a0220b35e4df0a1294500477f97a91d0660fb5abeb574a"
+dependencies = [
+ "libc",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

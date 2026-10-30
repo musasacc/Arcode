@@ -1,0 +1,33 @@
+[package]
+name = "arcode"
+description = "The Arcode IDE application: workspace shell, welcome screen and wiring."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "arcode"
+path = "src/main.rs"
+
+[dependencies]
+gpui.workspace = true
+arcode-buffer.workspace = true
+arcode-syntax.workspace = true
+arcode-lsp.workspace = true
+arcode-terminal.workspace = true
+arcode-config.workspace = true
+arcode-git.workspace = true
+arcode-editor.workspace = true
+arcode-terminal-view.workspace = true
+arcode-ui-kit.workspace = true
+anyhow.workspace = true
+log.workspace = true
+env_logger.workspace = true
+ignore.workspace = true
+nucleo-matcher.workspace = true
+memory-stats.workspace = true
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+tempfile.workspace = true

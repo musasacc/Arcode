@@ -86,7 +86,27 @@ pub fn split_lines(text: &str) -> impl Iterator<Item = &str> {
     })
 }
 
-fn is_line_break(c: char) -> bool {
+/// Byte offset where each line of [`split_lines`] starts, followed by
+/// `text.len()`; so line `i` spans `starts[i]..starts[i + 1]` including its
+/// terminator.
+pub(crate) fn line_starts(text: &str) -> Vec<usize> {
+    let base = text.as_ptr() as usize;
+    let mut starts: Vec<usize> = split_lines(text)
+        .map(|line| line.as_ptr() as usize - base)
+        .collect();
+    starts.push(text.len());
+    starts
+}
+
+/// The byte range of lines `lines` (clamped) in `text`, given its
+/// [`line_starts`].
+pub(crate) fn line_span(starts: &[usize], lines: &Range<usize>) -> Range<usize> {
+    let last = starts.len().saturating_sub(1);
+    let at = |line: usize| starts.get(line.min(last)).copied().unwrap_or(0);
+    at(lines.start)..at(lines.end.max(lines.start))
+}
+
+pub(crate) fn is_line_break(c: char) -> bool {
     matches!(
         c,
         '\n' | '\r' | '\u{0B}' | '\u{0C}' | '\u{85}' | '\u{2028}' | '\u{2029}'
