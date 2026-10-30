@@ -102,6 +102,7 @@ impl Editor {
         if let Some(result) = self.buffer.undo() {
             self.selections = result.selections;
             self.after_edits(result.edits, cx);
+            self.snippet_after_undo();
         }
     }
 

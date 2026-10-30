@@ -82,8 +82,47 @@ pub(crate) fn map_point(p: Point, edit: &Edit) -> Option<Point> {
     None
 }
 
-fn map_range(r: &Range<Point>, edit: &Edit) -> Option<Range<Point>> {
-    Some(map_point(r.start, edit)?..map_point(r.end, edit)?)
+/// Where the range `r` ends up after `edit`; `None` if the edit replaced
+/// text across one of its ends (or all of it). Text inserted exactly at an
+/// end stays outside the range: the start has a right bias, the end a left
+/// bias, so a search match on `foo` does not grow into `foox`.
+pub(crate) fn map_range(r: &Range<Point>, edit: &Edit) -> Option<Range<Point>> {
+    let (start, old_end) = (edit.start_point, edit.old_end_point);
+    if old_end <= r.start {
+        // Entirely before the range (or inserted at its start).
+        return Some(map_point(r.start, edit)?..map_point(r.end, edit)?);
+    }
+    if start >= r.end {
+        // Entirely after the range (or inserted at its end).
+        return Some(r.clone());
+    }
+    if r.start <= start && old_end <= r.end {
+        // Inside the range: the start stays, the end follows the edit. A
+        // range whose whole text was deleted is dropped.
+        let end = map_point(r.end, edit)?;
+        return (end > r.start || r.is_empty()).then_some(r.start..end);
+    }
+    None
+}
+
+/// Where the whole-line range `lines` ends up after `edit`; `None` when
+/// every line of it was deleted.
+pub(crate) fn map_lines(lines: &Range<usize>, edit: &Edit) -> Option<Range<usize>> {
+    let (start, old_end) = (edit.start_point.line, edit.old_end_point.line);
+    let last = lines.end.saturating_sub(1).max(lines.start);
+    // First surviving line: the start itself, or else the edit's old end
+    // line (whose tail continues the text) if it is still in the range.
+    let first = map_line(lines.start, edit)
+        .or_else(|| (old_end <= last).then(|| map_line(old_end, edit)).flatten())?;
+    // Last surviving line: the last itself, or else the edit's start line
+    // if it is in the range and survives, or else the line before it.
+    let end = map_line(last, edit).or_else(|| {
+        if start < lines.start {
+            return None;
+        }
+        map_line(start, edit).or_else(|| (start > lines.start).then(|| start - 1))
+    })?;
+    Some(first..end.max(first) + 1)
 }
 
 impl ExtState {
@@ -100,13 +139,7 @@ impl ExtState {
         }
         for list in self.highlights.values_mut() {
             list.retain_mut(|h| match &mut h.range {
-                HighlightRange::Lines(lines) => {
-                    let start = map_line(lines.start, edit).unwrap_or(edit.start_point.line);
-                    let last = lines.end.saturating_sub(1).max(lines.start);
-                    let end = map_line(last, edit).unwrap_or(edit.new_end_point.line) + 1;
-                    *lines = start..end.max(start + 1);
-                    true
-                }
+                HighlightRange::Lines(lines) => map_lines(lines, edit).map(|n| *lines = n).is_some(),
                 HighlightRange::Text(r) => map_range(r, edit).map(|n| *r = n).is_some(),
             });
         }
@@ -207,12 +240,15 @@ impl ExtState {
     }
 
     /// Interceptors to try for a keystroke, highest priority first:
-    /// popover handlers (newest first), then installed interceptors.
-    pub fn key_handlers(&self) -> Vec<KeyInterceptor> {
+    /// handlers of popovers that are drawn (`drawn(anchor line)`), newest
+    /// first, then installed interceptors. A popover scrolled out of view
+    /// is not drawn, so its list must not take Enter or the arrows.
+    pub fn key_handlers(&self, drawn: impl Fn(usize) -> bool) -> Vec<KeyInterceptor> {
         let mut out: Vec<KeyInterceptor> = self
             .popovers
             .iter()
             .rev()
+            .filter(|(_, p)| drawn(p.anchor.line))
             .filter_map(|(_, p)| p.on_key.clone())
             .collect();
         let mut installed: Vec<&(InterceptorId, i32, KeyInterceptor)> =
@@ -276,5 +312,40 @@ mod tests {
             panic!("lines");
         };
         assert_eq!(r.clone(), 1..5);
+    }
+
+    #[test]
+    fn line_ranges_drop_only_when_fully_deleted() {
+        let text = "a\nb\nc\nd\ne\nf\n";
+        // Delete lines 1..5: the whole range 2..4 is gone.
+        let e = edit(text, 2..10, "");
+        assert_eq!(map_lines(&(2..4), &e), None);
+        // A range sticking out on either side keeps its surviving lines.
+        assert_eq!(map_lines(&(0..3), &e), Some(0..1));
+        assert_eq!(map_lines(&(3..6), &e), Some(1..2));
+        assert_eq!(map_lines(&(0..6), &e), Some(0..2));
+        // Delete the middle of line 1 to the middle of line 3: lines 1..4
+        // join into line 1.
+        let e = edit(text, 3..7, "");
+        assert_eq!(map_lines(&(2..3), &e), None);
+        assert_eq!(map_lines(&(1..4), &e), Some(1..2));
+        assert_eq!(map_lines(&(3..5), &e), Some(1..3));
+    }
+
+    #[test]
+    fn text_ranges_keep_their_ends_on_insertions() {
+        let text = "foo bar\n";
+        let r = Point::new(0, 0)..Point::new(0, 3);
+        // Typing at the end or start does not grow the range.
+        assert_eq!(map_range(&r, &edit(text, 3..3, "x")), Some(r.clone()));
+        let shifted = Point::new(0, 1)..Point::new(0, 4);
+        assert_eq!(map_range(&r, &edit(text, 0..0, "x")), Some(shifted));
+        // Typing inside grows it; deleting right after it keeps it.
+        let grown = Point::new(0, 0)..Point::new(0, 4);
+        assert_eq!(map_range(&r, &edit(text, 1..1, "x")), Some(grown));
+        assert_eq!(map_range(&r, &edit(text, 3..7, "")), Some(r.clone()));
+        // Replacing text across an end drops it.
+        assert_eq!(map_range(&r, &edit(text, 2..5, "")), None);
+        assert_eq!(map_range(&r, &edit(text, 0..3, "")), None);
     }
 }

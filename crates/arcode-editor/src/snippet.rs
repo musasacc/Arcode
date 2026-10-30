@@ -121,6 +121,15 @@ impl Editor {
         applied
     }
 
+    /// Ends the snippet once an undo removed its insertion: its text has
+    /// collapsed to nothing, so its tabstops are stale and Tab must indent
+    /// again.
+    pub(crate) fn snippet_after_undo(&mut self) {
+        if self.snippet.as_ref().is_some_and(|s| s.extent().is_empty()) {
+            self.snippet = None;
+        }
+    }
+
     /// Ends the snippet when every cursor left it.
     pub(crate) fn snippet_check_cursor(&mut self) {
         if let Some(session) = &self.snippet

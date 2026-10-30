@@ -55,7 +55,15 @@ fn on_keystroke(event: &KeystrokeEvent, window: &mut Window, cx: &mut App) {
     let Some(editor) = focused else {
         return;
     };
-    let handlers = editor.read(cx).ext.key_handlers();
+    let handlers = {
+        let editor = editor.read(cx);
+        // Popovers are drawn only while their anchor line is laid out (see
+        // `popover_elements`); before the first layout, assume they are.
+        let layout = editor.layout.as_ref();
+        editor
+            .ext
+            .key_handlers(|line| layout.is_none_or(|l| l.visible(line).is_some()))
+    };
     for handler in handlers {
         if handler(&editor, &event.keystroke, window, cx) {
             cx.stop_propagation();
