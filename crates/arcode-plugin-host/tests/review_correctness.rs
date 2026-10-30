@@ -206,3 +206,71 @@ fn table_change_row_count_matches_the_snapshot() {
         "TableChange disagrees with the snapshot"
     );
 }
+
+/// §4 "Prompts are host chrome ... The host, method and port shown come
+/// from the parsed URL". For a redirect hop the prompt reuses the first
+/// hop's scheme and method: a POST to `http://127.0.0.1` answered with
+/// `303 → https://localhost/x` asks "POST http://localhost:<port>" although
+/// the hop that would be sent is `GET https://localhost:<port>/x`.
+#[test]
+fn redirect_prompts_show_the_hop_that_would_be_sent() {
+    use arcode_plugin_host::consent::{ConsentAnswer, ConsentKind, ScriptedConsent};
+    use arcode_plugin_host::grants::GrantScope;
+    use arcode_plugin_host::net::{TransportOptions, UreqTransport};
+    use loopback::{Reply, Server};
+
+    let server = Server::start(|_| Reply::redirect(303, "https://localhost:1/x"));
+    let app = App::start(None);
+    let consent = Arc::new(ScriptedConsent::new([
+        ConsentAnswer::Allow {
+            scope: GrantScope::Once,
+            write: false,
+        },
+        ConsentAnswer::Deny,
+    ]));
+    let transport = UreqTransport::new(&TransportOptions {
+        use_env_proxy: false,
+        ..TransportOptions::default()
+    });
+    let services = services(
+        &app,
+        consent.clone(),
+        Arc::new(FakeEditor::default()),
+        Arc::new(transport),
+    );
+    let (rt, _cache) = runtime(|_| {});
+    let h = handle(&rt, fixture("net"), services, None);
+    let args = json!({"url": server.url("/form"), "method": "POST", "body": "x"});
+    assert_eq!(command(&h, "send", args, true), Ok(CallOutput::Done));
+    let asked = consent.asked();
+    assert_eq!(asked.len(), 2, "{asked:?}");
+    let ConsentKind::Network {
+        method,
+        scheme,
+        host,
+        port,
+    } = &asked[1].kind
+    else {
+        panic!("{asked:?}");
+    };
+    assert_eq!((host.as_str(), *port), ("localhost", 1));
+    assert_eq!(
+        (method.as_str(), scheme.as_str()),
+        ("GET", "https"),
+        "the redirect prompt must describe the redirect hop"
+    );
+}
+
+/// `net::resolve` claims to resolve `Location` "like a browser", but dot
+/// segments are kept: `../x` from `/api/v1/items` must be `/api/x`
+/// (RFC 3986 §5.2.4), not `/api/v1/../x`.
+#[test]
+fn redirect_locations_remove_dot_segments() {
+    use arcode_plugin_host::net::resolve;
+    let base = "http://a.test/api/v1/items";
+    assert_eq!(resolve(base, "../x").as_deref(), Ok("http://a.test/api/x"));
+    assert_eq!(
+        resolve(base, "./y").as_deref(),
+        Ok("http://a.test/api/v1/y")
+    );
+}
