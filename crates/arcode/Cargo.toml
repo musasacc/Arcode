@@ -32,6 +32,8 @@ env_logger.workspace = true
 ignore.workspace = true
 nucleo-matcher.workspace = true
 memory-stats.workspace = true
+notify.workspace = true
+async-channel.workspace = true
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

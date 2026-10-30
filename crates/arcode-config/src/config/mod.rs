@@ -5,6 +5,8 @@
 //! affected settings keep their defaults. Built-in `[language.*]` and
 //! `[lsp.*]` entries are merged under the user's entries field by field.
 
+mod completion;
+mod git;
 mod language;
 mod sections;
 
@@ -19,6 +21,8 @@ use crate::fsutil::write_atomic;
 use crate::lenient::{Section, apply_table, one_line};
 use crate::paths;
 
+pub use completion::CompletionSettings;
+pub use git::GitSettings;
 pub use language::{
     LanguageSettings, LspServerSettings, NamedServer, builtin_languages, builtin_servers,
 };
@@ -43,6 +47,8 @@ pub struct Config {
     pub ui: UiSettings,
     /// `[terminal]`
     pub terminal: TerminalSettings,
+    /// `[git]`
+    pub git: GitSettings,
     /// `[language.<id>]`, keyed by language id (e.g. `rust`). Ids read from
     /// TOML are lowercased.
     #[serde(rename = "language")]
@@ -57,6 +63,7 @@ impl Default for Config {
             editor: EditorSettings::default(),
             ui: UiSettings::default(),
             terminal: TerminalSettings::default(),
+            git: GitSettings::default(),
             languages: builtin_languages(),
             lsp: builtin_servers(),
         }
@@ -196,9 +203,14 @@ impl Config {
     fn apply(&mut self, table: &Table, warnings: &mut Vec<String>) {
         for (key, value) in table {
             match key.as_str() {
-                "editor" => apply_table(&mut self.editor, value, "editor", warnings),
+                "editor" => {
+                    let rest =
+                        completion::split_completion(value, &mut self.editor.completion, warnings);
+                    apply_table(&mut self.editor, &rest, "editor", warnings);
+                }
                 "ui" => apply_table(&mut self.ui, value, "ui", warnings),
                 "terminal" => apply_table(&mut self.terminal, value, "terminal", warnings),
+                "git" => apply_table(&mut self.git, value, "git", warnings),
                 "language" => self.apply_languages(value, warnings),
                 "lsp" => self.apply_servers(value, warnings),
                 other => warnings.push(format!("unknown section `{other}` (ignored)")),
@@ -207,6 +219,7 @@ impl Config {
         self.editor.validate(warnings);
         self.ui.validate(warnings);
         self.terminal.validate(warnings);
+        self.git.validate(warnings);
     }
 
     /// Merges `[language.<id>]` tables. Ids are case-insensitive and stored
@@ -292,11 +305,13 @@ fn for_each_entry(
 }
 
 /// Every key understood in each fixed section, for documentation checks.
-pub fn known_keys() -> [(&'static str, &'static [&'static str]); 5] {
+pub fn known_keys() -> [(&'static str, &'static [&'static str]); 7] {
     [
         ("editor", EditorSettings::KEYS),
+        ("editor.completion", CompletionSettings::KEYS),
         ("ui", UiSettings::KEYS),
         ("terminal", TerminalSettings::KEYS),
+        ("git", GitSettings::KEYS),
         ("language.<id>", LanguageSettings::KEYS),
         ("lsp.<name>", LspServerSettings::KEYS),
     ]

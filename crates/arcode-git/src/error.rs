@@ -50,6 +50,10 @@ pub enum GitError {
     BranchNotFound(String),
     /// The operation would need to contact a remote, which Arcode never does.
     NetworkRequired(String),
+    /// git rejects this name for a new branch.
+    InvalidBranchName(String),
+    /// `--amend` was requested in a repository without commits.
+    NothingToAmend,
 }
 
 impl fmt::Display for GitError {
@@ -82,6 +86,8 @@ impl fmt::Display for GitError {
             Self::NetworkRequired(msg) => {
                 write!(f, "operation would need network access: {msg}")
             }
+            Self::InvalidBranchName(name) => write!(f, "{name:?} is not a valid branch name"),
+            Self::NothingToAmend => f.write_str("there is no commit to amend yet"),
         }
     }
 }

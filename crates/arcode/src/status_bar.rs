@@ -49,6 +49,9 @@ pub struct StatusInfo {
     pub errors: usize,
     /// Number of warnings in the project.
     pub warnings: usize,
+    /// Merge conflicts in the active editor: the one at the cursor (if
+    /// any) and the total.
+    pub conflicts: Option<(Option<usize>, usize)>,
 }
 
 /// The status bar view.
@@ -129,6 +132,19 @@ impl StatusBar {
         self.set_info(info, cx);
     }
 
+    /// Sets the merge conflict counter of the active editor.
+    pub fn set_conflicts(
+        &mut self,
+        conflicts: Option<(Option<usize>, usize)>,
+        cx: &mut Context<Self>,
+    ) {
+        let info = StatusInfo {
+            conflicts,
+            ..self.info.clone()
+        };
+        self.set_info(info, cx);
+    }
+
     /// Sets the project-wide diagnostic counts.
     pub fn set_diagnostic_counts(
         &mut self,
@@ -147,6 +163,15 @@ impl StatusBar {
 
 fn sample_memory() -> Option<u64> {
     memory_stats::memory_stats().map(|m| (m.physical_mem / (1024 * 1024)) as u64)
+}
+
+/// `Conflict 2 of 3` at a conflict, `3 conflicts` elsewhere.
+pub fn conflict_label(current: Option<usize>, total: usize) -> String {
+    match current {
+        Some(ix) => format!("Conflict {} of {total}", ix + 1),
+        None if total == 1 => "1 conflict".into(),
+        None => format!("{total} conflicts"),
+    }
 }
 
 /// `Ln 12, Col 4` from a zero-based position.
@@ -184,7 +209,26 @@ impl Render for StatusBar {
                                 .size(icon_size)
                                 .color(c.text_muted),
                         )
-                        .child(branch),
+                        .id("status-branch")
+                        .cursor_pointer()
+                        .hover(|s| s.bg(c.hover))
+                        .child(branch)
+                        .on_click(|_, window, cx| {
+                            window.dispatch_action(Box::new(crate::actions::SwitchBranch), cx)
+                        }),
+                    )
+                })
+                .when_some(info.conflicts, |el, (current, total)| {
+                    el.child(
+                        item(icon(IconName::GitMerge).size(icon_size).color(c.warning))
+                            .id("status-conflicts")
+                            .cursor_pointer()
+                            .hover(|s| s.bg(c.hover))
+                            .text_color(c.warning)
+                            .child(conflict_label(current, total))
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(crate::actions::NextConflict), cx)
+                            }),
                     )
                 })
                 .child(
@@ -255,5 +299,12 @@ mod tests {
     fn cursor_label_is_one_based() {
         assert_eq!(cursor_label(0, 0), "Ln 1, Col 1");
         assert_eq!(cursor_label(11, 3), "Ln 12, Col 4");
+    }
+
+    #[test]
+    fn conflict_labels() {
+        assert_eq!(conflict_label(Some(1), 3), "Conflict 2 of 3");
+        assert_eq!(conflict_label(None, 1), "1 conflict");
+        assert_eq!(conflict_label(None, 4), "4 conflicts");
     }
 }

@@ -36,6 +36,18 @@ format_on_save = false
 large_file_bytes = 4194304
 large_file_lines = 50000
 
+[editor.completion]
+# Open the completion popup while typing. When false, only Ctrl+Space
+# opens it.
+auto_trigger = true
+# Wait this long (ms) after a keystroke before asking for completions.
+delay_ms = 50
+# Offer built-in snippets and your own from snippets.toml (next to this
+# file) in the popup.
+snippets = true
+# Show parameter hints after typing ( or , in a call.
+signature_help = true
+
 [ui]
 # UI font. Leave unset to use the system UI font.
 # font_family = "Inter"
@@ -65,6 +77,14 @@ args = []
 # font_size = 13.0
 # Lines of scrollback history.
 scrollback = 10000
+
+[git]
+# Added / modified / deleted bars in the editor gutter (vs the index).
+gutter = true
+# Author, date and summary of the cursor line, shown at its end.
+inline_blame = true
+# How long the cursor rests on a line before its blame appears (ms).
+inline_blame_delay_ms = 500
 
 # Per-language settings. Built-in assignments:
 #   rust -> rust-analyzer, typescript/javascript/tsx/jsx ->

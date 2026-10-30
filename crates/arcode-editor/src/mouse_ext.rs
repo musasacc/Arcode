@@ -3,8 +3,8 @@
 
 use arcode_buffer::Point as BufPoint;
 use gpui::{
-    AnyElement, App, AvailableSpace, Bounds, Context, Corner, IntoElement, MouseDownEvent,
-    ParentElement, Pixels, Point, Styled, Window, anchored, div, point, px, size,
+    AnyElement, App, AvailableSpace, Bounds, Context, IntoElement, MouseDownEvent, ParentElement,
+    Pixels, Point, Size, Window, div, point, px, size,
 };
 
 use crate::Editor;
@@ -109,45 +109,129 @@ impl Editor {
         Some((point(x, layout.line_top(p.line)), layout.line_height))
     }
 
-    /// Elements for the visible popovers, positioned for `layout`.
-    pub(crate) fn popover_elements(&self, layout: &LayoutSnapshot) -> Vec<AnyElement> {
+    /// The visible popovers with where they attach in `layout`.
+    pub(crate) fn popover_elements(&self, layout: &LayoutSnapshot) -> Vec<PopoverSlot> {
         let mut out = Vec::new();
         for (_, popover) in &self.ext.popovers {
             let p = popover.anchor;
             if layout.visible(p.line).is_none() {
                 continue;
             }
-            let x = layout.text_left() + layout.x_for_glyph(p.line, p.column);
-            let top = layout.line_top(p.line);
-            let (pos, corner, pad) = match popover.placement {
-                PopoverPlacement::Below => {
-                    (point(x, top + layout.line_height), Corner::TopLeft, true)
-                }
-                PopoverPlacement::Above => (point(x, top), Corner::BottomLeft, false),
-            };
-            let body = if pad {
-                div().pt(px(2.)).child(popover.content.clone())
-            } else {
-                div().pb(px(2.)).child(popover.content.clone())
-            };
-            out.push(
-                anchored()
-                    .position(pos)
-                    .anchor(corner)
-                    .snap_to_window_with_margin(px(8.))
-                    .child(body)
-                    .into_any_element(),
-            );
+            out.push(PopoverSlot {
+                element: div().child(popover.content.clone()).into_any_element(),
+                x: layout.text_left() + layout.x_for_glyph(p.line, p.column),
+                line_top: layout.line_top(p.line),
+                line_height: layout.line_height,
+                placement: popover.placement,
+            });
         }
         out
     }
 }
 
-/// Lays out the popovers and lets them draw over the rest of the window.
-/// Must be called during prepaint.
-pub(crate) fn defer_popovers(elements: Vec<AnyElement>, window: &mut Window, cx: &mut App) {
-    for mut el in elements {
-        el.layout_as_root(AvailableSpace::min_size(), window, cx);
-        window.defer_draw(el, point(Pixels::ZERO, Pixels::ZERO), 2);
+/// A popover element and the line it attaches to (window coordinates).
+pub(crate) struct PopoverSlot {
+    element: AnyElement,
+    x: Pixels,
+    line_top: Pixels,
+    line_height: Pixels,
+    placement: PopoverPlacement,
+}
+
+/// Distance kept from the window edges.
+const WINDOW_MARGIN: Pixels = px(8.);
+/// Gap between the anchor line and the popover.
+const ANCHOR_GAP: Pixels = px(2.);
+
+/// The top-left corner for a popover of `size` attached to the line at
+/// `line_top`: on its preferred side, or the other side when it does not
+/// fit there but does (or fits better) on the other; shifted left to stay
+/// inside the window.
+pub(crate) fn place_popover(
+    size: Size<Pixels>,
+    x: Pixels,
+    line_top: Pixels,
+    line_height: Pixels,
+    placement: PopoverPlacement,
+    viewport: Size<Pixels>,
+) -> Point<Pixels> {
+    let below = line_top + line_height + ANCHOR_GAP;
+    let above = line_top - ANCHOR_GAP - size.height;
+    let room_below = viewport.height - WINDOW_MARGIN - below;
+    let room_above = line_top - ANCHOR_GAP - WINDOW_MARGIN;
+    let fits_below = size.height <= room_below;
+    let fits_above = size.height <= room_above;
+    let use_below = match placement {
+        PopoverPlacement::Below => fits_below || (!fits_above && room_below >= room_above),
+        PopoverPlacement::Above => !fits_above && (fits_below || room_below > room_above),
+    };
+    let y = if use_below {
+        below
+    } else {
+        above.max(WINDOW_MARGIN)
+    };
+    let max_x = viewport.width - WINDOW_MARGIN - size.width;
+    point(x.min(max_x).max(WINDOW_MARGIN), y)
+}
+
+/// Lays out the popovers, places them (flipping to the other side of the
+/// anchor line when there is no room) and lets them draw over the rest of
+/// the window. Must be called during prepaint.
+pub(crate) fn defer_popovers(slots: Vec<PopoverSlot>, window: &mut Window, cx: &mut App) {
+    let viewport = window.viewport_size();
+    for mut slot in slots {
+        let size = slot.element.layout_as_root(
+            size(AvailableSpace::MaxContent, AvailableSpace::MaxContent),
+            window,
+            cx,
+        );
+        let origin = place_popover(
+            size,
+            slot.x,
+            slot.line_top,
+            slot.line_height,
+            slot.placement,
+            viewport,
+        );
+        window.defer_draw(slot.element, origin, 2);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(placement: PopoverPlacement, line_top: f32, height: f32) -> Point<Pixels> {
+        place_popover(
+            size(px(300.), px(height)),
+            px(900.),
+            px(line_top),
+            px(20.),
+            placement,
+            size(px(1000.), px(600.)),
+        )
+    }
+
+    #[test]
+    fn popovers_flip_when_there_is_no_room() {
+        // Room below: stays below; x is pulled inside the window.
+        assert_eq!(
+            at(PopoverPlacement::Below, 100., 200.),
+            point(px(692.), px(122.))
+        );
+        // Near the bottom: flips above the line.
+        assert_eq!(
+            at(PopoverPlacement::Below, 500., 200.),
+            point(px(692.), px(298.))
+        );
+        // Above the first lines there is no room: below instead.
+        assert_eq!(
+            at(PopoverPlacement::Above, 30., 100.),
+            point(px(692.), px(52.))
+        );
+        assert_eq!(
+            at(PopoverPlacement::Above, 300., 100.),
+            point(px(692.), px(198.))
+        );
     }
 }

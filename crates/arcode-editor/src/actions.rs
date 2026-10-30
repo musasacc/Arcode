@@ -97,6 +97,10 @@ actions!(
         DuplicateLine,
         /// Saves the buffer to its file.
         Save,
+        /// Opens the completion list at the cursor.
+        ShowCompletions,
+        /// Shows the parameter hints of the call around the cursor.
+        ShowSignatureHelp,
     ]
 );
 
@@ -146,6 +150,9 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("alt-down", MoveLineDown, ctx),
         KeyBinding::new("secondary-shift-d", DuplicateLine, ctx),
         KeyBinding::new("secondary-s", Save, ctx),
+        // Ctrl on every platform (Cmd+Space is the system search on macOS).
+        KeyBinding::new("ctrl-space", ShowCompletions, ctx),
+        KeyBinding::new("ctrl-shift-space", ShowSignatureHelp, ctx),
     ];
     if cfg!(target_os = "macos") {
         b.extend([

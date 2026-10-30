@@ -15,13 +15,27 @@ impl Editor {
     /// selects its first tabstop. While the snippet is active, Tab and
     /// Shift+Tab move between tabstops, mirrors update as you type, and
     /// Escape, moving the cursor out of the snippet or undoing the insertion
-    /// ends it.
+    /// ends it. A tabstop with choices (`${1|a,b|}`) opens a list of them.
     pub fn insert_snippet(&mut self, range: Range<Point>, snippet: &str, cx: &mut Context<Self>) {
+        let start = self.point_to_offset(range.start);
+        let end = self.point_to_offset(range.end).max(start);
+        self.insert_snippet_at(start..end, snippet, Vec::new(), cx);
+    }
+
+    /// Replaces the char range `range` with `snippet` and applies `extra`
+    /// edits (which must not overlap it, e.g. an auto-import) in the same
+    /// undo step, then starts the snippet session.
+    pub(crate) fn insert_snippet_at(
+        &mut self,
+        range: Range<usize>,
+        snippet: &str,
+        extra: Vec<(Range<usize>, String)>,
+        cx: &mut Context<Self>,
+    ) {
         if self.read_only {
             return;
         }
-        let start = self.point_to_offset(range.start);
-        let end = self.point_to_offset(range.end).max(start);
+        let (start, end) = (range.start, range.end);
         let line = self.buffer.char_to_line(start);
         let indent: String = self
             .buffer
@@ -38,16 +52,21 @@ impl Editor {
             ..Default::default()
         };
         let expanded = expand(snippet, &ctx, &indent, &tab_unit);
-        let session = SnippetSession::new(&expanded, start);
+        // Extra edits before the snippet move where it lands.
+        let shift: isize = extra
+            .iter()
+            .filter(|(r, _)| r.end <= start)
+            .map(|(r, t)| t.chars().count() as isize - r.len() as isize)
+            .sum();
+        let session = SnippetSession::new(&expanded, (start as isize + shift) as usize);
         let before = self.selections.clone();
         let after = session.selections();
+        let mut raw = extra;
+        raw.push((start..end, expanded.text));
         self.buffer.break_undo_group();
-        let edits = self.buffer.edit_with_selections(
-            vec![(start..end, expanded.text)],
-            UndoGroup::New,
-            &before,
-            &after,
-        );
+        let edits = self
+            .buffer
+            .edit_with_selections(raw, UndoGroup::New, &before, &after);
         self.buffer.break_undo_group();
         self.selections = after;
         // The session already has post-insertion ranges: start it only
@@ -55,6 +74,7 @@ impl Editor {
         self.snippet = None;
         self.after_edits(edits, cx);
         self.snippet = (!session.is_finished()).then_some(session);
+        self.snippet_show_choices(cx);
     }
 
     /// Whether a snippet session is active.
@@ -81,6 +101,7 @@ impl Editor {
             Some(sels) => {
                 self.buffer.break_undo_group();
                 self.set_selections(sels, cx);
+                self.snippet_show_choices(cx);
                 true
             }
             None => !forward,

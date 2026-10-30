@@ -154,11 +154,13 @@ impl EntityInputHandler for Editor {
         }
         if self.marked.is_none() && range_utf16.is_none() {
             self.edit_with(cx, |b, s, cfg| ops::type_text(b, s, text, cfg));
+            self.completion_typed(text, cx);
             return;
         }
         let ranges = self.target_ranges(range_utf16);
         self.marked = None;
         self.replace_ranges(ranges, text, UndoGroup::Merge, cx);
+        self.completion_typed(text, cx);
     }
 
     fn replace_and_mark_text_in_range(

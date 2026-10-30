@@ -91,6 +91,17 @@ impl Workspace {
                 }
             })
         });
+        let path = editor
+            .as_ref()
+            .and_then(|e| e.read(cx).path().map(Path::to_path_buf));
+        self.git
+            .editors
+            .update(cx, |git, cx| git.set_active(editor.as_ref(), cx));
+        if let Some(path) = &path {
+            self.git
+                .store
+                .update(cx, |git, cx| git.follow_path(path, cx));
+        }
         if let Some(tree) = &self.file_tree {
             // Keep the tree selection in sync with the active tab: reveal
             // its file, or clear the selection when no file is active.
@@ -107,14 +118,29 @@ impl Workspace {
         cx.notify();
     }
 
+    /// The branch shown in the title and status bars: from the git store
+    /// once it has read `HEAD`, else read directly from the project.
+    pub fn branch_label(&self, cx: &gpui::App) -> Option<String> {
+        self.git
+            .store
+            .read(cx)
+            .branch_label()
+            .or_else(|| self.project.as_ref().and_then(Project::branch))
+    }
+
     /// Pushes branch, language, language server status and cursor
     /// position to the status bar.
     pub fn refresh_status(&mut self, cx: &mut Context<Self>) {
-        let branch = self
-            .project
-            .as_ref()
-            .and_then(Project::branch)
-            .map(SharedString::from);
+        let branch = self.branch_label(cx).map(SharedString::from);
+        let conflicts = self.active_editor(cx).and_then(|editor| {
+            let line = editor.read(cx).cursor_position().line;
+            let git = self.git.editors.read(cx);
+            let conflicts = git.conflicts(editor.entity_id());
+            (!conflicts.is_empty()).then(|| {
+                let current = conflicts.iter().position(|c| c.lines().contains(&line));
+                (current, conflicts.len())
+            })
+        });
         let (language, cursor, lsp_status) = match self.active_editor(cx) {
             Some(editor) => {
                 let e = editor.read(cx);
@@ -131,6 +157,7 @@ impl Workspace {
         self.status_bar.update(cx, |bar, cx| {
             bar.set_editor_info(branch, language, cursor, cx);
             bar.set_lsp_status(lsp_status, cx);
+            bar.set_conflicts(conflicts, cx);
         });
     }
 }

@@ -55,7 +55,7 @@ pub fn commit(repo: &Repo, message: &str) -> GitResult<String> {
 }
 
 /// Turns git's identity complaints into [`GitError::IdentityNotConfigured`].
-fn identity_error(err: GitError) -> GitError {
+pub(crate) fn identity_error(err: GitError) -> GitError {
     match err {
         GitError::Command { stderr, .. } if IDENTITY_ERRORS.iter().any(|m| stderr.contains(m)) => {
             let hint = stderr

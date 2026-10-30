@@ -2,6 +2,9 @@
 //! editor panes, the sidebar, the bottom panel and the status bar.
 
 mod actions;
+mod git;
+#[cfg(test)]
+mod git_tests;
 #[cfg(test)]
 mod lsp_tests;
 mod overlays;
@@ -26,6 +29,7 @@ use crate::activity_bar::Activity;
 use crate::app_state;
 use crate::bottom_panel::{self, BottomPanel};
 use crate::finder::Finder;
+use crate::git::branch_picker::BranchPicker;
 use crate::lsp_bridge::LspBridge;
 use crate::pane::Pane;
 use crate::path_prompt::PathPrompt;
@@ -82,6 +86,8 @@ pub struct Workspace {
     bottom_panel_height: Pixels,
     status_bar: Entity<StatusBar>,
     finder: Option<Entity<Finder>>,
+    git: git::GitParts,
+    branch_picker: Option<Entity<BranchPicker>>,
     path_prompt: Option<Entity<PathPrompt>>,
     path_prompt_then: Option<FolderCallback>,
     project_menu_open: bool,
@@ -114,6 +120,8 @@ impl Workspace {
         let status_bar = cx.new(StatusBar::new);
         let mut subscriptions = vec![appearance, pane_sub];
         subscriptions.extend(Self::subscribe_lsp(&lsp, &bottom_panel, window, cx));
+        let (git, git_subs) = git::GitParts::new(window, cx);
+        subscriptions.extend(git_subs);
         Self {
             focus_handle: cx.focus_handle(),
             project: None,
@@ -132,6 +140,8 @@ impl Workspace {
             bottom_panel_height: px(bottom_panel::DEFAULT_HEIGHT),
             status_bar,
             finder: None,
+            git,
+            branch_picker: None,
             path_prompt: None,
             path_prompt_then: None,
             project_menu_open: false,
@@ -236,7 +246,11 @@ impl Workspace {
         self.lsp
             .update(cx, |lsp, cx| lsp.set_project_root(root.clone(), cx));
         self.bottom_panel
-            .update(cx, |panel, cx| panel.set_project_root(root, cx));
+            .update(cx, |panel, cx| panel.set_project_root(root.clone(), cx));
+        self.git
+            .store
+            .update(cx, |git, cx| git.set_project_root(root, cx));
+        self.branch_picker = None;
         self.project = Some(project);
         self.project_files = Arc::default();
         self.reset_panes(window, cx);
@@ -264,6 +278,10 @@ impl Workspace {
             ws.lsp.update(cx, |lsp, cx| lsp.set_project_root(None, cx));
             ws.bottom_panel
                 .update(cx, |panel, cx| panel.set_project_root(None, cx));
+            ws.git
+                .store
+                .update(cx, |git, cx| git.set_project_root(None, cx));
+            ws.branch_picker = None;
             window.set_window_title("Arcode");
             window.focus(&ws.focus_handle);
             ws.refresh_status(cx);
@@ -361,6 +379,9 @@ impl Workspace {
         }
         self.lsp
             .update(cx, |lsp, cx| lsp.register_editor(&editor, cx));
+        self.git
+            .editors
+            .update(cx, |git, cx| git.register(&editor, cx));
         cx.emit(WorkspaceEvent::EditorOpened(editor));
         cx.notify();
     }

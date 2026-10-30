@@ -60,6 +60,31 @@ impl LspManager {
         }
     }
 
+    /// Sends a request to the running server named `server` for the
+    /// document, e.g. `completionItem/resolve` for an item that server
+    /// produced. Resolves to [`LspError::NoServer`] when it is not running.
+    pub fn request_to<R>(
+        &self,
+        path: &Path,
+        server: &str,
+        make_params: impl FnOnce(PositionEncoding) -> R::Params,
+    ) -> impl Future<Output = Result<R::Result>> + Send + 'static
+    where
+        R: Request,
+    {
+        let pending = self
+            .running(path)
+            .into_iter()
+            .find(|(slot, _)| slot.name == server)
+            .map(|(slot, client)| dispatch::<R>(&slot, make_params(client.position_encoding())))
+            .ok_or(LspError::NoServer);
+        async move {
+            pending?
+                .await
+                .unwrap_or_else(|_| Err(LspError::ServerStopped("request dropped".into())))
+        }
+    }
+
     /// Sends a request to every running server for the document that passes
     /// `supports` (e.g. completion, code actions). Failed answers are logged
     /// and left out.

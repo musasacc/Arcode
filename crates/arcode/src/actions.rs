@@ -38,10 +38,70 @@ actions!(
     ]
 );
 
+actions!(
+    git,
+    [
+        /// Shows the Source Control view.
+        ShowSourceControl,
+        /// Shows or hides the blame column in editors.
+        ToggleBlame,
+        /// Opens the branch picker (switch or create a branch).
+        SwitchBranch,
+        /// Commits the staged changes with the message in the Source
+        /// Control view.
+        GitCommit,
+        /// Opens a diff of the active file against `HEAD`.
+        OpenChanges,
+        /// Moves to the next merge conflict in the active editor.
+        NextConflict,
+        /// Moves to the previous merge conflict in the active editor.
+        PreviousConflict,
+        /// Re-reads the repository status.
+        RefreshGit,
+        /// Creates a git repository in the project folder.
+        InitRepository,
+    ]
+);
+
 /// Key context of the workspace root view.
 pub const WORKSPACE_CONTEXT: &str = "Workspace";
 /// Key context of a pane (tab strip + editor).
 pub const PANE_CONTEXT: &str = "Pane";
+
+/// Human-readable names of the application commands, for a command
+/// palette and menus. Each entry builds the action to dispatch.
+pub fn commands() -> Vec<(&'static str, Box<dyn gpui::Action>)> {
+    vec![
+        ("File: Find File", Box::new(ToggleFinder)),
+        ("File: Open Folder", Box::new(OpenFolder)),
+        ("File: New Project", Box::new(NewProject)),
+        ("File: Close Project", Box::new(CloseProject)),
+        ("Preferences: Open Settings", Box::new(OpenSettings)),
+        ("View: Toggle Panel", Box::new(ToggleBottomPanel)),
+        ("View: Toggle Sidebar", Box::new(ToggleSidebar)),
+        ("View: Split Right", Box::new(SplitRight)),
+        ("Run: Run Project", Box::new(RunProject)),
+        ("Terminal: New Terminal", Box::new(NewTerminal)),
+        ("Terminal: Focus Terminal", Box::new(FocusTerminal)),
+        (
+            "Editor: Trigger Suggest",
+            Box::new(arcode_editor::ShowCompletions),
+        ),
+        (
+            "Editor: Trigger Parameter Hints",
+            Box::new(arcode_editor::ShowSignatureHelp),
+        ),
+        ("Git: Show Source Control", Box::new(ShowSourceControl)),
+        ("Git: Toggle Blame", Box::new(ToggleBlame)),
+        ("Git: Switch Branch", Box::new(SwitchBranch)),
+        ("Git: Commit", Box::new(GitCommit)),
+        ("Git: Open Changes", Box::new(OpenChanges)),
+        ("Git: Next Conflict", Box::new(NextConflict)),
+        ("Git: Previous Conflict", Box::new(PreviousConflict)),
+        ("Git: Refresh", Box::new(RefreshGit)),
+        ("Git: Initialize Repository", Box::new(InitRepository)),
+    ]
+}
 
 /// Registers the application key bindings.
 pub fn bind_keys(cx: &mut App) {
@@ -59,6 +119,15 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-~", NewTerminal, ws),
         KeyBinding::new("ctrl-`", FocusTerminal, ws),
         KeyBinding::new("f5", RunProject, ws),
+        KeyBinding::new("secondary-shift-g", ShowSourceControl, ws),
+        KeyBinding::new("secondary-alt-b", ToggleBlame, ws),
+        KeyBinding::new("alt-]", NextConflict, ws),
+        KeyBinding::new("alt-[", PreviousConflict, ws),
+        KeyBinding::new(
+            "secondary-enter",
+            GitCommit,
+            Some(crate::git::panel::CONTEXT),
+        ),
         KeyBinding::new("secondary-w", CloseTab, Some(PANE_CONTEXT)),
         KeyBinding::new("secondary-q", Quit, None),
     ]);
@@ -74,7 +143,12 @@ pub fn shortcut_label(keys: &str) -> String {
             "shift" => "Shift".to_string(),
             "alt" if cfg!(target_os = "macos") => "Option".to_string(),
             "alt" => "Alt".to_string(),
-            other => other.to_uppercase(),
+            other => {
+                let mut chars = other.chars();
+                chars.next().map_or_else(String::new, |first| {
+                    first.to_uppercase().chain(chars).collect()
+                })
+            }
         })
         .collect::<Vec<_>>()
         .join("+")
@@ -93,5 +167,13 @@ mod tests {
         };
         assert_eq!(shortcut_label("secondary-p"), expected);
         assert!(shortcut_label("secondary-shift-`").ends_with("Shift+`"));
+    }
+
+    #[test]
+    fn commands_have_unique_names() {
+        let names: Vec<_> = commands().into_iter().map(|(n, _)| n).collect();
+        let unique: std::collections::HashSet<_> = names.iter().collect();
+        assert_eq!(unique.len(), names.len());
+        assert!(names.contains(&"Git: Toggle Blame"));
     }
 }

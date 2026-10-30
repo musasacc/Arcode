@@ -49,6 +49,7 @@ mod actions;
 mod api;
 mod blink;
 mod commands;
+pub mod completion;
 mod decorate;
 mod decorate_ext;
 mod diagnostics;
@@ -73,6 +74,10 @@ mod syntax_sync;
 pub use actions::*;
 pub use api::ScrollAnchor;
 pub use arcode_ui_kit::ColorKey;
+pub use completion::{
+    CompletionItem, CompletionList, CompletionProvider, CompletionTrigger, Documentation, ItemEdit,
+    ParameterInfo, SignatureHelp, SignatureInfo, SignatureRequest, SignatureTriggers,
+};
 pub use diagnostics::{DiagnosticSeverity, EditorDiagnostic};
 pub use editor::{Editor, EditorEvent};
 pub use ext::{
@@ -89,4 +94,5 @@ use gpui::App;
 pub fn init(cx: &mut App) {
     actions::bind_keys(cx);
     ext::keys::init(cx);
+    completion::init(cx);
 }

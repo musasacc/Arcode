@@ -27,6 +27,8 @@ pub const CONFIG_FILE_NAME: &str = "config.toml";
 pub const THEMES_DIR_NAME: &str = "themes";
 /// File name of the persisted application state.
 pub const STATE_FILE_NAME: &str = "state.toml";
+/// File name (inside the config dir) of the user's snippets.
+pub const SNIPPETS_FILE_NAME: &str = "snippets.toml";
 
 /// The configuration directory: `$ARCODE_CONFIG_DIR`, else
 /// `dirs::config_dir()/arcode`. `None` if no home/config dir is known.
@@ -52,6 +54,16 @@ pub fn themes_dir() -> Option<PathBuf> {
 /// Path of `state.toml` inside [`data_dir`].
 pub fn state_file() -> Option<PathBuf> {
     data_dir().map(|dir| state_file_in(&dir))
+}
+
+/// Path of the user's `snippets.toml` inside [`config_dir`].
+pub fn snippets_file() -> Option<PathBuf> {
+    config_dir().map(|dir| snippets_file_in(&dir))
+}
+
+/// `snippets.toml` inside an explicit configuration root.
+pub fn snippets_file_in(config_root: &Path) -> PathBuf {
+    config_root.join(SNIPPETS_FILE_NAME)
 }
 
 /// `config.toml` inside an explicit configuration root.

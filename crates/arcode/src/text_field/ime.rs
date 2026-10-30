@@ -84,9 +84,11 @@ impl EntityInputHandler for TextField {
     ) -> Option<Bounds<Pixels>> {
         let (line, bounds) = self.layout.as_ref()?;
         let range = self.range_from_utf16(&range);
+        let start = range.start.saturating_sub(self.layout_start);
+        let end = range.end.saturating_sub(self.layout_start);
         Some(Bounds::from_corners(
-            point(bounds.left() + line.x_for_index(range.start), bounds.top()),
-            point(bounds.left() + line.x_for_index(range.end), bounds.bottom()),
+            point(bounds.left() + line.x_for_index(start), bounds.top()),
+            point(bounds.left() + line.x_for_index(end), bounds.bottom()),
         ))
     }
 
@@ -98,6 +100,6 @@ impl EntityInputHandler for TextField {
     ) -> Option<usize> {
         let (line, bounds) = self.layout.as_ref()?;
         let index = line.index_for_x(p.x - bounds.left())?;
-        Some(self.offset_to_utf16(index))
+        Some(self.offset_to_utf16(self.layout_start + index))
     }
 }

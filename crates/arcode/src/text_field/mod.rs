@@ -1,4 +1,5 @@
-//! A minimal single-line text input (used by the file finder).
+//! A minimal text input: single-line (file finder, prompts) or, with
+//! [`TextField::multiline`], a small multi-line box (commit messages).
 //!
 //! Supports typing (including IME through `EntityInputHandler`), cursor
 //! movement, selection with shift, select-all and clipboard. Offsets are
@@ -66,6 +67,10 @@ pub struct TextField {
     reversed: bool,
     marked: Option<Range<usize>>,
     layout: Option<(ShapedLine, Bounds<Pixels>)>,
+    /// Byte offset where the line in `layout` starts (multi-line mode).
+    layout_start: usize,
+    /// Multi-line mode state; `None` for a single-line field.
+    multi: Option<multiline::MultiState>,
 }
 
 impl EventEmitter<TextChanged> for TextField {}
@@ -87,6 +92,8 @@ impl TextField {
             reversed: false,
             marked: None,
             layout: None,
+            layout_start: 0,
+            multi: None,
         }
     }
 
@@ -143,7 +150,11 @@ impl TextField {
     }
 
     fn replace(&mut self, range: Range<usize>, new: &str, cx: &mut Context<Self>) {
-        let new: String = new.chars().filter(|c| *c != '\n' && *c != '\r').collect();
+        let multi = self.multi.is_some();
+        let new: String = new
+            .chars()
+            .filter(|c| *c != '\r' && (multi || *c != '\n'))
+            .collect();
         self.text.replace_range(range.clone(), &new);
         let end = range.start + new.len();
         self.selection = end..end;
@@ -202,11 +213,11 @@ impl TextField {
     }
 
     fn home(&mut self, _: &Home, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_to(0, cx);
+        self.move_to(self.line_bounds(self.cursor()).start, cx);
     }
 
     fn end(&mut self, _: &End, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_to(self.text.len(), cx);
+        self.move_to(self.line_bounds(self.cursor()).end, cx);
     }
 
     fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
@@ -253,6 +264,10 @@ impl TextField {
     }
 
     fn paint_text(this: Entity<Self>, bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
+        if this.read(cx).multi.is_some() {
+            Self::paint_lines(this, bounds, window, cx);
+            return;
+        }
         let c = theme(cx).colors.clone();
         let field = this.read(cx);
         let focus = field.focus_handle.clone();
@@ -333,15 +348,19 @@ impl TextField {
             ));
         }
         window.handle_input(&focus, ElementInputHandler::new(bounds, this.clone()), cx);
-        this.update(cx, |field, _| field.layout = Some((line, bounds)));
+        this.update(cx, |field, _| {
+            field.layout = Some((line, bounds));
+            field.layout_start = 0;
+        });
     }
 }
 
 impl Render for TextField {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity();
+        let multi = self.multi.is_some();
         div()
-            .key_context(CONTEXT)
+            .key_context(if multi { MULTILINE_CONTEXT } else { CONTEXT })
             .track_focus(&self.focus_handle)
             .cursor_text()
             .flex_1()
@@ -358,6 +377,7 @@ impl Render for TextField {
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::cut))
+            .when(multi, |el| self.multiline_actions(el, cx))
             .child(
                 canvas(
                     |_, _, _| {},
@@ -372,3 +392,6 @@ impl Render for TextField {
 mod tests;
 
 mod ime;
+mod multiline;
+
+pub use multiline::{MULTILINE_CONTEXT, bind_multiline_keys};

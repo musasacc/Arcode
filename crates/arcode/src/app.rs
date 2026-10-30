@@ -117,6 +117,7 @@ pub fn run() {
             actions::bind_keys(cx);
             prompt::init(cx);
             text_field::bind_keys(cx);
+            text_field::bind_multiline_keys(cx);
             finder::bind_keys(cx);
             path_prompt::bind_keys(cx);
             sidebar::file_tree::bind_keys(cx);

@@ -95,7 +95,9 @@ pub fn is_skipped_dir(name: &str) -> bool {
     SKIPPED_DIRS.contains(&name)
 }
 
-fn walker(dir: &Path) -> WalkBuilder {
+/// A directory walker that respects `.gitignore` and skips
+/// [`is_skipped_dir`] folders.
+pub(crate) fn walker(dir: &Path) -> WalkBuilder {
     let mut builder = WalkBuilder::new(dir);
     builder
         .hidden(false)
