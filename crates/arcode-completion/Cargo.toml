@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 arcode-buffer.workspace = true
 nucleo-matcher = "0.3"
+regex = "1"
 serde.workspace = true
 toml.workspace = true
 anyhow.workspace = true

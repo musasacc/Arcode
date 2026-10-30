@@ -209,11 +209,11 @@ impl TextField {
         self.replace(self.selection.clone(), "", cx);
     }
 
-    fn to_utf16(&self, offset: usize) -> usize {
+    fn offset_to_utf16(&self, offset: usize) -> usize {
         self.text[..offset.min(self.text.len())].encode_utf16().count()
     }
 
-    fn from_utf16(&self, offset: usize) -> usize {
+    fn offset_from_utf16(&self, offset: usize) -> usize {
         let mut units = 0;
         for (i, c) in self.text.char_indices() {
             if units >= offset {
@@ -225,11 +225,11 @@ impl TextField {
     }
 
     fn range_from_utf16(&self, r: &Range<usize>) -> Range<usize> {
-        self.from_utf16(r.start)..self.from_utf16(r.end)
+        self.offset_from_utf16(r.start)..self.offset_from_utf16(r.end)
     }
 
     fn range_to_utf16(&self, r: &Range<usize>) -> Range<usize> {
-        self.to_utf16(r.start)..self.to_utf16(r.end)
+        self.offset_to_utf16(r.start)..self.offset_to_utf16(r.end)
     }
 
     fn paint_text(this: Entity<Self>, bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
@@ -368,7 +368,7 @@ impl EntityInputHandler for TextField {
             .unwrap_or(self.selection.clone());
         self.replace(range.clone(), text, cx);
         let len = self.text.len().min(range.start + text.len());
-        self.marked = (!text.is_empty()).then(|| range.start..len);
+        self.marked = (!text.is_empty()).then_some(range.start..len);
         if let Some(sel) = selected {
             let a = (range.start + sel.start).min(self.text.len());
             let b = (range.start + sel.end).min(self.text.len());
@@ -399,7 +399,7 @@ impl EntityInputHandler for TextField {
     ) -> Option<usize> {
         let (line, bounds) = self.layout.as_ref()?;
         let index = line.index_for_x(p.x - bounds.left())?;
-        Some(self.to_utf16(index))
+        Some(self.offset_to_utf16(index))
     }
 }
 
@@ -445,8 +445,8 @@ mod tests {
         field.update(cx, |f, cx| {
             f.replace(0..0, "aé😀b", cx);
             assert_eq!(f.text(), "aé😀b");
-            assert_eq!(f.to_utf16(f.text.len()), 5);
-            assert_eq!(f.from_utf16(3), "aé".len());
+            assert_eq!(f.offset_to_utf16(f.text.len()), 5);
+            assert_eq!(f.offset_from_utf16(3), "aé".len());
             let end = f.text.len();
             assert_eq!(f.prev_boundary(end - 1), "aé".len());
             f.selection = 1..1;
