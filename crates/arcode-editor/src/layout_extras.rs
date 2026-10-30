@@ -169,14 +169,23 @@ impl Editor {
 fn lens_hits(snap: &LayoutSnapshot) -> Vec<LensHit> {
     let lh = snap.line_height;
     let left = snap.text_left();
+    let clip = snap.text_bounds;
     let mut hits = Vec::new();
+    // Lens text is painted under the text area's content mask, so a hit
+    // box only covers the part of an item that is actually visible: an
+    // item scrolled under the gutter or past the scrollbar must not take
+    // clicks meant for them.
     let mut push = |items: &[ExtraItem], top: Pixels| {
         for item in items {
             if let Some(target) = &item.target {
-                hits.push(LensHit {
-                    bounds: Bounds::new(point(left + item.x, top), size(item.shaped.width, lh)),
-                    target: target.clone(),
-                });
+                let full = Bounds::new(point(left + item.x, top), size(item.shaped.width, lh));
+                let bounds = full.intersect(&clip);
+                if bounds.size.width > Pixels::ZERO && bounds.size.height > Pixels::ZERO {
+                    hits.push(LensHit {
+                        bounds,
+                        target: target.clone(),
+                    });
+                }
             }
         }
     };
