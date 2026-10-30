@@ -16,7 +16,10 @@ impl Plugin for SpinCancellable {
             }
             rounds += 1;
             if host::cancelled() {
-                host::log(host::Level::Info, &format!("cancelled after {rounds} rounds"));
+                host::log(
+                    host::Level::Info,
+                    &format!("cancelled after {rounds} rounds"),
+                );
                 return Err(Error::msg("cancelled"));
             }
         }

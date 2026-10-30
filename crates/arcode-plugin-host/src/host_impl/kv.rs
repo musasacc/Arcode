@@ -1,19 +1,27 @@
 //! `arcode:plugin/kv`: keys are 1..=128 bytes of printable ASCII, and each
 //! (plugin, scope) holds at most [`KV_QUOTA_BYTES`] of keys plus values.
 //!
-//! Kept in memory per plugin (it survives instance restarts); writing it to
-//! `<data_dir>/arcode/plugin-data/<id>/{global,<hash>}.kv` is plan step 6.
+//! A scope is read from its file on first use (never at startup) and kept
+//! in memory per plugin, so it survives instance restarts. Changes are
+//! written back once per call ([`KvStore::flush`], called when a call
+//! returns) rather than on every `set`. Without a file (no data dir, or
+//! project scope with no project open) a scope lives for the session only.
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use crate::bindings::arcode::plugin::kv::{self as wit, KvError, Scope};
 use crate::cancel::lock;
+use crate::kv_file;
+use crate::paths::PluginPaths;
 use crate::state::HostState;
 
 /// Bytes of keys plus values per scope.
 pub const KV_QUOTA_BYTES: usize = 1024 * 1024;
 /// Longest key.
 pub const MAX_KEY_BYTES: usize = 128;
+/// Largest kv file read (quota plus framing).
+const MAX_FILE_BYTES: u64 = 2 * KV_QUOTA_BYTES as u64;
 
 /// One scope's entries.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -23,6 +31,11 @@ pub struct KvScope {
 }
 
 impl KvScope {
+    fn from_entries(entries: BTreeMap<String, Vec<u8>>) -> Self {
+        let bytes = entries.iter().map(|(k, v)| k.len() + v.len()).sum();
+        Self { entries, bytes }
+    }
+
     /// Value of `key`.
     pub fn get(&self, key: &str) -> Option<&[u8]> {
         self.entries.get(key).map(Vec::as_slice)
@@ -43,10 +56,14 @@ impl KvScope {
         Ok(())
     }
 
-    /// Removes `key`.
-    pub fn delete(&mut self, key: &str) {
-        if let Some(v) = self.entries.remove(key) {
-            self.bytes -= key.len() + v.len();
+    /// Removes `key`; true if it existed.
+    pub fn delete(&mut self, key: &str) -> bool {
+        match self.entries.remove(key) {
+            Some(v) => {
+                self.bytes -= key.len() + v.len();
+                true
+            }
+            None => false,
         }
     }
 
@@ -65,21 +82,142 @@ impl KvScope {
     }
 }
 
-/// Both scopes of one plugin.
+/// Where a plugin's two scopes are stored.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct KvFiles {
+    /// `scope::global`; `None`: session only.
+    pub global: Option<PathBuf>,
+    /// `scope::project`; `None`: session only.
+    pub project: Option<PathBuf>,
+}
+
+impl KvFiles {
+    /// No files: both scopes live for the session only.
+    pub fn none() -> Self {
+        Self::default()
+    }
+
+    /// The §3 locations for `plugin` and the open project (if any).
+    pub fn for_plugin(paths: &PluginPaths, plugin: &str, project_root: Option<&Path>) -> Self {
+        Self {
+            global: Some(paths.kv_file(plugin, None)),
+            project: project_root.map(|root| paths.kv_file(plugin, Some(root))),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct Slot {
+    scope: KvScope,
+    file: Option<PathBuf>,
+    loaded: bool,
+    dirty: bool,
+}
+
+impl Slot {
+    fn load(&mut self) -> &mut KvScope {
+        if !self.loaded {
+            self.loaded = true;
+            if let Some(file) = &self.file {
+                self.scope = read_scope(file);
+            }
+        }
+        &mut self.scope
+    }
+
+    fn flush(&mut self) {
+        let (Some(file), true) = (&self.file, self.dirty) else {
+            return;
+        };
+        self.dirty = false;
+        if let Err(e) = kv_file::write_atomic(file, &kv_file::encode(&self.scope.entries)) {
+            log::warn!("cannot save plugin data {}: {e}", file.display());
+        }
+    }
+}
+
+fn read_scope(file: &Path) -> KvScope {
+    let bytes = match kv_file::read(file, MAX_FILE_BYTES) {
+        Ok(Some(b)) => b,
+        Ok(None) => return KvScope::default(),
+        Err(e) => {
+            log::warn!("cannot read plugin data {}: {e}", file.display());
+            return KvScope::default();
+        }
+    };
+    match kv_file::decode(&bytes, valid_key, KV_QUOTA_BYTES) {
+        Ok(entries) => KvScope::from_entries(entries),
+        Err(e) => {
+            log::warn!("ignoring damaged plugin data {}: {e}", file.display());
+            KvScope::default()
+        }
+    }
+}
+
+/// Both scopes of one plugin.
+#[derive(Debug, Default)]
 pub struct KvStore {
-    /// `scope::global`.
-    pub global: KvScope,
-    /// `scope::project` (the open project).
-    pub project: KvScope,
+    global: Slot,
+    project: Slot,
 }
 
 impl KvStore {
-    fn scope(&mut self, scope: Scope) -> &mut KvScope {
+    /// A store backed by `files` (read lazily).
+    pub fn new(files: KvFiles) -> Self {
+        Self {
+            global: Slot {
+                file: files.global,
+                ..Slot::default()
+            },
+            project: Slot {
+                file: files.project,
+                ..Slot::default()
+            },
+        }
+    }
+
+    fn slot(&mut self, scope: Scope) -> &mut Slot {
         match scope {
             Scope::Global => &mut self.global,
             Scope::Project => &mut self.project,
         }
+    }
+
+    /// Value of `key` in `scope`.
+    pub fn get(&mut self, scope: Scope, key: &str) -> Option<Vec<u8>> {
+        self.slot(scope).load().get(key).map(<[u8]>::to_vec)
+    }
+
+    /// Sets `key` in `scope`.
+    pub fn set(&mut self, scope: Scope, key: &str, value: Vec<u8>) -> Result<(), KvError> {
+        let slot = self.slot(scope);
+        slot.load().set(key, value)?;
+        slot.dirty = true;
+        Ok(())
+    }
+
+    /// Removes `key` from `scope`.
+    pub fn delete(&mut self, scope: Scope, key: &str) {
+        let slot = self.slot(scope);
+        if slot.load().delete(key) {
+            slot.dirty = true;
+        }
+    }
+
+    /// Keys in `scope` starting with `prefix`.
+    pub fn keys(&mut self, scope: Scope, prefix: &str) -> Vec<String> {
+        self.slot(scope).load().keys(prefix)
+    }
+
+    /// Bytes used in `scope`.
+    pub fn bytes(&mut self, scope: Scope) -> usize {
+        self.slot(scope).load().bytes()
+    }
+
+    /// Writes changed scopes to their files.
+    pub fn flush(&mut self) {
+        self.global.flush();
+        self.project.flush();
     }
 }
 
@@ -89,49 +227,28 @@ fn valid_key(key: &str) -> bool {
 
 impl wit::Host for HostState {
     fn get(&mut self, scope: Scope, key: String) -> wasmtime::Result<Option<Vec<u8>>> {
-        let mut kv = lock(&self.ctx.shared.kv);
-        Ok(kv.scope(scope).get(&key).map(<[u8]>::to_vec))
+        Ok(lock(&self.ctx.shared.kv).get(scope, &key))
     }
 
-    fn set(&mut self, scope: Scope, key: String, value: Vec<u8>) -> wasmtime::Result<Result<(), KvError>> {
-        let mut kv = lock(&self.ctx.shared.kv);
-        Ok(kv.scope(scope).set(&key, value))
+    fn set(
+        &mut self,
+        scope: Scope,
+        key: String,
+        value: Vec<u8>,
+    ) -> wasmtime::Result<Result<(), KvError>> {
+        Ok(lock(&self.ctx.shared.kv).set(scope, &key, value))
     }
 
     fn delete(&mut self, scope: Scope, key: String) -> wasmtime::Result<()> {
-        lock(&self.ctx.shared.kv).scope(scope).delete(&key);
+        lock(&self.ctx.shared.kv).delete(scope, &key);
         Ok(())
     }
 
     fn keys(&mut self, scope: Scope, prefix: String) -> wasmtime::Result<Vec<String>> {
-        Ok(lock(&self.ctx.shared.kv).scope(scope).keys(&prefix))
+        Ok(lock(&self.ctx.shared.kv).keys(scope, &prefix))
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn keys_and_quota() {
-        let mut s = KvScope::default();
-        assert_eq!(s.set("", vec![]), Err(KvError::InvalidKey));
-        assert_eq!(s.set("tab\t", vec![]), Err(KvError::InvalidKey));
-        assert_eq!(s.set(&"k".repeat(129), vec![]), Err(KvError::InvalidKey));
-        s.set("a/1", vec![0; 10]).unwrap();
-        s.set("a/2", vec![0; 10]).unwrap();
-        s.set("b", vec![]).unwrap();
-        assert_eq!(s.keys("a/"), ["a/1", "a/2"]);
-        assert_eq!(s.bytes(), 3 + 10 + 3 + 10 + 1);
-        let big = KV_QUOTA_BYTES - s.bytes() - 1;
-        assert_eq!(s.set("c", vec![0; big + 1]), Err(KvError::QuotaExceeded));
-        s.set("c", vec![0; big]).unwrap();
-        assert_eq!(s.bytes(), KV_QUOTA_BYTES);
-        // Replacing a value frees the old one first.
-        s.set("c", vec![0; big]).unwrap();
-        s.delete("c");
-        s.delete("missing");
-        assert_eq!(s.bytes(), 27);
-        assert_eq!(s.get("a/1").map(<[u8]>::len), Some(10));
-    }
-}
+#[path = "kv_tests.rs"]
+mod tests;

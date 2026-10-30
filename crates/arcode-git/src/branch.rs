@@ -74,25 +74,37 @@ fn parse_track(track: &str) -> (usize, usize) {
 
 /// Switches the working tree to the existing local branch `name`.
 ///
+/// `name` must be a branch name exactly as listed by [`branches`]:
+/// revision expressions such as `main~1`, `main^` or `main@{1}` are
+/// rejected with [`GitError::BranchNotFound`] and HEAD is never detached.
 /// Never creates a branch from a remote-tracking one (`--no-guess`) and
 /// never fetches: in a partial clone whose needed objects are missing
 /// locally this fails with [`GitError::NetworkRequired`]. Local changes
 /// that would be overwritten make git refuse ([`GitError::Command`]).
 pub fn checkout_branch(repo: &Repo, name: &str) -> GitResult<()> {
-    let refname = format!("refs/heads/{name}");
-    let valid = !name.is_empty() && !name.starts_with('-');
-    let exists = valid
-        && exec(
-            repo,
-            &["rev-parse", "--verify", "--quiet", refname.as_str()],
-            None,
-        )
-        .is_ok();
-    if !exists {
+    if !is_local_branch(repo, name) {
         return Err(GitError::BranchNotFound(name.to_owned()));
     }
-    let args = ["checkout", "-q", "--no-guess", name, "--"];
+    // `switch` only accepts branches (no implicit detach), unlike `checkout`.
+    let args = ["switch", "-q", "--no-guess", name];
     exec(repo, &args, None).map(drop).map_err(network_error)
+}
+
+/// True when `refs/heads/<name>` is a well-formed ref that exists exactly
+/// (no revision syntax, no `@{-N}` shorthand, no abbreviation).
+fn is_local_branch(repo: &Repo, name: &str) -> bool {
+    if name.is_empty() || name.starts_with('-') {
+        return false;
+    }
+    let refname = format!("refs/heads/{name}");
+    let well_formed = exec(repo, &["check-ref-format", refname.as_str()], None).is_ok();
+    well_formed
+        && exec(
+            repo,
+            &["show-ref", "--verify", "--quiet", refname.as_str()],
+            None,
+        )
+        .is_ok()
 }
 
 /// git's messages when a missing object could only come from a remote.

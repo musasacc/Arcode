@@ -12,7 +12,7 @@ use crate::bindings::PluginWorld;
 use crate::bindings::guest::Activation;
 use crate::budget::Interrupt;
 use crate::cancel::CancelToken;
-use crate::dispatch::{Call, CallOutput, CallResult, CallError, Dispatch};
+use crate::dispatch::{Call, CallError, CallOutput, CallResult, Dispatch};
 use crate::limits::Limiter;
 use crate::output::PluginOutput;
 use crate::state::{CallState, HostState, InstanceCtx};
@@ -89,6 +89,7 @@ impl Live {
         let stats = &data.ctx.shared.stats;
         let peak = u64::try_from(data.limiter.peak_memory()).unwrap_or(u64::MAX);
         stats.peak_memory.fetch_max(peak, Ordering::SeqCst);
+        crate::cancel::lock(&data.ctx.shared.kv).flush();
         if data.call.task_started {
             data.ctx.output(PluginOutput::TaskFinished {
                 plugin: data.ctx.manifest.id().clone(),
@@ -125,9 +126,16 @@ impl Live {
     }
 
     /// `activate(reason)`.
-    pub fn activate(&mut self, reason: &Activation, budget: Duration, cancel: &CancelToken) -> Result<(), Failure> {
+    pub fn activate(
+        &mut self,
+        reason: &Activation,
+        budget: Duration,
+        cancel: &CancelToken,
+    ) -> Result<(), Failure> {
         let call = CallState::new(0, false, budget, None, cancel.clone());
-        let r = self.run(call, |w, s| w.arcode_plugin_guest().call_activate(s, reason))?;
+        let r = self.run(call, |w, s| {
+            w.arcode_plugin_guest().call_activate(s, reason)
+        })?;
         r.map_err(Failure::Guest)
     }
 
@@ -145,20 +153,25 @@ impl Live {
         let done = |r: Result<(), String>| r.map(|()| CallOutput::Done).map_err(Failure::Guest);
         match &d.call {
             Call::Command { command, args } => done(self.run(call, |w, s| {
-                w.arcode_plugin_guest().call_handle_command(s, command, args)
+                w.arcode_plugin_guest()
+                    .call_handle_command(s, command, args)
             })?),
             Call::CodeLenses(doc) => self
-                .run(call, |w, s| w.arcode_plugin_guest().call_provide_code_lenses(s, doc))
+                .run(call, |w, s| {
+                    w.arcode_plugin_guest().call_provide_code_lenses(s, doc)
+                })
                 .map(CallOutput::Lenses),
             Call::OpenView {
                 panel,
                 contribution,
                 args,
             } => done(self.run(call, |w, s| {
-                w.arcode_plugin_guest().call_open_view(s, *panel, contribution, args)
+                w.arcode_plugin_guest()
+                    .call_open_view(s, *panel, contribution, args)
             })?),
             Call::UiEvent { panel, event } => done(self.run(call, |w, s| {
-                w.arcode_plugin_guest().call_handle_ui_event(s, *panel, event)
+                w.arcode_plugin_guest()
+                    .call_handle_ui_event(s, *panel, event)
             })?),
             Call::FetchRows {
                 panel,
@@ -167,12 +180,16 @@ impl Live {
                 count,
             } => self
                 .run(call, |w, s| {
-                    w.arcode_plugin_guest().call_fetch_rows(s, *panel, *table, *start, *count)
+                    w.arcode_plugin_guest()
+                        .call_fetch_rows(s, *panel, *table, *start, *count)
                 })?
+                .and_then(|page| crate::rows::check_page(page, *start, *count))
                 .map(CallOutput::Rows)
                 .map_err(Failure::Guest),
             Call::ViewClosed(panel) => self
-                .run(call, |w, s| w.arcode_plugin_guest().call_view_closed(s, *panel))
+                .run(call, |w, s| {
+                    w.arcode_plugin_guest().call_view_closed(s, *panel)
+                })
                 .map(|()| CallOutput::Done),
         }
     }

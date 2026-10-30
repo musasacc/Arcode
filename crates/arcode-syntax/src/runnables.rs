@@ -11,14 +11,23 @@
 //!   test class, a JS `describe(...)` block). Every scope strictly enclosing
 //!   a runnable contributes to its [`RunnableItem::scope_path`]. One pattern
 //!   may capture both `@scope` and `@run` (a `describe` block is both).
+//! - an item preceded by attributes (Rust `#[test] fn`) is matched through
+//!   the attribute: the pattern captures it as `@anchor` (no `@run`, no
+//!   `@name`) and sets `target`, `skip` and optionally `require`; the item
+//!   is the first sibling after the attribute run (see `src/anchor.rs`) and
+//!   its name is the item's `name` field.
 //! - when several patterns match the same `@run` node, the later one wins.
+//! - `@name` captures of string literals keep their inner whitespace and lose
+//!   their quotes; other names have whitespace runs collapsed.
 
 use std::ops::Range;
 
 use ropey::Rope;
 
 use crate::Syntax;
-use crate::query_match::{compact_text, matches, property, strictly_contains, unquote};
+use crate::anchor::{self, Anchor};
+use crate::query_match::{matches, name_text, property, strictly_contains};
+use crate::rope_text::line_of_byte;
 
 /// What a [`RunnableItem`] runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -72,10 +81,18 @@ impl RunnableItem {
     }
 }
 
+/// A runnable found by the query, before scopes are assigned.
 struct Found {
     range: Range<usize>,
     pattern: usize,
     item: RunnableItem,
+}
+
+/// A runnable whose node is the item after an `@anchor` (see [`anchor`](crate::anchor)).
+struct Pending {
+    pattern: usize,
+    kind: RunnableKind,
+    fixed_name: Option<String>,
 }
 
 impl Syntax {
@@ -85,19 +102,20 @@ impl Syntax {
     /// Returns an empty `Vec` for languages without a runnables query.
     /// Cost is linear in the file size (about 150 ms for 100k lines of Rust
     /// in release), so cache the result per parse and, for big files, call
-    /// it off the UI thread.
+    /// it off the UI thread. [`RunnableItem::line`] is a rope line (ropey's
+    /// line breaks, like [`Syntax::highlight_lines`]).
     /// `text` must be the text this tree was last parsed from.
     pub fn runnables(&self, text: &Rope) -> Vec<RunnableItem> {
         let Some(query) = self.language().runnables_query() else {
             return Vec::new();
         };
+        let root = self.tree().root_node();
         let mut found: Vec<Found> = Vec::new();
         let mut scopes: Vec<(Range<usize>, String)> = Vec::new();
-        for matched in matches(query, self.tree().root_node(), text) {
-            let parts: Vec<String> = matched
-                .nodes("name")
-                .map(|node| unquote(&compact_text(text, node)).to_string())
-                .collect();
+        let mut anchors: Vec<Anchor<'_>> = Vec::new();
+        let mut pending: Vec<Pending> = Vec::new();
+        for matched in matches(query, root, text) {
+            let parts: Vec<String> = matched.nodes("name").map(|n| name_text(text, n)).collect();
             let join = property(query, matched.pattern, "join").unwrap_or(" ");
             let name = (!parts.is_empty()).then(|| parts.join(join));
             if let Some(scope) = matched.node("scope")
@@ -105,25 +123,41 @@ impl Syntax {
             {
                 scopes.push((scope.byte_range(), name.clone()));
             }
-            let Some(run) = matched.node("run") else {
+            let Some(kind) =
+                property(query, matched.pattern, "kind").and_then(RunnableKind::from_query_name)
+            else {
                 continue;
             };
-            let kind =
-                property(query, matched.pattern, "kind").and_then(RunnableKind::from_query_name);
             let fixed = property(query, matched.pattern, "name").map(str::to_string);
-            let (Some(kind), Some(name)) = (kind, name.or(fixed)) else {
+            if let Some(anchor) = matched.node("anchor") {
+                anchors.push(Anchor {
+                    node: anchor,
+                    pattern: matched.pattern,
+                });
+                pending.push(Pending {
+                    pattern: matched.pattern,
+                    kind,
+                    fixed_name: name.or(fixed),
+                });
+                continue;
+            }
+            let (Some(run), Some(name)) = (matched.node("run"), name.or(fixed)) else {
                 continue;
             };
-            found.push(Found {
-                range: run.byte_range(),
-                pattern: matched.pattern,
-                item: RunnableItem {
-                    line: run.start_position().row,
-                    kind,
-                    name,
-                    scope_path: Vec::new(),
-                },
+            found.push(new_found(text, run, matched.pattern, kind, name));
+        }
+        let targets = anchor::resolve(query, root, &anchors);
+        for (target, pending) in targets.into_iter().zip(pending) {
+            let Some(run) = target else {
+                continue;
+            };
+            let name = pending.fixed_name.or_else(|| {
+                run.child_by_field_name("name")
+                    .map(|node| name_text(text, node))
             });
+            if let Some(name) = name {
+                found.push(new_found(text, run, pending.pattern, pending.kind, name));
+            }
         }
         found.sort_by(|a, b| {
             (a.range.start, b.range.end, a.pattern).cmp(&(b.range.start, a.range.end, b.pattern))
@@ -136,20 +170,59 @@ impl Syntax {
                 _ => items.push(next),
             }
         }
-        scopes.sort_by_key(|(range, _)| (range.start, std::cmp::Reverse(range.end)));
-        items
-            .into_iter()
-            .map(|found| {
-                let mut item = found.item;
-                item.scope_path = scopes
-                    .iter()
-                    .filter(|(scope, _)| strictly_contains(scope, &found.range))
-                    .map(|(_, name)| name.clone())
-                    .collect();
-                item
-            })
-            .collect()
+        assign_scopes(&mut items, scopes);
+        items.into_iter().map(|found| found.item).collect()
     }
+}
+
+fn new_found(
+    text: &Rope,
+    run: tree_sitter::Node<'_>,
+    pattern: usize,
+    kind: RunnableKind,
+    name: String,
+) -> Found {
+    Found {
+        range: run.byte_range(),
+        pattern,
+        item: RunnableItem {
+            line: line_of_byte(text, run.start_byte()),
+            kind,
+            name,
+            scope_path: Vec::new(),
+        },
+    }
+}
+
+/// Sets each item's `scope_path` to the scopes strictly enclosing it, in
+/// one stack walk. `items` must be sorted by start ascending, end
+/// descending. Scopes with the same range (one node matched by several
+/// scope patterns) count once.
+fn assign_scopes(items: &mut [Found], mut scopes: Vec<(Range<usize>, String)>) {
+    scopes.sort_by_key(|(range, _)| (range.start, std::cmp::Reverse(range.end)));
+    scopes.dedup_by(|next, prev| next.0 == prev.0);
+    let mut scopes = scopes.into_iter().peekable();
+    let mut open: Vec<(Range<usize>, String)> = Vec::new();
+    for found in items {
+        let key = (found.range.start, std::cmp::Reverse(found.range.end));
+        while let Some(scope) = scopes.next_if(|(r, _)| (r.start, std::cmp::Reverse(r.end)) < key) {
+            while open.last().is_some_and(|(r, _)| !contains(r, &scope.0)) {
+                open.pop();
+            }
+            open.push(scope);
+        }
+        while open
+            .last()
+            .is_some_and(|(r, _)| !strictly_contains(r, &found.range))
+        {
+            open.pop();
+        }
+        found.item.scope_path = open.iter().map(|(_, name)| name.clone()).collect();
+    }
+}
+
+fn contains(outer: &Range<usize>, inner: &Range<usize>) -> bool {
+    outer.start <= inner.start && inner.end <= outer.end
 }
 
 #[cfg(test)]

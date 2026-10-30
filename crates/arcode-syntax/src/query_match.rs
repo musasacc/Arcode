@@ -79,6 +79,25 @@ pub(crate) fn compact_text(text: &Rope, node: Node<'_>) -> String {
     raw.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// The display name of a `@name` node. String literals lose their quotes
+/// and keep their inner whitespace (a JS test title must match the real
+/// title exactly); other nodes have whitespace runs collapsed.
+pub(crate) fn name_text(text: &Rope, node: Node<'_>) -> String {
+    if is_string_literal(node.kind()) {
+        let raw = text_of(text, node.byte_range());
+        return unquote(&raw).to_string();
+    }
+    compact_text(text, node)
+}
+
+/// Whether `kind` is a quoted string literal node in one of our grammars.
+fn is_string_literal(kind: &str) -> bool {
+    matches!(
+        kind,
+        "string" | "template_string" | "string_literal" | "interpreted_string_literal"
+    )
+}
+
 /// Strips one pair of matching string quotes (`"`, `'` or `` ` ``).
 pub(crate) fn unquote(name: &str) -> &str {
     for quote in ['"', '\'', '`'] {

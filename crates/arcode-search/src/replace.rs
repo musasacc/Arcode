@@ -26,9 +26,9 @@ pub struct ChangedFile {
 /// Why [`replace_all`] left a matching file alone.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SkipReason {
-    /// Not valid UTF-8 (e.g. Latin-1 or UTF-16).
+    /// Not valid UTF-8 (e.g. Latin-1, or UTF-16/32 with a BOM).
     NotUtf8,
-    /// Contains NUL bytes.
+    /// Contains NUL bytes (and no UTF-16/32 BOM).
     Binary,
     /// Reading or writing failed.
     Io(String),
@@ -74,8 +74,9 @@ pub fn replace_in_text(
 }
 
 /// Replace matches of `query` in the file at `path` and write it back if
-/// anything changed. Fails with [`SearchError::NotUtf8`] or
-/// [`SearchError::Binary`] instead of touching such files.
+/// anything changed. Fails with [`SearchError::NotUtf8`] (including
+/// UTF-16/32 files with a BOM) or [`SearchError::Binary`] (NUL bytes)
+/// instead of touching such files.
 pub fn replace_in_file(
     path: &Path,
     query: &SearchQuery,
@@ -149,6 +150,11 @@ fn replace_file_with(
     only_lines: Option<&[usize]>,
 ) -> Result<usize> {
     let bytes = std::fs::read(path).map_err(|e| SearchError::io(path, e))?;
+    // UTF-16/32 text is full of NUL bytes but is text, not binary. Its BOM
+    // can never start valid UTF-8, so checking it first is safe.
+    if has_wide_bom(&bytes) {
+        return Err(SearchError::NotUtf8(path.to_path_buf()));
+    }
     if bytes.contains(&0) {
         return Err(SearchError::Binary(path.to_path_buf()));
     }
@@ -158,6 +164,13 @@ fn replace_file_with(
         std::fs::write(path, new_text).map_err(|e| SearchError::io(path, e))?;
     }
     Ok(count)
+}
+
+/// Starts with a UTF-16 (LE/BE) or UTF-32 (LE/BE) byte order mark.
+fn has_wide_bom(bytes: &[u8]) -> bool {
+    bytes.starts_with(&[0xFF, 0xFE])
+        || bytes.starts_with(&[0xFE, 0xFF])
+        || bytes.starts_with(&[0x00, 0x00, 0xFE, 0xFF])
 }
 
 fn replace_with(

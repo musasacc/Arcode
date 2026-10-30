@@ -1,50 +1,55 @@
-//! `arcode:plugin/ui`: panel bookkeeping and size caps. Views and patches
-//! are forwarded to the app as [`PluginOutput`]s; full `PanelTree`
-//! validation (dangling ids, cycles, child counts, depth) is plan step 8.
+//! `arcode:plugin/ui`: panel bookkeeping plus [`PanelTree`] validation on
+//! the plugin thread. Accepted views reach the app as
+//! [`PluginOutput::PanelView`] (an immutable snapshot plus what changed);
+//! refused ones change nothing and the plugin gets `invalid-tree` or
+//! `too-large`.
+
+use std::sync::Arc;
 
 use crate::bindings::PanelId;
-use crate::bindings::arcode::plugin::ui::{self as wit, Location, Patch, UiError, View, Widget};
+use crate::bindings::arcode::plugin::ui::{self as wit, Location, Patch, UiError, View};
 use crate::cancel::lock;
 use crate::output::PluginOutput;
 use crate::state::HostState;
+use crate::ui_tree::{Changes, PanelSnapshot, PanelTree, TreeError};
 
-/// Nodes per panel (§5 host caps).
-pub const MAX_NODES: usize = 20_000;
-/// String bytes per `render` / `apply-patches`.
-pub const MAX_STRING_BYTES: usize = 8 * 1024 * 1024;
-
-fn widget_bytes(w: &Widget) -> usize {
-    match w {
-        Widget::Stack(_) | Widget::Split(_) | Widget::Scroll | Widget::Divider | Widget::Spacer => 0,
-        Widget::Tabs(t) => t.titles.iter().map(String::len).sum(),
-        Widget::Text(t) => t.text.len(),
-        Widget::Badge(b) => b.text.len(),
-        Widget::Button(b) => b.label.len() + b.icon.as_ref().map_or(0, String::len),
-        Widget::Input(i) => {
-            i.value.len() + i.placeholder.len() + i.language.as_ref().map_or(0, String::len)
-        }
-        Widget::Select(s) => s.options.iter().map(String::len).sum(),
-        Widget::Checkbox(c) => c.label.len(),
-        Widget::KeyValues(kv) => kv.iter().map(|(k, v)| k.len() + v.len()).sum(),
-        Widget::Table(t) => t.columns.iter().map(|c| c.title.len()).sum(),
-        Widget::Tree(items) => items
-            .iter()
-            .map(|i| {
-                i.key.len()
-                    + i.label.len()
-                    + i.detail.as_ref().map_or(0, String::len)
-                    + i.icon.as_ref().map_or(0, String::len)
-            })
-            .sum(),
-        Widget::Code(c) => c.text.len() + c.language.as_ref().map_or(0, String::len),
-        Widget::Json(j) | Widget::Spinner(j) => j.len(),
-        Widget::EmptyState((a, b)) => a.len() + b.len(),
-    }
-}
+/// Longest panel title (bytes).
+const MAX_TITLE_BYTES: usize = 256;
 
 impl HostState {
     fn panel_is_open(&self, panel: PanelId) -> bool {
         lock(&self.ctx.shared.panels).contains_key(&panel)
+    }
+
+    /// Applies `f` to the panel's tree and forwards an accepted change to
+    /// the app. A refused change is logged and leaves the tree as it was.
+    fn update_tree(
+        &mut self,
+        panel: PanelId,
+        f: impl FnOnce(&mut PanelTree) -> Result<(Arc<PanelSnapshot>, Changes), TreeError>,
+    ) -> Result<(), UiError> {
+        if !self.panel_is_open(panel) {
+            return Err(UiError::NoSuchPanel);
+        }
+        let result = f(lock(&self.ctx.shared.trees).entry(panel).or_default());
+        match result {
+            Ok((snapshot, changes)) => {
+                self.ctx.output(PluginOutput::PanelView {
+                    plugin: self.ctx.manifest.id().clone(),
+                    panel,
+                    snapshot,
+                    changes,
+                });
+                Ok(())
+            }
+            Err(e) => {
+                self.ctx.shared.log.push(
+                    crate::bindings::Level::Warn,
+                    &format!("panel {panel}: view refused: {e}"),
+                );
+                Err(e.into())
+            }
+        }
     }
 }
 
@@ -56,7 +61,12 @@ impl wit::Host for HostState {
         location: Option<Location>,
     ) -> wasmtime::Result<Result<PanelId, UiError>> {
         let manifest = &self.ctx.manifest;
-        if !manifest.contributes.panels.iter().any(|p| p.id == contribution) {
+        if !manifest
+            .contributes
+            .panels
+            .iter()
+            .any(|p| p.id == contribution)
+        {
             return Ok(Err(UiError::UnknownContribution));
         }
         // "Opens (or focuses)": one panel per contribution.
@@ -76,48 +86,22 @@ impl wit::Host for HostState {
             plugin: manifest.id().clone(),
             panel,
             contribution: manifest.id().qualify(&contribution),
-            title: super::cap(title, 256),
+            title: super::cap(title, MAX_TITLE_BYTES),
             location,
         });
         Ok(Ok(panel))
     }
 
     fn render(&mut self, panel: PanelId, view: View) -> wasmtime::Result<Result<(), UiError>> {
-        if !self.panel_is_open(panel) {
-            return Ok(Err(UiError::NoSuchPanel));
-        }
-        let bytes: usize = view.nodes.iter().map(|n| widget_bytes(&n.widget)).sum();
-        if view.nodes.len() > MAX_NODES || bytes > MAX_STRING_BYTES {
-            return Ok(Err(UiError::TooLarge));
-        }
-        self.ctx.output(PluginOutput::Render {
-            plugin: self.ctx.manifest.id().clone(),
-            panel,
-            view,
-        });
-        Ok(Ok(()))
+        Ok(self.update_tree(panel, |tree| tree.render(view)))
     }
 
-    fn apply_patches(&mut self, panel: PanelId, patches: Vec<Patch>) -> wasmtime::Result<Result<(), UiError>> {
-        if !self.panel_is_open(panel) {
-            return Ok(Err(UiError::NoSuchPanel));
-        }
-        let bytes: usize = patches
-            .iter()
-            .map(|p| match p {
-                Patch::Upsert(n) => widget_bytes(&n.widget),
-                _ => 0,
-            })
-            .sum();
-        if patches.len() > MAX_NODES || bytes > MAX_STRING_BYTES {
-            return Ok(Err(UiError::TooLarge));
-        }
-        self.ctx.output(PluginOutput::Patches {
-            plugin: self.ctx.manifest.id().clone(),
-            panel,
-            patches,
-        });
-        Ok(Ok(()))
+    fn apply_patches(
+        &mut self,
+        panel: PanelId,
+        patches: Vec<Patch>,
+    ) -> wasmtime::Result<Result<(), UiError>> {
+        Ok(self.update_tree(panel, |tree| tree.apply(patches)))
     }
 
     fn set_title(&mut self, panel: PanelId, title: String) -> wasmtime::Result<()> {
@@ -125,14 +109,14 @@ impl wit::Host for HostState {
             self.ctx.output(PluginOutput::PanelTitle {
                 plugin: self.ctx.manifest.id().clone(),
                 panel,
-                title: super::cap(title, 256),
+                title: super::cap(title, MAX_TITLE_BYTES),
             });
         }
         Ok(())
     }
 
     fn close_panel(&mut self, panel: PanelId) -> wasmtime::Result<()> {
-        if lock(&self.ctx.shared.panels).remove(&panel).is_some() {
+        if self.ctx.shared.panel_closed(panel) {
             self.ctx.output(PluginOutput::PanelClosed {
                 plugin: self.ctx.manifest.id().clone(),
                 panel,

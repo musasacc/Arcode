@@ -144,25 +144,20 @@ impl Vim {
     }
 
     fn replace_chars(&mut self, c: char, n: usize, ed: &mut Ed) -> VimAction {
-        let heads = Self::heads(ed);
-        if heads
-            .iter()
-            .any(|&p| p + n > ed.b.line_end(line_of(ed.b, p)))
-        {
-            self.dot = None;
-            return VimAction::None;
+        // Each cursor replaces `n` grapheme clusters; all must fit.
+        let mut edits = Vec::new();
+        for p in Self::heads(ed) {
+            let Some(end) = grapheme_end(ed.b, p, n) else {
+                self.dot = None;
+                return VimAction::None;
+            };
+            let text = if c == '\n' {
+                "\n".to_string()
+            } else {
+                c.to_string().repeat(n)
+            };
+            edits.push((p..end, text));
         }
-        let edits = heads
-            .iter()
-            .map(|&p| {
-                let text = if c == '\n' {
-                    "\n".to_string()
-                } else {
-                    c.to_string().repeat(n)
-                };
-                (p..p + n, text)
-            })
-            .collect();
         let out = self.apply_edits(ed, edits);
         let cursors = out
             .into_iter()
@@ -175,7 +170,14 @@ impl Vim {
     fn toggle_chars(&mut self, n: usize, ed: &mut Ed) -> VimAction {
         let mut edits = Vec::new();
         for p in Self::heads(ed) {
-            let end = (p + n).min(ed.b.line_end(line_of(ed.b, p)));
+            let le = ed.b.line_end(line_of(ed.b, p));
+            let mut end = p;
+            for _ in 0..n {
+                if end >= le {
+                    break;
+                }
+                end = movement::right(ed.b, end).min(le);
+            }
             let text: String = ed.b.slice_to_string(p..end).chars().map(toggle).collect();
             edits.push((p..end, text));
         }
@@ -239,8 +241,28 @@ impl Vim {
                 }
             }
         }
+        // A block with nothing to join keeps its cursor (shifted by the
+        // other blocks' edits).
+        let heads = Self::heads(ed);
+        let mut stay: Vec<usize> = blocks
+            .iter()
+            .enumerate()
+            .map(|(i, &(first, _))| match heads.get(i) {
+                Some(&h) if heads.len() == blocks.len() => h,
+                _ => ed.b.line_start(first),
+            })
+            .collect();
+        let ranges: Vec<std::ops::Range<usize>> = edits.iter().map(|(r, _)| r.clone()).collect();
         let out = self.apply_edits(ed, edits);
-        let mut cursors = vec![0; blocks.len()];
+        for p in &mut stay {
+            let orig = *p;
+            for (r, &(s, e)) in ranges.iter().zip(&out) {
+                if r.end <= orig {
+                    *p = (*p + (e - s)).saturating_sub(r.len());
+                }
+            }
+        }
+        let mut cursors = stay;
         for (k, &i) in owner.iter().enumerate() {
             cursors[i] = out[k].0;
         }
@@ -316,4 +338,11 @@ impl Vim {
         self.set_cursors(ed, vec![clamp_normal(ed.b, cursor)]);
         VimAction::None
     }
+}
+
+/// End of the `n` grapheme clusters starting at `p`, if they all lie on
+/// `p`'s line.
+fn grapheme_end(b: &arcode_buffer::Buffer, p: usize, n: usize) -> Option<usize> {
+    let le = b.line_end(line_of(b, p));
+    (0..n).try_fold(p, |q, _| (q < le).then(|| movement::right(b, q).min(le)))
 }

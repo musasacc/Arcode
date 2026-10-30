@@ -119,7 +119,11 @@ fn push_line(ring: &mut Ring, source: LogSource, level: Level, text: &str) {
         text.truncate(cut);
     }
     ring.bytes += text.len();
-    ring.lines.push_back(LogLine { source, level, text });
+    ring.lines.push_back(LogLine {
+        source,
+        level,
+        text,
+    });
     while ring.bytes > LOG_CAP_BYTES {
         let Some(old) = ring.lines.pop_front() else {
             break;
@@ -140,7 +144,11 @@ mod tests {
         log.write_stream(LogSource::Stderr, b"err\n");
         log.write_stream(LogSource::Stdout, b"o\n");
         log.push(Level::Debug, "host");
-        let lines: Vec<_> = log.lines().into_iter().map(|l| (l.source, l.text)).collect();
+        let lines: Vec<_> = log
+            .lines()
+            .into_iter()
+            .map(|l| (l.source, l.text))
+            .collect();
         assert_eq!(
             lines,
             [

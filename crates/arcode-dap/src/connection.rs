@@ -103,7 +103,7 @@ impl Connection {
         command: &str,
         arguments: Option<Value>,
         timeout: Option<Duration>,
-    ) -> impl Future<Output = Result<Option<Value>>> + Send + 'static {
+    ) -> impl Future<Output = Result<Option<Value>>> + Send + use<> {
         let (tx, rx) = oneshot::channel();
         let seq = self.enqueue(command, arguments, tx);
         let conn = self.clone();

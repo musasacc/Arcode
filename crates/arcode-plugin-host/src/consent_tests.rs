@@ -13,7 +13,10 @@ fn manifest(capabilities: &str) -> Manifest {
 
 fn perms(answers: impl IntoIterator<Item = ConsentAnswer>) -> (Permissions, Arc<ScriptedConsent>) {
     let provider = Arc::new(ScriptedConsent::new(answers));
-    (Permissions::new(GrantStore::in_memory(true), provider.clone()), provider)
+    (
+        Permissions::new(GrantStore::in_memory(true), provider.clone()),
+        provider,
+    )
 }
 
 fn allow(scope: GrantScope, write: bool) -> ConsentAnswer {
@@ -77,7 +80,10 @@ fn deny_and_dismiss() {
 fn no_workspace_capability_never_prompts() {
     let m = manifest("editor = \"context\"");
     let (p, asked) = perms([]);
-    assert_eq!(p.file_grant(&m, "proj", true, &CancelToken::new()), FileGrant::None);
+    assert_eq!(
+        p.file_grant(&m, "proj", true, &CancelToken::new()),
+        FileGrant::None
+    );
     assert!(asked.asked().is_empty());
 }
 
@@ -92,8 +98,12 @@ fn network_check_per_host_and_master_switch() {
         host: host.into(),
         port: 443,
     };
-    let a = Capability::Network { host: "a.test".into() };
-    let b = Capability::Network { host: "b.test".into() };
+    let a = Capability::Network {
+        host: "a.test".into(),
+    };
+    let b = Capability::Network {
+        host: "b.test".into(),
+    };
     assert!(p.check(&m, None, &a, kind("a.test"), true, &token));
     assert!(p.check(&m, None, &a, kind("a.test"), true, &token));
     assert!(!p.check(&m, None, &b, kind("b.test"), true, &token));

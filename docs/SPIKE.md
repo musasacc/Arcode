@@ -168,3 +168,20 @@ not needed); `FsPerms` replaced `DirPerms`/`FilePerms`; guests import WASI
 semver-matched WASI; every component imports `arcode:plugin/{types,editor,ui}`
 because the exports use their types, while unused interfaces such as `http`
 are pruned, so the import check can rely on `http`.
+
+## Plugin engine, Steps 3-4 measurements
+
+Same VM, debug test build (`opt-level = 2` for dependencies), fixtures from
+`scripts/build-test-plugins.sh` (release, `opt-level = "s"`):
+
+| measure | result |
+|---|---|
+| fixture sizes | echo 270 KB, fs-escape 175 KB, sockets 220 KB, alloc-bomb 131 KB, crash 117 KB, stdout-flood 114 KB, spin 108 KB, undeclared-import 71 KB, spin-cancellable 69 KB, wasi-http 15 KB |
+| store caps a Rust fixture needs | 1 memory, 2 tables, 3 core instances (§5 defaults 2/8/16 kept) |
+| `spin`, 300 ms budget, wall time to trap | 312-330 ms (debug host build); up to ~380 ms while other builds load the VM (slices count guest time only) |
+| hard cancel, 200 ms grace | trap ~210 ms after cancel |
+| `spin-cancellable` | returns 0.15-0.4 ms after cancel (polls `host.cancelled()` every 10k iterations) |
+| `alloc-bomb`, 16 MiB limit | `try_reserve` loop stops at 14 MiB of 1 MiB chunks; infallible loop traps as "out of memory"; peak ≤ 16 MiB |
+| `stdout-flood`, 4 MiB | log keeps ≤ 1 MiB (newest lines), > 3000 lines dropped, call succeeds |
+| idle instance | 0 mailbox wake-ups and 0 epoch ticks over 500 ms; thread state `S` |
+| ticker without calls in flight | 0 increments over 1 s |

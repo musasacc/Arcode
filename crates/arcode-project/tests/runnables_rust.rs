@@ -149,3 +149,27 @@ fn runnable_new_carries_line_and_command() {
     assert_eq!(r.command.kind, RunKind::Test);
     assert_eq!(r.command.label, "test tests::ok");
 }
+
+/// `[[bin]]` without `path` resolves like Cargo: `src/bin/<name>/main.rs`
+/// when that exists, `src/bin/<name>.rs` otherwise.
+#[test]
+fn explicit_bins_without_path_are_inferred() {
+    let p = Project::new();
+    p.write(
+        "Cargo.toml",
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nautobins = false\n\n\
+         [[bin]]\nname = \"tool\"\n\n[[bin]]\nname = \"other\"\n",
+    );
+    p.write("src/lib.rs", "");
+    let tool = p.write("src/bin/tool/main.rs", "");
+    let other = p.write("src/bin/other.rs", "");
+    for (file, bin) in [(tool, "tool"), (other, "other")] {
+        let cmd = command_for_runnable("rust", &file, p.root(), RunnableKind::Main, "main")
+            .expect("command");
+        assert!(
+            cmd.args.windows(2).any(|w| w[0] == "--bin" && w[1] == bin),
+            "{}",
+            cmd.command_line()
+        );
+    }
+}

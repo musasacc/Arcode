@@ -169,13 +169,39 @@ pub(super) fn go_install(module: &str) -> InstallStep {
     run(&Os::ALL, &description, "go", &["install", module])
 }
 
-/// `python -m pip install --user <package>`, with the right executable per OS.
+/// `python -m pip install --user <package>` for a library that the
+/// interpreter must import (debugpy), with the right executable per OS.
+///
+/// On Linux and macOS the system or Homebrew Python is often "externally
+/// managed" (PEP 668) and refuses `--user` installs, and inside an active
+/// virtualenv user site-packages are invisible; a display-only note says
+/// what to do then.
 pub(super) fn pip_user(package: &str) -> Vec<InstallStep> {
     let description =
         format!("Install {package} for the current user with pip (downloads from PyPI).");
     let list = ["-m", "pip", "install", "--user", package];
+    let unix_python = Os::Linux.python();
     vec![
-        run(&UNIX, &description, Os::Linux.python(), &list),
+        run(&UNIX, &description, unix_python, &list),
+        note(
+            &UNIX,
+            &format!(
+                "If pip reports `externally-managed-environment`, or you use a virtual \
+                 environment, install {package} into the project's environment instead \
+                 (`.venv/bin/python -m pip install {package}`) or use your distribution's \
+                 package (e.g. `sudo apt install python3-{package}`)."
+            ),
+        ),
         run(&[Os::Windows], &description, Os::Windows.python(), &list),
     ]
+}
+
+/// `pipx install <package>`: a Python command-line tool in its own
+/// environment, which works with externally managed (PEP 668) Pythons.
+pub(super) fn pipx(package: &str) -> InstallStep {
+    let description = format!(
+        "Install {package} with pipx into its own environment (downloads from PyPI); \
+         run `pipx ensurepath` once if its commands are not found afterwards."
+    );
+    run(&Os::ALL, &description, "pipx", &["install", package])
 }

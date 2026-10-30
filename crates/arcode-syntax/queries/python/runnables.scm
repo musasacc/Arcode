@@ -11,6 +11,17 @@
   (#eq? @_main "__main__")
   (#set! kind "main")
   (#set! name "__main__"))
+; The reversed spelling `if "__main__" == __name__:`.
+((module
+  (if_statement
+    condition: (comparison_operator
+      (string
+        (string_content) @_main)
+      (identifier) @_name)) @run)
+  (#eq? @_name "__name__")
+  (#eq? @_main "__main__")
+  (#set! kind "main")
+  (#set! name "__main__"))
 
 ; Module-level `def test_*` (pytest).
 ((module

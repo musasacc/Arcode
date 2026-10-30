@@ -134,6 +134,7 @@ fn free_port(host: &str) -> Result<u16> {
 }
 
 /// Connects, retrying until `timeout` while the adapter starts listening.
+/// The deadline also bounds a single attempt that hangs (SYNs dropped).
 async fn connect(
     spec: &AdapterSpec,
     host: &str,
@@ -143,12 +144,14 @@ async fn connect(
 ) -> Result<TcpStream> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
-        let error = match TcpStream::connect((host, port)).await {
-            Ok(stream) => {
+        let attempt = tokio::time::timeout_at(deadline, TcpStream::connect((host, port))).await;
+        let error = match attempt {
+            Ok(Ok(stream)) => {
                 let _ = stream.set_nodelay(true);
                 return Ok(stream);
             }
-            Err(e) => e,
+            Ok(Err(e)) => e.to_string(),
+            Err(_) => format!("no answer within {timeout:?}"),
         };
         if let Some(child) = child.as_deref_mut()
             && let Ok(Some(status)) = child.try_wait()

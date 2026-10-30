@@ -11,14 +11,16 @@
 use crate::bindings::arcode::plugin::editor::{self as wit, DocInfo, EditorError, TextEdit};
 use crate::bindings::{DocId, Position, Range};
 use crate::bridge::DocSnapshot;
+use crate::cancel::lock;
 use crate::consent::ConsentKind;
 use crate::grants::{Capability, Decision};
 use crate::manifest::EditorAccess;
 use crate::state::HostState;
-use crate::cancel::lock;
 
 /// Longest scratch buffer text accepted (bytes).
 const MAX_SCRATCH_BYTES: usize = 64 * 1024 * 1024;
+/// Most inserted text per `apply-edits` (bytes).
+const MAX_EDIT_BYTES: usize = 64 * 1024 * 1024;
 
 fn info(s: &DocSnapshot) -> DocInfo {
     DocInfo {
@@ -30,23 +32,15 @@ fn info(s: &DocSnapshot) -> DocInfo {
     }
 }
 
-/// Char index of `p`, if it lies inside the document.
-fn char_index(s: &DocSnapshot, p: Position) -> Option<usize> {
-    let line = p.line as usize;
-    if line >= s.rope.len_lines() {
-        return None;
-    }
-    let line_len = s.rope.line(line).len_chars();
-    let column = p.column as usize;
-    (column <= line_len).then(|| s.rope.line_to_char(line) + column)
-}
-
 impl HostState {
     fn may_read(&self, snap: &DocSnapshot) -> bool {
         let m = &self.ctx.manifest;
         let in_context = || {
             Some(snap.id) == self.call.origin_doc
-                || m.contributes.languages.iter().any(|l| l.id == snap.language)
+                || m.contributes
+                    .languages
+                    .iter()
+                    .any(|l| l.id == snap.language)
                 || m.contributes
                     .code_lenses
                     .iter()
@@ -105,12 +99,17 @@ fn valid_relative_path(path: &str) -> bool {
         && !path.starts_with('/')
         && !path.contains('\\')
         && !path.contains(':')
-        && path.split('/').all(|part| !part.is_empty() && part != "." && part != "..")
+        && path
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..")
 }
 
 impl wit::Host for HostState {
     fn current_document(&mut self) -> wasmtime::Result<Option<DocInfo>> {
-        let doc = self.call.origin_doc.or_else(|| self.ctx.services.editor.focused());
+        let doc = self
+            .call
+            .origin_doc
+            .or_else(|| self.ctx.services.editor.focused());
         Ok(doc.and_then(|d| self.readable(d).ok()).map(|s| info(&s)))
     }
 
@@ -118,7 +117,11 @@ impl wit::Host for HostState {
         Ok(self.readable(doc).map(|s| info(&s)))
     }
 
-    fn text(&mut self, doc: DocId, range: Option<Range>) -> wasmtime::Result<Result<String, EditorError>> {
+    fn text(
+        &mut self,
+        doc: DocId,
+        range: Option<Range>,
+    ) -> wasmtime::Result<Result<String, EditorError>> {
         let snap = match self.readable(doc) {
             Ok(s) => s,
             Err(e) => return Ok(Err(e)),
@@ -126,13 +129,10 @@ impl wit::Host for HostState {
         let Some(range) = range else {
             return Ok(Ok(snap.rope.to_string()));
         };
-        let (Some(start), Some(end)) = (char_index(&snap, range.start), char_index(&snap, range.end)) else {
-            return Ok(Err(EditorError::InvalidRange));
-        };
-        if start > end {
-            return Ok(Err(EditorError::InvalidRange));
+        match snap.char_range(range) {
+            Some(r) => Ok(Ok(snap.rope.slice(r).to_string())),
+            None => Ok(Err(EditorError::InvalidRange)),
         }
-        Ok(Ok(snap.rope.slice(start..end).to_string()))
     }
 
     fn selections(&mut self, doc: DocId) -> wasmtime::Result<Result<Vec<Range>, EditorError>> {
@@ -145,16 +145,36 @@ impl wit::Host for HostState {
         expected_version: u64,
         edits: Vec<TextEdit>,
     ) -> wasmtime::Result<Result<u64, EditorError>> {
-        if let Err(e) = self.readable(doc) {
+        let snap = match self.readable(doc) {
+            Ok(s) => s,
+            Err(e) => return Ok(Err(e)),
+        };
+        // Refuse what would fail anyway before asking the user anything.
+        if snap.version != expected_version {
+            return Ok(Err(EditorError::VersionMismatch(snap.version)));
+        }
+        let text_bytes: usize = edits.iter().map(|e| e.text.len()).sum();
+        if text_bytes > MAX_EDIT_BYTES {
+            return Ok(Err(EditorError::InvalidRange));
+        }
+        if let Err(e) = snap.resolve_edits(&edits) {
             return Ok(Err(e));
         }
         if !self.may_write() {
             return Ok(Err(EditorError::Denied));
         }
-        Ok(self.ctx.services.editor.apply_edits(doc, expected_version, edits))
+        Ok(self
+            .ctx
+            .services
+            .editor
+            .apply_edits(doc, expected_version, edits))
     }
 
-    fn open_file(&mut self, path: String, at: Option<Position>) -> wasmtime::Result<Result<(), EditorError>> {
+    fn open_file(
+        &mut self,
+        path: String,
+        at: Option<Position>,
+    ) -> wasmtime::Result<Result<(), EditorError>> {
         if self.ctx.project.is_none() {
             return Ok(Err(EditorError::Denied));
         }
@@ -174,7 +194,11 @@ impl wit::Host for HostState {
             return Ok(Err(EditorError::InvalidRange));
         }
         let title = super::cap(title, 128);
-        Ok(self.ctx.services.editor.open_scratch(&title, &language, &text))
+        Ok(self
+            .ctx
+            .services
+            .editor
+            .open_scratch(&title, &language, &text))
     }
 }
 
@@ -187,7 +211,16 @@ mod tests {
         for ok in ["a", "src/main.rs", "a b/c.txt"] {
             assert!(valid_relative_path(ok), "{ok}");
         }
-        for bad in ["", "/etc/passwd", "../x", "a/../../x", "a//b", "./a", "C:/x", "a\\b"] {
+        for bad in [
+            "",
+            "/etc/passwd",
+            "../x",
+            "a/../../x",
+            "a//b",
+            "./a",
+            "C:/x",
+            "a\\b",
+        ] {
             assert!(!valid_relative_path(bad), "{bad}");
         }
     }
@@ -202,7 +235,7 @@ mod tests {
             rope: ropey::Rope::from_str("héllo\nwörld"),
             selections: vec![],
         };
-        let at = |line, column| char_index(&snap, Position { line, column });
+        let at = |line, column| snap.char_index(Position { line, column });
         assert_eq!(at(0, 0), Some(0));
         assert_eq!(at(1, 2), Some(8));
         assert_eq!(at(1, 5), Some(11));

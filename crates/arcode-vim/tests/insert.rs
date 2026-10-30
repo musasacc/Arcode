@@ -56,7 +56,8 @@ fn replace_mode() {
         ("|abc", "Rxy<bs><esc>", "|xbc"),
         ("|a", "Rxyz<esc>", "xy|z"),
         ("|a", "Rxy<bs><bs><esc>", "|a"),
-        ("|ab", "2Rx<esc>", "|xb"),
+        // A count repeats the replacement, as in Vim.
+        ("|ab", "2Rx<esc>", "x|x"),
     ]);
     let mut s = Session::new("|abc");
     s.keys("R");

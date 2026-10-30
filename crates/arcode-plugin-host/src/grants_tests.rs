@@ -52,7 +52,11 @@ fn defaults_ask_except_background_network() {
         } else {
             Decision::Ask
         };
-        assert_eq!(g.decide(&plugin(), &cap, &everything(), true), expected, "{cap}");
+        assert_eq!(
+            g.decide(&plugin(), &cap, &everything(), true),
+            expected,
+            "{cap}"
+        );
     }
 }
 
@@ -64,7 +68,11 @@ fn undeclared_capabilities_are_denied_even_if_granted() {
     }
     let none = Capabilities::default();
     for cap in all_caps() {
-        assert_eq!(g.decide(&plugin(), &cap, &none, true), Decision::Deny, "{cap}");
+        assert_eq!(
+            g.decide(&plugin(), &cap, &none, true),
+            Decision::Deny,
+            "{cap}"
+        );
     }
     let read_only = Capabilities {
         workspace: WorkspaceAccess::Read,
@@ -118,17 +126,32 @@ fn record_then_decide_for_every_combination() {
                     };
                     assert_eq!((in_session, in_project, in_global), expected, "{ctx}");
                     // Never leaks to another plugin.
-                    assert_eq!(g.decide(&other(), &cap, &everything(), true), before, "{ctx}");
+                    assert_eq!(
+                        g.decide(&other(), &cap, &everything(), true),
+                        before,
+                        "{ctx}"
+                    );
                     // Master switch: network off denies network caps only.
                     let switched = g.decide(&plugin(), &cap, &everything(), false);
-                    if matches!(cap, Capability::Network { .. } | Capability::NetworkBackground) {
+                    if matches!(
+                        cap,
+                        Capability::Network { .. } | Capability::NetworkBackground
+                    ) {
                         assert_eq!(switched, Decision::Deny, "{ctx}");
                     } else {
                         assert_eq!(switched, after, "{ctx}");
                     }
                     // Revoke returns to the default.
-                    assert_eq!(g.revoke(&plugin(), &cap), scope != GrantScope::Once, "{ctx}");
-                    assert_eq!(g.decide(&plugin(), &cap, &everything(), true), before, "{ctx}");
+                    assert_eq!(
+                        g.revoke(&plugin(), &cap),
+                        scope != GrantScope::Once,
+                        "{ctx}"
+                    );
+                    assert_eq!(
+                        g.decide(&plugin(), &cap, &everything(), true),
+                        before,
+                        "{ctx}"
+                    );
                 }
             }
         }
@@ -143,23 +166,39 @@ fn narrower_scopes_win_and_global_answers_replace_them() {
     };
     g.record(&plugin(), &net, GrantState::Deny, GrantScope::Global);
     g.record(&plugin(), &net, GrantState::Allow, GrantScope::Project);
-    assert_eq!(g.decide(&plugin(), &net, &everything(), true), Decision::Allow);
+    assert_eq!(
+        g.decide(&plugin(), &net, &everything(), true),
+        Decision::Allow
+    );
     // "Always" after a project answer overrides it.
     g.record(&plugin(), &net, GrantState::Deny, GrantScope::Global);
-    assert_eq!(g.decide(&plugin(), &net, &everything(), true), Decision::Deny);
+    assert_eq!(
+        g.decide(&plugin(), &net, &everything(), true),
+        Decision::Deny
+    );
     assert!(g.project.is_empty());
     // Session (no-project) answers beat project and global ones.
     g.session.insert((plugin(), net.clone()), GrantState::Allow);
-    assert_eq!(g.decide(&plugin(), &net, &everything(), true), Decision::Allow);
+    assert_eq!(
+        g.decide(&plugin(), &net, &everything(), true),
+        Decision::Allow
+    );
 }
 
 #[test]
 fn hosts_are_separate_grants() {
     let mut g = with_project();
-    let a = Capability::Network { host: "a.test".into() };
-    let b = Capability::Network { host: "b.test".into() };
+    let a = Capability::Network {
+        host: "a.test".into(),
+    };
+    let b = Capability::Network {
+        host: "b.test".into(),
+    };
     g.record(&plugin(), &a, GrantState::Allow, GrantScope::Global);
-    assert_eq!(g.decide(&plugin(), &a, &everything(), true), Decision::Allow);
+    assert_eq!(
+        g.decide(&plugin(), &a, &everything(), true),
+        Decision::Allow
+    );
     assert_eq!(g.decide(&plugin(), &b, &everything(), true), Decision::Ask);
 }
 
@@ -167,20 +206,52 @@ fn hosts_are_separate_grants() {
 fn listing_and_background_indicator() {
     let mut g = with_project();
     assert!(!g.any_background_network());
-    g.record(&plugin(), &Capability::NetworkBackground, GrantState::Deny, GrantScope::Global);
+    g.record(
+        &plugin(),
+        &Capability::NetworkBackground,
+        GrantState::Deny,
+        GrantScope::Global,
+    );
     assert!(!g.any_background_network());
-    g.record(&plugin(), &Capability::NetworkBackground, GrantState::Allow, GrantScope::Project);
-    g.record(&plugin(), &Capability::WorkspaceRead, GrantState::Allow, GrantScope::Global);
-    g.record(&other(), &Capability::WorkspaceRead, GrantState::Deny, GrantScope::Global);
+    g.record(
+        &plugin(),
+        &Capability::NetworkBackground,
+        GrantState::Allow,
+        GrantScope::Project,
+    );
+    g.record(
+        &plugin(),
+        &Capability::WorkspaceRead,
+        GrantState::Allow,
+        GrantScope::Global,
+    );
+    g.record(
+        &other(),
+        &Capability::WorkspaceRead,
+        GrantState::Deny,
+        GrantScope::Global,
+    );
     assert!(g.any_background_network());
     let mut listed = g.list(&plugin());
     listed.sort();
     assert_eq!(
         listed,
         [
-            (Capability::WorkspaceRead, GrantState::Allow, GrantScope::Global),
-            (Capability::NetworkBackground, GrantState::Allow, GrantScope::Project),
-            (Capability::NetworkBackground, GrantState::Deny, GrantScope::Global),
+            (
+                Capability::WorkspaceRead,
+                GrantState::Allow,
+                GrantScope::Global
+            ),
+            (
+                Capability::NetworkBackground,
+                GrantState::Allow,
+                GrantScope::Project
+            ),
+            (
+                Capability::NetworkBackground,
+                GrantState::Deny,
+                GrantScope::Global
+            ),
         ]
     );
     assert!(Capability::WorkspaceWrite.is_static());

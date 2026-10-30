@@ -65,11 +65,7 @@ impl Vim {
             Tok::Tab => cl.text.push('\t'),
             Tok::Ctrl('u') => cl.text.clear(),
             Tok::Ctrl('w') => {
-                let trimmed = cl.text.trim_end().len();
-                let keep = cl.text[..trimmed]
-                    .rfind(|c: char| !c.is_alphanumeric() && c != '_')
-                    .map_or(0, |i| i + 1);
-                cl.text.truncate(keep);
+                cl.text.truncate(ctrl_w_keep(&cl.text));
             }
             Tok::Backspace | Tok::Ctrl('h') if !cl.text.is_empty() => {
                 cl.text.pop();
@@ -245,4 +241,21 @@ impl Vim {
 fn is_substitute(r: &str) -> bool {
     let body = r.strip_prefix("substitute").or_else(|| r.strip_prefix('s'));
     matches!(body.and_then(|b| b.chars().next()), Some(c) if !c.is_alphanumeric() && !c.is_whitespace() && c != '"' && c != '|')
+}
+
+/// Ctrl-W on the command line: the byte length to keep after deleting
+/// trailing blanks and then one run of word chars or of other non-blank
+/// chars (always on a char boundary).
+fn ctrl_w_keep(text: &str) -> usize {
+    let trimmed = text.trim_end();
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let Some(last) = trimmed.chars().next_back() else {
+        return 0;
+    };
+    let same = |c: char| !c.is_whitespace() && word(c) == word(last);
+    trimmed
+        .char_indices()
+        .rev()
+        .find(|&(_, c)| !same(c))
+        .map_or(0, |(i, c)| i + c.len_utf8())
 }

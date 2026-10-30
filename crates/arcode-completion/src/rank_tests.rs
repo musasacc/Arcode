@@ -213,3 +213,23 @@ fn many_duplicates_beyond_partial_sort_head() {
     assert_eq!(cands[ranked[0].index].label, "dup");
     assert_eq!(cands[ranked[1].index].label, "dupe00");
 }
+
+#[test]
+fn local_sort_text_first_and_order_independent() {
+    let mut a = word("abcd");
+    a.sort_text = Some("2".into());
+    let b = word("abcde");
+    let mut c = word("abcdef");
+    c.sort_text = Some("1".into());
+    let fwd = labels("abc", &[a.clone(), b.clone(), c.clone()]);
+    assert_eq!(fwd, ["abcdef", "abcd", "abcde"]);
+    assert_eq!(labels("abc", &[c.clone(), b.clone(), a.clone()]), fwd);
+    assert_eq!(labels("", &[b, c, a]), fwd);
+}
+
+#[test]
+fn match_indices_non_ascii_label() {
+    let cands = vec![word("größe_x")];
+    let r = rank("ex", &cands, 10);
+    assert_eq!(r[0].match_indices, [4, 6]);
+}

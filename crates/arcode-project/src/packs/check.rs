@@ -1,12 +1,7 @@
 //! Checking which pack components are installed.
 
-use std::ffi::OsString;
-use std::io::Read;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::mpsc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -41,122 +36,6 @@ pub enum RunOutcome {
 pub trait CommandRunner: Sync {
     /// Runs `program` with `args`, without stdin, for at most `timeout`.
     fn run(&self, program: &str, args: &[String], timeout: Duration) -> RunOutcome;
-}
-
-/// Runs commands on this machine: stdin is null, stderr discarded, the
-/// working directory is the temp dir (so no project toolchain file triggers
-/// a download), and auto-downloads are disabled via `GOTOOLCHAIN=local` and
-/// `RUSTUP_AUTO_INSTALL=0`.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SystemRunner;
-
-impl CommandRunner for SystemRunner {
-    fn run(&self, program: &str, args: &[String], timeout: Duration) -> RunOutcome {
-        let Some(path) = find_executable(program) else {
-            return RunOutcome::NotFound;
-        };
-        let mut command = Command::new(path);
-        command
-            .args(args)
-            .current_dir(std::env::temp_dir())
-            .env("GOTOOLCHAIN", "local")
-            .env("RUSTUP_AUTO_INSTALL", "0")
-            .env("NO_UPDATE_NOTIFIER", "1")
-            .env("npm_config_update_notifier", "false")
-            .env("npm_config_offline", "true")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return RunOutcome::NotFound,
-            Err(e) => return RunOutcome::Error(e.to_string()),
-        };
-        let (tx, rx) = mpsc::channel();
-        if let Some(mut stdout) = child.stdout.take() {
-            thread::spawn(move || {
-                let mut buf = Vec::new();
-                let _ = (&mut stdout).take(64 * 1024).read_to_end(&mut buf);
-                let _ = std::io::copy(&mut stdout, &mut std::io::sink());
-                let _ = tx.send(buf);
-            });
-        }
-        let deadline = Instant::now() + timeout;
-        let status = loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break status,
-                Ok(None) if Instant::now() >= deadline => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return RunOutcome::TimedOut;
-                }
-                Ok(None) => thread::sleep(Duration::from_millis(10)),
-                Err(e) => return RunOutcome::Error(e.to_string()),
-            }
-        };
-        if !status.success() {
-            return RunOutcome::Failed {
-                code: status.code(),
-            };
-        }
-        // A grandchild may keep the pipe open; do not wait for it forever.
-        let stdout = rx
-            .recv_timeout(Duration::from_millis(500))
-            .unwrap_or_default();
-        RunOutcome::Success {
-            stdout: String::from_utf8_lossy(&stdout).into_owned(),
-        }
-    }
-}
-
-/// Finds `program` on `PATH` (with `PATHEXT` extensions on Windows). A
-/// program containing a path separator is returned as-is if it exists.
-pub fn find_executable(program: &str) -> Option<PathBuf> {
-    let direct = Path::new(program);
-    if direct.components().count() > 1 {
-        return direct.is_file().then(|| direct.to_path_buf());
-    }
-    let path = std::env::var_os("PATH")?;
-    let exts: Vec<OsString> = if cfg!(windows) {
-        let pathext =
-            std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
-        std::iter::once(OsString::new())
-            .chain(
-                pathext
-                    .split(';')
-                    .filter(|e| !e.is_empty())
-                    .map(OsString::from),
-            )
-            .collect()
-    } else {
-        vec![OsString::new()]
-    };
-    std::env::split_paths(&path).find_map(|dir| {
-        exts.iter().find_map(|ext| {
-            let mut name = OsString::from(program);
-            name.push(ext);
-            let candidate = dir.join(name);
-            is_executable(&candidate).then_some(candidate)
-        })
-    })
-}
-
-#[cfg(unix)]
-fn is_executable(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    path.metadata()
-        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-}
-
-#[cfg(not(unix))]
-fn is_executable(path: &Path) -> bool {
-    path.is_file()
 }
 
 /// Whether a component is installed.
@@ -253,10 +132,10 @@ fn run_check(
 }
 
 /// The check for a prerequisite named in [`Component::requires`]
-/// (`npm`, `node`, `python`, `go`, `rustup`, `cargo`).
+/// (`npm`, `node`, `python`, `pipx`, `go`, `rustup`, `cargo`).
 pub fn requirement_check(name: &str, os: Os) -> Option<CheckCommand> {
     let (program, list): (&str, &[&str]) = match name {
-        "npm" | "node" | "rustup" | "cargo" => (name, &["--version"]),
+        "npm" | "node" | "rustup" | "cargo" | "pipx" => (name, &["--version"]),
         "python" => (os.python(), &["--version"]),
         "go" => ("go", &["version"]),
         _ => return None,

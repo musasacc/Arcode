@@ -2,7 +2,7 @@
 //! per-plugin state that survives instance recycling ([`Shared`]) and the
 //! services the app provides ([`Services`]).
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -18,11 +18,13 @@ use crate::cancel::{CancelToken, lock};
 use crate::consent::{DenyAll, FileGrant, Permissions};
 use crate::engine::Runtime;
 use crate::grant_store::GrantStore;
-use crate::host_impl::kv::KvStore;
+use crate::host_impl::kv::{KvFiles, KvStore};
 use crate::limits::Limiter;
 use crate::manifest::{EffectiveLimits, Manifest};
+use crate::net::NetworkLog;
 use crate::output::{OutputSender, PluginOutput};
 use crate::plugin_log::PluginLog;
+use crate::ui_tree::PanelTree;
 
 /// The open project, as plugins may see it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,10 +110,16 @@ impl InstanceStats {
 pub struct Shared {
     /// The plugin log (stdout, stderr, `host.log`).
     pub log: PluginLog,
-    /// kv storage.
+    /// Requests made through `http.send`.
+    pub network: NetworkLog,
+    /// kv storage (read from disk on first use).
     pub kv: Mutex<KvStore>,
     /// Open panels by id.
     pub panels: Mutex<BTreeMap<PanelId, OpenPanel>>,
+    /// The current view of each open panel.
+    pub trees: Mutex<HashMap<PanelId, PanelTree>>,
+    /// `host.settings()`: manifest defaults merged with the user's values.
+    pub settings: Mutex<String>,
     /// Next panel id.
     pub next_panel: AtomicU32,
     /// Times of recent `host.notify` calls (5 per minute).
@@ -122,18 +130,27 @@ pub struct Shared {
 
 impl Default for Shared {
     fn default() -> Self {
+        Self::new(KvFiles::none(), "{}".to_owned())
+    }
+}
+
+impl Shared {
+    /// State for a plugin whose kv lives in `kv` and whose merged settings
+    /// are `settings` (JSON object text).
+    pub fn new(kv: KvFiles, settings: String) -> Self {
         Self {
             log: PluginLog::new(),
-            kv: Mutex::new(KvStore::default()),
+            network: NetworkLog::new(),
+            kv: Mutex::new(KvStore::new(kv)),
             panels: Mutex::new(BTreeMap::new()),
+            trees: Mutex::new(HashMap::new()),
+            settings: Mutex::new(settings),
             next_panel: AtomicU32::new(1),
             notify_times: Mutex::new(VecDeque::new()),
             stats: InstanceStats::default(),
         }
     }
-}
 
-impl Shared {
     /// A fresh panel id, unique for this plugin.
     pub fn allocate_panel(&self) -> PanelId {
         self.next_panel.fetch_add(1, Ordering::SeqCst)
@@ -150,6 +167,12 @@ impl Shared {
         );
     }
 
+    /// Forgets a panel and its tree; true if it was open.
+    pub fn panel_closed(&self, panel: PanelId) -> bool {
+        lock(&self.trees).remove(&panel);
+        lock(&self.panels).remove(&panel).is_some()
+    }
+
     /// True if any panel is open (blocks idle unload).
     pub fn has_open_panels(&self) -> bool {
         !lock(&self.panels).is_empty()
@@ -162,8 +185,6 @@ pub(crate) struct InstanceCtx {
     pub limits: EffectiveLimits,
     pub project: Option<ProjectContext>,
     pub files: FileGrant,
-    /// `host.settings()`: manifest defaults merged with user values.
-    pub settings: String,
     pub services: Services,
     pub shared: Arc<Shared>,
     pub runtime: Arc<Runtime>,

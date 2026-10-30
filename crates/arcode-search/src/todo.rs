@@ -33,8 +33,9 @@ pub fn scan_todos_in_text(text: &str, tags: &[&str]) -> Vec<TodoMatch> {
         .collect()
 }
 
-/// Find the first TODO in `line`. A tag only counts as a whole word that is
-/// followed by `:`, `(`, whitespace or the end of the line.
+/// Find the first TODO in `line`. A tag only counts when it is not preceded
+/// by a word character and is followed by `:`, `(`, whitespace or the end of
+/// the line. Tags may start with a symbol, e.g. `@todo`.
 pub fn parse_todo_line(
     line_number: usize,
     line: &str,
@@ -43,9 +44,9 @@ pub fn parse_todo_line(
 ) -> Option<TodoMatch> {
     let mut prev_is_word = false;
     for (column, (at, c)) in line.char_indices().enumerate() {
-        let starts_word = !prev_is_word;
-        prev_is_word = is_word(c);
-        if !starts_word || !prev_is_word {
+        // A tag may start with a symbol (`@todo`), but never mid-word.
+        let after_word = std::mem::replace(&mut prev_is_word, is_word(c));
+        if after_word {
             continue;
         }
         let rest = &line[at..];
@@ -181,6 +182,18 @@ mod tests {
         assert_eq!(t.text, "empty author");
         let t = one("// TODO(unclosed").unwrap();
         assert_eq!(t.text, "(unclosed");
+    }
+
+    #[test]
+    fn symbol_tags() {
+        let tags = ["@todo", "TODO"];
+        let t = parse_todo_line(0, "/** @todo(bo): fix */", &tags, true).unwrap();
+        assert_eq!((t.column, t.tag.as_str()), (4, "@todo"));
+        assert_eq!((t.author.as_deref(), t.text.as_str()), (Some("bo"), "fix"));
+        assert!(parse_todo_line(0, "mail me@todo later", &tags, true).is_none());
+        assert!(parse_todo_line(0, "x @todos y", &tags, true).is_none());
+        let t = parse_todo_line(0, " * @TODO x", &tags, false).unwrap();
+        assert_eq!(t.tag, "@todo");
     }
 
     #[test]

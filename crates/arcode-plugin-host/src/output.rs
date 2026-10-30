@@ -5,10 +5,13 @@
 //! client). Requests that need an answer carry a [`ReplySender`]; the plugin
 //! thread blocks on it, the UI thread never waits on a plugin.
 
-use crate::bindings::ui::{Location, Patch, View};
+use std::sync::Arc;
+
+use crate::bindings::ui::Location;
 use crate::bindings::{Level, PanelId};
-use crate::cancel::ReplySender;
+use crate::cancel::{CancelToken, ReplySender};
 use crate::manifest::{PluginId, QualifiedId};
+use crate::ui_tree::{Changes, PanelSnapshot};
 
 /// One message from a plugin to the app.
 #[derive(Debug)]
@@ -55,23 +58,19 @@ pub enum PluginOutput {
         /// Requested location; `None` uses the manifest's.
         location: Option<Location>,
     },
-    /// A full view for a panel (`ui.render`).
-    Render {
+    /// A panel's view changed (`ui.render` or `ui.apply-patches`, already
+    /// validated and applied on the plugin thread). Redraw the `changes`;
+    /// element ids are `(panel, node-id)`.
+    PanelView {
         /// Owner.
         plugin: PluginId,
         /// Target panel.
         panel: PanelId,
-        /// The new tree.
-        view: View,
-    },
-    /// Patches for a panel (`ui.apply-patches`).
-    Patches {
-        /// Owner.
-        plugin: PluginId,
-        /// Target panel.
-        panel: PanelId,
-        /// Patches, in order.
-        patches: Vec<Patch>,
+        /// The whole view after the change (shared, immutable).
+        snapshot: Arc<PanelSnapshot>,
+        /// What changed: dirty and removed nodes, inputs the plugin set,
+        /// tables whose row cache must be reset or resized.
+        changes: Changes,
     },
     /// `ui.set-title`.
     PanelTitle {
@@ -97,6 +96,9 @@ pub enum PluginOutput {
         call: u64,
         /// Plain-text title.
         title: String,
+        /// The [Cancel] button: cancels the call (cooperatively, then hard
+        /// after the grace period).
+        cancel: CancelToken,
     },
     /// The task's call finished (any outcome).
     TaskFinished {

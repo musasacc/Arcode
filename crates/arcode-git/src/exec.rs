@@ -25,7 +25,9 @@ pub(crate) fn exec<S: AsRef<OsStr>>(
     if input.is_some() {
         cmd.stdin(Stdio::piped());
     }
-    let mut child = cmd.spawn()?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|err| GitError::from_spawn(err, &repo.workdir))?;
     let stdin = child.stdin.take();
     let output = std::thread::scope(|scope| {
         if let (Some(mut pipe), Some(bytes)) = (stdin, input) {

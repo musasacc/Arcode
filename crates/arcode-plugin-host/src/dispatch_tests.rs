@@ -58,8 +58,18 @@ fn lenses_coalesce_per_document_and_rows_per_table() {
     assert!(matches!(next(&m), Call::CodeLenses(d) if d.id == 2));
     assert!(matches!(next(&m), Call::CodeLenses(d) if d.id == 1 && d.version == 2));
     assert!(matches!(next(&m), Call::FetchRows { table: 6, .. }));
-    assert!(matches!(next(&m), Call::FetchRows { table: 5, start: 800, .. }));
-    assert!(matches!(m.recv_timeout(Duration::from_millis(1)), Recv::Timeout));
+    assert!(matches!(
+        next(&m),
+        Call::FetchRows {
+            table: 5,
+            start: 800,
+            ..
+        }
+    ));
+    assert!(matches!(
+        m.recv_timeout(Duration::from_millis(1)),
+        Recv::Timeout
+    ));
 }
 
 #[test]
@@ -102,14 +112,19 @@ fn close_answers_everything() {
     let (pushed, late) = push(&m, command(2));
     assert_eq!(pushed, Pushed::Refused);
     assert_eq!(late.try_recv(), Ok(Err(CallError::Stopped)));
-    assert!(matches!(m.recv_timeout(Duration::from_secs(5)), Recv::Closed));
+    assert!(matches!(
+        m.recv_timeout(Duration::from_secs(5)),
+        Recv::Closed
+    ));
 }
 
 #[test]
 fn recv_wakes_on_push_from_another_thread() {
     let m = std::sync::Arc::new(Mailbox::new(4));
     let m2 = m.clone();
-    let t = std::thread::spawn(move || matches!(m2.recv_timeout(Duration::from_secs(10)), Recv::Call(_)));
+    let t = std::thread::spawn(move || {
+        matches!(m2.recv_timeout(Duration::from_secs(10)), Recv::Call(_))
+    });
     std::thread::sleep(Duration::from_millis(20));
     push(&m, command(1));
     assert!(t.join().unwrap());

@@ -85,8 +85,17 @@ impl RunCommand {
 
 /// Joins a program and its arguments into one shell-style line, quoting
 /// arguments that contain spaces or shell metacharacters.
+///
+/// On Windows the line targets PowerShell: a quoted program is prefixed with
+/// the call operator (`& 'C:\Program Files\x.exe' arg`), since a line that
+/// starts with a string is an expression there, not a command.
 pub fn command_line(program: &str, args: &[String]) -> String {
-    let mut line = quote_arg(program).into_owned();
+    let quoted = quote_arg(program);
+    let mut line = if cfg!(windows) && matches!(quoted, Cow::Owned(_)) {
+        format!("& {quoted}")
+    } else {
+        quoted.into_owned()
+    };
     for arg in args {
         line.push(' ');
         line.push_str(&quote_arg(arg));
@@ -97,15 +106,15 @@ pub fn command_line(program: &str, args: &[String]) -> String {
 /// Quotes one argument with single quotes when needed.
 ///
 /// Single quotes work in POSIX shells and in PowerShell; only the escaping
-/// of an embedded `'` differs, so it follows the target platform.
+/// of an embedded `'` differs, so it follows the target platform. A `\` is
+/// a path separator on Windows but an escape in POSIX shells, where it
+/// forces quoting.
 pub fn quote_arg(arg: &str) -> Cow<'_, str> {
     let safe = !arg.is_empty()
         && arg.chars().all(|c| {
             c.is_ascii_alphanumeric()
-                || matches!(
-                    c,
-                    '_' | '-' | '.' | '/' | '\\' | '=' | ':' | '@' | '%' | '+' | ','
-                )
+                || matches!(c, '_' | '-' | '.' | '/' | '=' | ':' | '@' | '%' | '+' | ',')
+                || (c == '\\' && cfg!(windows))
         });
     if safe {
         return Cow::Borrowed(arg);
@@ -145,6 +154,26 @@ mod tests {
         } else {
             assert_eq!(quote_arg("it's"), r"'it'\''s'");
         }
+    }
+
+    #[test]
+    fn backslash_quoting_follows_the_shell() {
+        if cfg!(windows) {
+            assert_eq!(quote_arg(r"C:\dir\x.exe"), r"C:\dir\x.exe");
+        } else {
+            assert_eq!(quote_arg(r"v1\.2"), r"'v1\.2'");
+        }
+    }
+
+    #[test]
+    fn quoted_program_uses_call_operator_on_windows() {
+        let line = command_line("/my dir/py", &args(&["-m", "x"]));
+        if cfg!(windows) {
+            assert_eq!(line, "& '/my dir/py' -m x");
+        } else {
+            assert_eq!(line, "'/my dir/py' -m x");
+        }
+        assert_eq!(command_line("py", &args(&["a b"])), "py 'a b'");
     }
 
     #[test]

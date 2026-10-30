@@ -24,7 +24,8 @@ pub enum PackagesState {
 /// - Node: `node_modules` (or Yarn PnP's `.pnp.cjs`) in the package dir or
 ///   any directory up to the project root.
 /// - Cargo: a `target` directory there.
-/// - Python: a virtual environment (`.venv`, `venv`, `env`); without one,
+/// - Python: a virtual environment (`.venv`, `venv`, `env`) with this
+///   platform's interpreter (a venv made on another OS does not count); without one,
 ///   Pipfile and Poetry projects are `Unknown` since their venvs usually
 ///   live outside the project.
 /// - Go: `vendor/` means installed, otherwise unknown.
@@ -79,7 +80,7 @@ fn python_state(
     manifest: PythonManifest,
     dirs: &[PathBuf],
 ) -> PackagesState {
-    if toolchain::find_python_venv(dir, Some(root)).is_some() {
+    if toolchain::find_usable_python_venv(dir, Some(root)).is_some() {
         return PackagesState::Installed;
     }
     let external_venv = match manifest {

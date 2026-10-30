@@ -44,9 +44,11 @@
   name: (field_identifier) @name) @item
   (#set! kind "method"))
 
-; Package-level constants.
+; Package-level constants. `const a, b = 1, 2` lists `a` and `b`: without
+; the `name:` field tree-sitter yields one match per name identifier (with
+; it, only the first name matches).
 ((source_file
   (const_declaration
     (const_spec
-      name: (identifier) @name) @item))
+      (identifier) @name) @item))
   (#set! kind "const"))

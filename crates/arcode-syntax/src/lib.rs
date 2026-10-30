@@ -13,6 +13,7 @@
 //! This crate does not depend on GPUI or on `arcode-buffer`: callers convert
 //! buffer edits into [`InputEditData`].
 
+mod anchor;
 mod brackets;
 mod edit;
 mod highlight;

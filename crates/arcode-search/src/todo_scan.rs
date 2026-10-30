@@ -128,11 +128,15 @@ pub fn scan_todos_with(
                     halt,
                     found: Vec::new(),
                     binary: false,
+                    aborted: false,
                 };
                 if let Err(err) = searcher.search_path(matcher, path, &mut sink) {
                     log::debug!("scan_todos: {}: {err}", path.display());
+                    return None;
                 }
-                (!sink.binary && !sink.found.is_empty()).then(|| {
+                // A partial scan may hide a later NUL byte (binary file).
+                let complete = !sink.binary && !sink.aborted;
+                (complete && !sink.found.is_empty()).then(|| {
                     let found = sink.found.into_iter();
                     found
                         .map(|m| TodoItem::new(path, relative, m))
@@ -174,6 +178,8 @@ struct TodoSink<'a> {
     halt: &'a Halt<'a>,
     found: Vec<TodoMatch>,
     binary: bool,
+    /// Stopped before the end of the file.
+    aborted: bool,
 }
 
 impl Sink for TodoSink<'_> {
@@ -181,6 +187,7 @@ impl Sink for TodoSink<'_> {
 
     fn matched(&mut self, _: &Searcher, mat: &SinkMatch<'_>) -> Result<bool, Self::Error> {
         if self.halt.should_stop() {
+            self.aborted = true;
             return Ok(false);
         }
         let first = mat.line_number().unwrap_or(1).saturating_sub(1) as usize;

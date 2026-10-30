@@ -73,3 +73,13 @@ fn max_items_cancel_and_missing_root() {
     assert!(scan_todos(dir.path(), &[], &token).is_empty());
     assert!(scan_todos(&dir.path().join("nope"), &[], &CancelToken::new()).is_empty());
 }
+
+#[test]
+fn symbol_tags_in_tree() {
+    let dir = tree(&[("a.js", b"/** @todo(ann) tidy */\nlet x = a@todo;\n")]);
+    let items = scan_todos(dir.path(), &["@todo"], &CancelToken::new());
+    assert_eq!(items.len(), 1);
+    assert_eq!((items[0].line, items[0].column), (0, 4));
+    assert_eq!(items[0].author.as_deref(), Some("ann"));
+    assert_eq!(items[0].text, "tidy");
+}

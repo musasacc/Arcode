@@ -1055,3 +1055,110 @@ Three proposals were scored from 1 to 10.
   must not be empty.
 - Limits clamp to `1..=user max`; the user max is itself clamped to the hard
   caps (512 MiB, 600 s).
+
+## Appendix B (continued): Steps 3-5
+
+> **Added during implementation** of the engine, budgets and permissions
+> (`crates/arcode-plugin-host`). Same rule as above: the design text is
+> unchanged, this lists what the code does differently or decides where the
+> design was silent.
+
+**Bindings and API shape (Step 3):**
+- wasmtime 50 renamed `bindgen!`'s `trappable_imports: true` to
+  `imports: { default: trappable }`; the generated types also derive
+  `PartialEq` (`additional_derives`). They are plain data and are re-exported
+  from `bindings.rs` (`bindings::{ui, editor, http, kv, workspace, guest}`)
+  instead of being mirrored by hand, so `output.rs` and the app use them
+  directly. Only `engine.rs`, `cache.rs`, `live.rs`, `limits.rs`, `wasi.rs`
+  and `bindings.rs` name wasmtime types.
+- `PluginManager` (the §12 `lib.rs` facade) is not written yet. Steps 3-5
+  expose the pieces it will own: `Runtime` (lazy engine, linker, ticker,
+  `.cwasm` cache, master network switch), `InstanceHandle` (one plugin:
+  mailbox, thread, panels, log, counters) and `Services` (the app's traits
+  plus the `PluginOutput` sender). `InstanceHandle::dispatch` returns a
+  `Pending { id, cancel, result }`; `result` is an `async-channel` receiver.
+- `bridge.rs` gained `HttpTransport` (step 7 implements it with ureq). The
+  host does every check (master switch, gesture, `network.hosts`, per-host
+  consent) before calling it and passes an `allow_redirect(host, port)`
+  callback so consent is re-checked per hop without the transport knowing
+  about grants.
+- "Activation spawns `plugin-<id>`" is implemented as: creating a handle
+  costs nothing; the first dispatched call spawns the thread, which asks for
+  the file grant, loads the component, runs the import check, instantiates
+  and calls `activate(reason)` (the reason is derived from that call). The
+  thread names are `plugin-<id>` (Linux shows the first 15 bytes) and the
+  ticker thread is `plugin-epoch`, one per `Runtime`.
+- `activate(restore)` is used after a trap *and* after an idle unload, as the
+  WIT comment says; open panels are replayed with `open-view` after a trap.
+- `ui.open-panel` for a contribution that already has an open panel returns
+  that panel's id ("opens or focuses"). `PanelTree` validation is step 8;
+  until then `render`/`apply-patches` only enforce the node and string caps.
+- `kv` is validated and quota-checked but kept in memory per plugin (it
+  survives restarts); writing `plugin-data/<id>/*.kv` is step 6.
+- `editor.open-file` requires an open project and a relative `/` path
+  without `.`/`..`; `open-scratch` caps the text at 64 MiB.
+- `Store` caps measured (lowering each cap until instantiation failed): the
+  Rust fixtures need 1 memory, 2 tables and 3 core instances. The §5
+  starting values 2/8/16 are kept as headroom for C code (SQLite).
+- Dependencies added to the host: `wasmtime`/`wasmtime-wasi` `=50.0.1`
+  (§2 features), `sha2`, `bytes` (the WASI stream trait signature), `ropey`
+  (`DocSnapshot`), `async-channel`, and `tokio` only for the `AsyncWrite`
+  trait that `wasmtime_wasi::cli::StdoutStream` requires (tokio is already in
+  the tree through wasmtime-wasi; no runtime is started by us).
+
+**Budgets and limits (Step 4):**
+- The epoch ticker runs on a fixed schedule (`next += 10 ms`) instead of
+  `sleep(10 ms)` in a loop, so sleep overshoot does not accumulate; a spin
+  call with a 300 ms budget traps after 310-330 ms of wall time (debug
+  build). Because slices count guest execution, wall time can exceed
+  budget + 30 ms only when the thread is descheduled; the `spin` test allows
+  up to three attempts for that and always requires the budget trap itself.
+- A trapped call is answered before its store is dropped (unmapping guest
+  memory took several ms), and crash bookkeeping happens before the answer.
+- Out-of-memory is reported as such: `Limiter` wraps `StoreLimits` and
+  remembers a refused `memory.grow`, so the guest allocator's abort reads
+  "out of memory (limit 16 MiB)" rather than "unreachable".
+- Crash policy: the first trap restarts on the next event; the second waits
+  1 s (doubling after that); the third within 10 minutes disables the plugin
+  for the session. Calls during the backoff get `CallError::Backoff`. A trap
+  in `activate` counts as a crash.
+- A `provide-code-lenses` budget overrun is a *strike*, not a crash: the
+  store is still dropped (any trap poisons it), and after three strikes lens
+  calls return `LensesDisabled` while commands keep working.
+- When the mailbox is full and holds no coalescable call, the new call is
+  refused with `CallError::Busy` (the design only said which call to drop).
+- Budgets, tick, idle timeout, hard-cancel grace, crash policy, store caps,
+  mailbox size and the per-gesture request cap are all in `RuntimeConfig`
+  (defaults are the §5 values); tests shorten them.
+- The per-gesture request cap (64) counts requests made inside one gesture
+  call.
+
+**Grants, consent, WASI, import check (Step 5):**
+- The design's "EACCES" for writes without a write grant is **EPERM** in
+  practice: wasmtime-wasi answers `not-permitted` for a read-only preopen,
+  which wasi-libc reports as errno 63. Rust maps both to
+  `ErrorKind::PermissionDenied`; the test asserts that kind and errno 63, and
+  that nothing was written.
+- Grant scopes: `once` is never stored (for the file grant it covers one
+  instance; the next instantiation asks again). **Deny** is remembered for
+  the project; closing a prompt (`Dismissed`) denies this time only.
+  Precedence is session > project > global > default; a global answer
+  removes narrower ones so "Always" takes effect. With no project open,
+  project answers live in memory for the session.
+- Network grants are keyed by host (lower-case, no port); a manifest pattern
+  with a port (`example.com:8080`) still limits which ports may be asked for.
+- One workspace prompt covers read and the write checkbox; answering with
+  write unticked stores write as denied in the same scope.
+- `ConsentRequest` carries host-derived data only (method, scheme, host and
+  port from the parsed URL; the manifest name quoted and capped at 80 chars
+  by `consent::quote`). URLs with user info (`https://a@b/`) are refused.
+- Grant files are TOML (`[[grant]] plugin/capability/host/state`), written
+  atomically into 0700 directories; malformed entries are skipped (a broken
+  file means "ask again"). The `.cwasm` cache dir is also 0700.
+- The `wasi-http` fixture imports a stand-in `wasi:http/outgoing-handler`
+  at version **0.3.0**: `wasm-component-ld` merges any `wasi:http@0.2.x`
+  import with the real WASI WIT it embeds, so a 0.2 stand-in cannot be
+  built. The host refuses `wasi:http` at every version.
+- The import check also rejects unversioned interface names, other
+  `arcode:*` packages, `arcode:plugin` 0.0.x, and reports 0.2+/1.x as
+  "requires a newer Arcode".

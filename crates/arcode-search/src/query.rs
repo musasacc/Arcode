@@ -28,10 +28,13 @@ pub struct SearchQuery {
     /// a word character (`\b` semantics for word-character edges).
     pub whole_word: bool,
     /// Only search files matching one of these globs (gitignore syntax,
-    /// e.g. `*.rs`, `src/**`). A bare directory like `src` includes its
-    /// contents. Empty means "all files".
+    /// e.g. `*.rs`, `src/**`). A directory includes its contents; like in
+    /// `exclude_globs`, a name without `/` (`src`) matches at any depth and
+    /// one with `/` (`crates/app`) is relative to the root. Empty means
+    /// "all files".
     pub include_globs: Vec<String>,
-    /// Skip files/directories matching any of these globs.
+    /// Skip files/directories matching any of these globs (gitignore
+    /// syntax, same anchoring as `include_globs`).
     pub exclude_globs: Vec<String>,
     /// Also search hidden files and directories (dot files). `.git` is
     /// always skipped.

@@ -71,6 +71,25 @@ pub(crate) fn line_content_range(text: &Rope, line: usize) -> Option<Range<usize
     Some(start..start + len)
 }
 
+/// The rope line (ropey's line breaks, as in the editor) holding `byte`.
+/// Offsets past the end are clamped.
+pub(crate) fn line_of_byte(text: &Rope, byte: usize) -> usize {
+    text.byte_to_line(byte.min(text.len_bytes()))
+}
+
+/// Rope lines spanned by the byte `range`, end exclusive. A range ending
+/// right after a line break ends on that break's line.
+pub(crate) fn line_span(text: &Rope, range: Range<usize>) -> Range<usize> {
+    let start = line_of_byte(text, range.start);
+    let end = range.end.min(text.len_bytes());
+    let last = if end > range.start {
+        line_of_byte(text, end - 1).max(start)
+    } else {
+        start
+    };
+    start..last + 1
+}
+
 /// Converts a byte offset into a tree-sitter style `(row, byte column)`.
 ///
 /// Like tree-sitter, only `'\n'` starts a new row: a lone `'\r'`, U+2028
@@ -140,6 +159,20 @@ mod tests {
         assert_eq!(line_content_range(&rope, 4), None);
         let empty = Rope::new();
         assert_eq!(line_content_range(&empty, 0), Some(0..0));
+    }
+
+    #[test]
+    fn line_spans_use_rope_lines() {
+        let rope = Rope::from_str("a\u{2028}b\rc\nd\n");
+        assert_eq!(line_of_byte(&rope, 0), 0);
+        assert_eq!(line_of_byte(&rope, 4), 1);
+        assert_eq!(line_of_byte(&rope, 6), 2);
+        assert_eq!(line_of_byte(&rope, 99), 4);
+        // Ends right after "c\n": still line 2.
+        assert_eq!(line_span(&rope, 4..8), 1..3);
+        assert_eq!(line_span(&rope, 8..9), 3..4);
+        assert_eq!(line_span(&rope, 5..5), 1..2);
+        assert_eq!(line_span(&rope, 0..999), 0..4);
     }
 
     #[test]

@@ -32,6 +32,29 @@
       declarator: (qualified_identifier) @name))) @item
   (#set! kind "method"))
 
+((function_definition
+  declarator: (pointer_declarator
+    declarator: (pointer_declarator
+      declarator: (function_declarator
+        declarator: (qualified_identifier) @name)))) @item
+  (#set! kind "method"))
+
+; GoogleTest `TEST(Suite, Name) { ... }` is named `Suite.Name`, not `TEST`.
+((function_definition
+  declarator: (function_declarator
+    declarator: (identifier) @_macro
+    parameters: (parameter_list
+      .
+      (parameter_declaration
+        type: (type_identifier) @name)
+      .
+      (parameter_declaration
+        type: (type_identifier) @name)
+      .))) @item
+  (#any-of? @_macro "TEST" "TEST_F" "TEST_P" "TYPED_TEST" "TYPED_TEST_P")
+  (#set! kind "function")
+  (#set! join "."))
+
 ; Member functions defined or declared in a class body.
 ((field_declaration_list
   (function_definition

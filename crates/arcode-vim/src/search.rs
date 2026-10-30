@@ -36,7 +36,14 @@ pub(crate) fn find_match(
     forward: bool,
 ) -> Option<Range<usize>> {
     let len = b.len_chars();
-    let mut at = if forward { from + 1 } else { from };
+    // `find_prev` finds matches *ending* at or before its limit; a match
+    // starting before `from` ends at or before `from - 1 + plen`.
+    let plen = q.pattern.chars().count();
+    let mut at = if forward {
+        from + 1
+    } else {
+        (from + plen).saturating_sub(1)
+    };
     let mut first: Option<usize> = None;
     // Every iteration finds a new match start; stop once one repeats.
     for _ in 0..=len {
@@ -54,8 +61,8 @@ pub(crate) fn find_match(
         }
         at = if forward {
             r.start + 1
-        } else if r.end > 1 {
-            r.end - 1
+        } else if r.start > 0 {
+            r.start + plen - 1
         } else {
             len
         };
@@ -105,6 +112,11 @@ mod tests {
         assert_eq!(find_match(&b, &q("foo", true), 0, false), Some(11..14));
         assert_eq!(find_match(&b, &q("zzz", false), 0, true), None);
         assert_eq!(find_match(&b, &q("foobar", true), 0, true), Some(4..10));
+        // Backward: the match starting before the cursor, even if the
+        // cursor is inside it.
+        assert_eq!(find_match(&b, &q("foo", false), 5, false), Some(4..7));
+        assert_eq!(find_match(&b, &q("foo", false), 4, false), Some(0..3));
+        assert_eq!(find_match(&b, &q("foo", true), 5, false), Some(0..3));
         let only = Buffer::new("xfoox");
         assert_eq!(find_match(&only, &q("foo", true), 0, true), None);
         assert_eq!(word_under(&b, 5), Some(4..10));

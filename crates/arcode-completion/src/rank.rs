@@ -70,10 +70,11 @@ impl Ranker {
     ///
     /// Matching is fuzzy with smart case on `filter_text` (or `label`).
     /// Order: exact-prefix match, fuzzy score, LSP `sort_text`, source
-    /// priority (LSP > Snippet > BufferWord > Path), shorter label, input
-    /// order. An empty query keeps every candidate: preselected first, then
-    /// `sort_text` order. Duplicates (same label and kind) are dropped,
-    /// keeping the best-ranked one.
+    /// priority (LSP > Snippet > BufferWord > Path), shorter label, label,
+    /// input order. Within a local source, candidates with a `sort_text`
+    /// come first in its order. An empty query keeps every candidate:
+    /// preselected first, then `sort_text` order. Duplicates (same label
+    /// and kind) are dropped, keeping the best-ranked one.
     pub fn rank(
         &mut self,
         query: &str,
@@ -98,8 +99,7 @@ impl Ranker {
         let mut entries: Vec<Entry> = Vec::new();
         for (index, cand) in candidates.iter().enumerate() {
             let hay = cand.filter_text();
-            let Some(score) = pattern.score(Utf32Str::new(hay, &mut self.buf), &mut self.matcher)
-            else {
+            let Some(score) = pattern.score(utf32(hay, &mut self.buf), &mut self.matcher) else {
                 continue;
             };
             entries.push(Entry {
@@ -140,7 +140,7 @@ impl Ranker {
                 continue;
             }
             let mut match_indices = Vec::new();
-            let label = Utf32Str::new(&cand.label, &mut self.buf);
+            let label = utf32(&cand.label, &mut self.buf);
             if pattern
                 .indices(label, &mut self.matcher, &mut match_indices)
                 .is_none()
@@ -189,6 +189,18 @@ fn rank_empty(candidates: &[CompletionCandidate], limit: usize) -> Vec<RankedCan
         .collect()
 }
 
+/// `s` as one UTF-32 element per char, so match indices are char indices.
+/// (`Utf32Str::new` segments graphemes, or bytes for ASCII-led clusters.)
+fn utf32<'a>(s: &'a str, buf: &'a mut Vec<char>) -> Utf32Str<'a> {
+    if s.is_ascii() {
+        Utf32Str::Ascii(s.as_bytes())
+    } else {
+        buf.clear();
+        buf.extend(s.chars());
+        Utf32Str::Unicode(buf)
+    }
+}
+
 fn prefix_class(hay: &str, query: &str, folded_query: Option<&str>) -> PrefixClass {
     if hay.starts_with(query) {
         return PrefixClass::Exact;
@@ -211,10 +223,13 @@ fn source_order(a: &CompletionCandidate, b: &CompletionCandidate) -> Ordering {
     if a.source.is_lsp() {
         a.sort_text().cmp(b.sort_text())
     } else {
-        // Local sources only order by sort_text when they set one.
+        // Local sources: those with a sort_text first, in its order. Must
+        // stay a total order (sorting may panic otherwise).
         match (&a.sort_text, &b.sort_text) {
             (Some(x), Some(y)) => x.cmp(y),
-            _ => Ordering::Equal,
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
         }
     }
 }

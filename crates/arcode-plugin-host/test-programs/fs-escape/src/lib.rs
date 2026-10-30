@@ -22,10 +22,20 @@ fn report(op: &str, path: &str, result: std::io::Result<String>) {
 impl Plugin for FsEscape {
     fn command(&mut self, _id: &str, args: Json) -> Result<()> {
         let args: Value = args.parse()?;
-        for path in args["read"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        for path in args["read"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
             report("read", path, std::fs::read_to_string(path));
         }
-        for path in args["list"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        for path in args["list"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
             let listing = std::fs::read_dir(path).map(|entries| {
                 let mut names: Vec<String> = entries
                     .filter_map(|e| e.ok())
@@ -36,8 +46,17 @@ impl Plugin for FsEscape {
             });
             report("list", path, listing);
         }
-        for path in args["write"].as_array().into_iter().flatten().filter_map(Value::as_str) {
-            report("write", path, std::fs::write(path, b"written").map(|()| String::new()));
+        for path in args["write"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            report(
+                "write",
+                path,
+                std::fs::write(path, b"written").map(|()| String::new()),
+            );
         }
         Ok(())
     }

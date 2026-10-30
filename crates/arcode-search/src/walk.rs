@@ -47,9 +47,8 @@ pub(crate) fn build_overrides(root: &Path, cfg: &WalkConfig<'_>) -> Result<Overr
             continue;
         }
         add(glob, raw)?;
-        if !glob.ends_with("**") {
-            // A bare directory include should cover its contents.
-            add(&format!("{glob}/**"), raw)?;
+        if let Some(contents) = contents_glob(glob) {
+            add(&contents, raw)?;
         }
     }
     for raw in cfg.exclude_globs {
@@ -62,6 +61,20 @@ pub(crate) fn build_overrides(root: &Path, cfg: &WalkConfig<'_>) -> Result<Overr
         glob: String::new(),
         message: e.to_string(),
     })
+}
+
+/// The glob that makes an include of directory `glob` cover its contents,
+/// with the same anchoring gitignore gives `glob` itself (and so the same
+/// meaning it has as an exclude): a name without `/` matches at any depth,
+/// one with `/` is relative to the root. `None` if it already ends in `**`.
+fn contents_glob(glob: &str) -> Option<String> {
+    if glob.ends_with("**") {
+        None
+    } else if glob.contains('/') {
+        Some(format!("{glob}/**"))
+    } else {
+        Some(format!("**/{glob}/**"))
+    }
 }
 
 /// Make `root` absolute without resolving symlinks (keeps Windows paths
@@ -167,4 +180,39 @@ where
     Ok(WalkStats {
         files_visited: visited.into_inner(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contents_glob_anchoring() {
+        assert_eq!(contents_glob("src").as_deref(), Some("**/src/**"));
+        assert_eq!(contents_glob("lib/src").as_deref(), Some("lib/src/**"));
+        assert_eq!(contents_glob("/src").as_deref(), Some("/src/**"));
+        assert_eq!(contents_glob("src/**"), None);
+    }
+
+    #[test]
+    fn bare_and_anchored_includes() {
+        let root = Path::new("/r");
+        let include = |globs: &[&str], path: &str| {
+            let globs: Vec<String> = globs.iter().map(|g| (*g).to_owned()).collect();
+            let cfg = WalkConfig {
+                include_hidden: false,
+                respect_gitignore: true,
+                include_globs: &globs,
+                exclude_globs: &[],
+                max_file_size: 0,
+            };
+            let o = build_overrides(root, &cfg).expect("globs");
+            o.matched(root.join(path), false).is_whitelist()
+        };
+        assert!(include(&["src"], "src/a.rs"));
+        assert!(include(&["src"], "lib/src/deep/b.rs"));
+        assert!(!include(&["src"], "lib/x.rs"));
+        assert!(include(&["lib/src"], "lib/src/b.rs"));
+        assert!(!include(&["lib/src"], "x/lib/src/b.rs"));
+    }
 }

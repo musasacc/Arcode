@@ -107,3 +107,39 @@ fn rust_toolchain_files() {
     );
     assert_eq!(rust_toolchain_channel(no_channel.root()), None);
 }
+
+/// A venv made on another OS has no interpreter for this platform: it is
+/// still detected, but never run, and does not count as installed.
+#[test]
+fn foreign_venv_falls_back_to_default_python() {
+    let p = Project::new();
+    p.write(".venv/pyvenv.cfg", "home = elsewhere\n");
+    let foreign = if cfg!(windows) {
+        ".venv/bin/python"
+    } else {
+        ".venv/Scripts/python.exe"
+    };
+    p.write(foreign, "");
+    let venv = detect_python_venv(p.root()).expect("detected");
+    assert!(!venv.has_interpreter());
+    assert_eq!(python_program(p.root(), Some(p.root())), python());
+    assert_eq!(
+        arcode_project::toolchain::find_usable_python_venv(p.root(), Some(p.root())),
+        None
+    );
+
+    let req = p.write("requirements.txt", "requests\n");
+    let file = arcode_project::detect(&req).expect("detected");
+    assert_eq!(file.install.program, python());
+    assert_eq!(
+        arcode_project::install_state(&file),
+        arcode_project::PackagesState::NotInstalled
+    );
+
+    // A usable `venv` next to the foreign `.venv` is preferred.
+    let interpreter = p.venv("venv");
+    assert_eq!(
+        python_program(p.root(), Some(p.root())),
+        interpreter.to_string_lossy()
+    );
+}

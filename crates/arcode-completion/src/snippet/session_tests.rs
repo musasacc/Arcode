@@ -166,3 +166,24 @@ fn adjacent_empty_stop_does_not_swallow_neighbor() {
     assert_eq!(b.to_string(), "abx");
     assert_eq!(s.all_ranges()[..2], [(1, 0..2), (2, 2..3)]);
 }
+
+#[test]
+fn adjacent_mirrors_typing_at_end_of_second() {
+    let mut b = Buffer::new("");
+    let mut s = start(&mut b, 0, "${1:a}$1");
+    type_at(&mut b, &mut s, 2..2, "b");
+    assert_eq!(b.to_string(), "abab");
+    assert_eq!(s.active_ranges(), [0..2, 2..4]);
+}
+
+#[test]
+fn adjacent_empty_mirrors() {
+    let mut b = Buffer::new("");
+    let mut s = start(&mut b, 0, "$1$1");
+    type_at(&mut b, &mut s, 0..0, "x");
+    assert_eq!(b.to_string(), "xx");
+    assert_eq!(s.active_ranges(), [0..1, 1..2]);
+    type_at(&mut b, &mut s, 1..1, "y");
+    assert_eq!(b.to_string(), "xyxy");
+    assert_eq!(s.active_ranges(), [0..2, 2..4]);
+}

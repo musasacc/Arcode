@@ -62,6 +62,8 @@ wasmtime = { version = "=50.0.1", default-features = false, features = ["runtime
 wasmtime-wasi = { version = "=50.0.1", default-features = false, features = ["p2"] }
 sha2 = "0.10"
 bytes = "1"
+# Plugin http import (§1): ureq 3 + rustls (ring, webpki roots); no gzip, no cookies.
+ureq = { version = "3.5", default-features = false, features = ["rustls"] }
 
 [profile.dev]
 # GPUI is unusably slow unoptimized; keep deps fast, our code debuggable.

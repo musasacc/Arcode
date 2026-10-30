@@ -204,9 +204,16 @@ impl SnippetSession {
             .iter()
             .position(|(r, t)| *r == edit.range && *t == edit.new_text);
         let mirror = mirror.map(|i| self.pending.remove(i).0);
+        let active = self.active;
         for (si, stop) in self.stops.iter_mut().enumerate() {
-            for t in &mut stop.ranges {
-                let sticky = si == self.active || t.encloses.contains(&self.active);
+            let is_sticky = |t: &Tracked| si == active || t.encloses.contains(&active);
+            // A mirror update belongs to its target range alone.
+            let exact = mirror
+                .as_ref()
+                .and_then(|m| stop.ranges.iter().position(|t| t.range == *m));
+            let claim = exact.or_else(|| boundary_claim(&stop.ranges, &edit.range, is_sticky));
+            for (ri, t) in stop.ranges.iter_mut().enumerate() {
+                let sticky = is_sticky(t) && claim.is_none_or(|c| c == ri);
                 let exact = mirror.as_ref() == Some(&t.range);
                 map_range(t, edit, new_len, sticky || exact);
             }
@@ -237,6 +244,35 @@ impl SnippetSession {
         self.pending.clone_from(&updates);
         updates
     }
+}
+
+/// For an insertion touching several sticky ranges of one stop (adjacent
+/// mirrors like `${1:a}$1`), the single range that grows: the first one
+/// ending at the insertion point (where the cursor is after typing at its
+/// end), else the first one touched. `None` when there is no conflict.
+fn boundary_claim(
+    ranges: &[Tracked],
+    edit: &Range<usize>,
+    is_sticky: impl Fn(&Tracked) -> bool,
+) -> Option<usize> {
+    if !edit.is_empty() {
+        return None;
+    }
+    let at = edit.start;
+    let touched: Vec<usize> = ranges
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| is_sticky(t) && t.range.start <= at && at <= t.range.end)
+        .map(|(i, _)| i)
+        .collect();
+    if touched.len() < 2 {
+        return None;
+    }
+    touched
+        .iter()
+        .copied()
+        .find(|&i| ranges[i].range.end == at)
+        .or(touched.first().copied())
 }
 
 /// Whether `inner` is nested in `outer`. An empty range at a boundary of

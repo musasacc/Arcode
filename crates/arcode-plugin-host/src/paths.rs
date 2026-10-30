@@ -130,7 +130,9 @@ mod tests {
         assert_ne!(key, project_key(Path::new("/home/me/other")));
         assert_eq!(
             p.project_grants(root),
-            Path::new("/d/arcode/projects").join(&key).join("plugin-grants.toml")
+            Path::new("/d/arcode/projects")
+                .join(&key)
+                .join("plugin-grants.toml")
         );
         assert_eq!(
             p.kv_file("a.b", None),

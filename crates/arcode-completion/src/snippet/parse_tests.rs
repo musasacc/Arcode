@@ -1,5 +1,5 @@
 use super::*;
-use crate::snippet::ast::{CaseOp, FormatItem};
+use crate::snippet::ast::{CaseOp, FormatItem, Transform};
 
 fn p(s: &str) -> Vec<Node> {
     parse(s).nodes
@@ -185,4 +185,67 @@ fn deep_unclosed_nesting_is_fast() {
 fn preview_text() {
     let s = Snippet::parse("fn ${1:name}(${2|a,b|}) $VAR ${X:d}$0");
     assert_eq!(s.preview_text(), "fn name(a) VAR d");
+}
+
+#[test]
+fn constructs_after_deep_unclosed_run_still_parse() {
+    let src = format!("{}$2", "${1:".repeat(100));
+    let nodes = p(&src);
+    assert_eq!(
+        nodes,
+        [
+            text(&"${1:".repeat(100)),
+            Node::Tabstop {
+                index: 2,
+                transform: None
+            }
+        ]
+    );
+}
+
+#[test]
+fn unclosed_transforms_closed_at_the_end_are_fast() {
+    // Every format item reads to the final `}`, then the transform fails.
+    let src = format!("{}}}", "${1/(a)/${1:+".repeat(4000));
+    let start = std::time::Instant::now();
+    let s = Snippet::parse(&src);
+    assert!(start.elapsed().as_secs() < 2, "{:?}", start.elapsed());
+    assert!(!s.nodes.is_empty());
+}
+
+#[test]
+fn budget_fallback_keeps_literal_text_with_escapes() {
+    // Quadratic without the budget; the whole snippet becomes text.
+    let src = format!("\\$x {}}}", "${1/(a)/${1:+".repeat(4000));
+    let s = Snippet::parse(&src);
+    assert_eq!(s.preview_text(), src.replacen("\\$", "$", 1));
+}
+
+#[test]
+fn unclosed_format_text_fails_softly() {
+    assert_eq!(
+        p("${1/(a)/${1:+x/}"),
+        [
+            text("${1/(a)/"),
+            Node::Placeholder {
+                index: 1,
+                children: vec![text("+x/")],
+            }
+        ]
+    );
+    assert_eq!(
+        p("${1/(a)/${1:?x:y}/}"),
+        [Node::Tabstop {
+            index: 1,
+            transform: Some(Transform {
+                regex: "(a)".into(),
+                format: vec![FormatItem::Conditional {
+                    group: 1,
+                    if_text: "x".into(),
+                    else_text: "y".into(),
+                }],
+                flags: String::new(),
+            }),
+        }]
+    );
 }

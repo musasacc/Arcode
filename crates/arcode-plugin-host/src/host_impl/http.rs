@@ -7,11 +7,17 @@
 //! 3. the URL's host against the manifest's `network.hosts`;
 //! 4. per-host consent, again for every redirect target.
 //!
+//! Every attempt, refused or sent, goes into the plugin's network log
+//! (method, host, port and status only).
+//!
 //! [`HttpTransport`]: crate::bridge::HttpTransport
+
+use std::time::SystemTime;
 
 use crate::bindings::arcode::plugin::http::{self as wit, HttpError, Request, Response};
 use crate::consent::ConsentKind;
 use crate::grants::Capability;
+use crate::net::{NetworkEntry, NetworkOutcome};
 use crate::state::HostState;
 
 /// The default and maximum response size (§5 host caps).
@@ -53,7 +59,9 @@ pub fn parse_origin(url: &str) -> Result<Origin, String> {
         }
     };
     let port = match port {
-        Some(p) => p.parse::<u16>().map_err(|_| format!("invalid port `{p}`"))?,
+        Some(p) => p
+            .parse::<u16>()
+            .map_err(|_| format!("invalid port `{p}`"))?,
         None => default_port,
     };
     let valid = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':');
@@ -167,14 +175,48 @@ impl HostState {
         let transport = self.ctx.services.http.clone();
         let cancel = self.call.cancel.clone();
         let scheme = origin.scheme;
-        let mut allow_redirect = |host: &str, port: u16| self.allow_host(&method, &scheme, host, port);
+        let mut allow_redirect =
+            |host: &str, port: u16| self.allow_host(&method, &scheme, host, port);
         transport.send(req, &cancel, &mut allow_redirect)
+    }
+}
+
+/// A short, user-facing description of an error (network log).
+pub fn describe(e: &HttpError) -> String {
+    match e {
+        HttpError::Denied => "denied".into(),
+        HttpError::NoUserGesture => "no user gesture".into(),
+        HttpError::Cancelled => "cancelled".into(),
+        HttpError::Timeout => "timed out".into(),
+        HttpError::InvalidRequest(m) => format!("invalid request: {m}"),
+        HttpError::Dns(m) => format!("DNS: {m}"),
+        HttpError::Connect(m) => format!("connect: {m}"),
+        HttpError::Tls(m) => format!("TLS: {m}"),
+        HttpError::Protocol(m) => format!("protocol: {m}"),
+        HttpError::Io(m) => format!("I/O: {m}"),
     }
 }
 
 impl wit::Host for HostState {
     fn send(&mut self, req: Request) -> wasmtime::Result<Result<Response, HttpError>> {
-        Ok(self.send_checked(req))
+        let method = super::cap(req.method.to_ascii_uppercase(), 32);
+        let (host, port) = parse_origin(&req.url).map_or((String::new(), 0), |o| (o.host, o.port));
+        let result = self.send_checked(req);
+        let outcome = match &result {
+            Ok(r) => NetworkOutcome::Status(r.status),
+            Err(
+                e @ (HttpError::Denied | HttpError::NoUserGesture | HttpError::InvalidRequest(_)),
+            ) => NetworkOutcome::Refused(describe(e)),
+            Err(e) => NetworkOutcome::Failed(describe(e)),
+        };
+        self.ctx.shared.network.push(NetworkEntry {
+            at: SystemTime::now(),
+            method,
+            host,
+            port,
+            outcome,
+        });
+        Ok(result)
     }
 }
 
@@ -185,7 +227,10 @@ mod tests {
     #[test]
     fn origins_come_from_the_parsed_url() {
         let o = parse_origin("HTTPS://API.Example.com/v1?x=1").unwrap();
-        assert_eq!((o.scheme.as_str(), o.host.as_str(), o.port), ("https", "api.example.com", 443));
+        assert_eq!(
+            (o.scheme.as_str(), o.host.as_str(), o.port),
+            ("https", "api.example.com", 443)
+        );
         let o = parse_origin("http://127.0.0.1:8080").unwrap();
         assert_eq!((o.host.as_str(), o.port), ("127.0.0.1", 8080));
         let o = parse_origin("http://[::1]:9/x").unwrap();
@@ -208,7 +253,11 @@ mod tests {
         assert!(host_allowed(&p(&["*"]), "anything.test", 1));
         assert!(host_allowed(&p(&["*.example.com"]), "api.example.com", 443));
         assert!(!host_allowed(&p(&["*.example.com"]), "example.com", 443));
-        assert!(!host_allowed(&p(&["*.example.com"]), "evilexample.com", 443));
+        assert!(!host_allowed(
+            &p(&["*.example.com"]),
+            "evilexample.com",
+            443
+        ));
         assert!(host_allowed(&p(&["example.com:8080"]), "example.com", 8080));
         assert!(!host_allowed(&p(&["example.com:8080"]), "example.com", 80));
         assert!(host_allowed(&p(&["127.0.0.1"]), "127.0.0.1", 5555));

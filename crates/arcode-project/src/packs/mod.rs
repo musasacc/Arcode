@@ -10,6 +10,7 @@ mod builtin;
 mod check;
 mod plan;
 mod steps;
+mod system;
 
 use serde::{Deserialize, Serialize};
 
@@ -17,11 +18,11 @@ use crate::command::command_line;
 
 pub use builtin::packs;
 pub use check::{
-    CommandRunner, ComponentStatus, DEFAULT_CHECK_TIMEOUT, RunOutcome, SystemRunner, ToolState,
-    check_component, check_installed, check_installed_on, check_requirements, find_executable,
-    requirement_check,
+    CommandRunner, ComponentStatus, DEFAULT_CHECK_TIMEOUT, RunOutcome, ToolState, check_component,
+    check_installed, check_installed_on, check_requirements, requirement_check,
 };
 pub use plan::{PlanStep, install_plan, install_plan_for, install_plan_missing};
+pub use system::{SystemRunner, find_executable};
 
 /// LSP language ids the packs may refer to.
 pub const KNOWN_LANGUAGE_IDS: [&str; 22] = [

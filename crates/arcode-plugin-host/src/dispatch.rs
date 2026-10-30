@@ -246,13 +246,20 @@ impl Mailbox {
             return Pushed::Refused;
         }
         if let Some(key) = d.call.coalesce_key()
-            && let Some(i) = st.queue.iter().position(|q| q.call.coalesce_key() == Some(key))
+            && let Some(i) = st
+                .queue
+                .iter()
+                .position(|q| q.call.coalesce_key() == Some(key))
             && let Some(old) = st.queue.remove(i)
         {
             old.answer(Err(CallError::Superseded));
         }
         if st.queue.len() >= self.capacity {
-            match st.queue.iter().position(|q| q.call.coalesce_key().is_some()) {
+            match st
+                .queue
+                .iter()
+                .position(|q| q.call.coalesce_key().is_some())
+            {
                 Some(i) => {
                     if let Some(old) = st.queue.remove(i) {
                         old.answer(Err(CallError::Superseded));

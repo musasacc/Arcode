@@ -40,6 +40,45 @@ pub struct DocSnapshot {
     pub selections: Vec<Range>,
 }
 
+impl DocSnapshot {
+    /// Char index of `p`, if it lies inside the document (a column may be
+    /// at most the line's length, newline included).
+    pub fn char_index(&self, p: Position) -> Option<usize> {
+        let line = p.line as usize;
+        if line >= self.rope.len_lines() {
+            return None;
+        }
+        let line_len = self.rope.line(line).len_chars();
+        let column = p.column as usize;
+        (column <= line_len).then(|| self.rope.line_to_char(line) + column)
+    }
+
+    /// Char range of `r`, if both ends are inside and `start <= end`.
+    pub fn char_range(&self, r: Range) -> Option<std::ops::Range<usize>> {
+        let (start, end) = (self.char_index(r.start)?, self.char_index(r.end)?);
+        (start <= end).then_some(start..end)
+    }
+
+    /// Resolves `edits` against this snapshot: char ranges sorted by start,
+    /// refused with [`EditorError::InvalidRange`] if any range is outside
+    /// the document or two ranges overlap.
+    pub fn resolve_edits<'a>(
+        &self,
+        edits: &'a [TextEdit],
+    ) -> Result<Vec<(std::ops::Range<usize>, &'a str)>, EditorError> {
+        let mut resolved = edits
+            .iter()
+            .map(|e| Some((self.char_range(e.range)?, e.text.as_str())))
+            .collect::<Option<Vec<_>>>()
+            .ok_or(EditorError::InvalidRange)?;
+        resolved.sort_by_key(|(r, _)| (r.start, r.end));
+        if resolved.windows(2).any(|w| w[0].0.end > w[1].0.start) {
+            return Err(EditorError::InvalidRange);
+        }
+        Ok(resolved)
+    }
+}
+
 /// Snapshots of every open document, published by the app after each edit
 /// while any plugin is active.
 pub type SnapshotMap = Arc<RwLock<HashMap<DocId, DocSnapshot>>>;

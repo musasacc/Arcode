@@ -19,9 +19,10 @@ pub struct StoreCaps {
 }
 
 impl Default for StoreCaps {
-    /// Measured in step 3: a Rust `wasm32-wasip2` component built with
-    /// `wasm-component-ld` uses 2 memories (guest + adapter shim), 2-3
-    /// tables and 4-6 core instances; the §5 starting values leave room.
+    /// Measured in step 3 by lowering each cap until instantiation failed:
+    /// the Rust `wasm32-wasip2` fixtures (echo, spin, fs-escape) need 1
+    /// memory, 2 tables and 3 core instances. The §5 starting values
+    /// (2, 8, 16) are kept as headroom for C code such as SQLite.
     fn default() -> Self {
         Self {
             memories: 2,
@@ -171,9 +172,7 @@ impl CrashTracker {
         // First trap: restart right away. Then 1×, 2×, 4× the backoff.
         let wait = match n {
             0 | 1 => Duration::ZERO,
-            n => policy
-                .backoff
-                .saturating_mul(1 << (n - 2).min(16) as u32),
+            n => policy.backoff.saturating_mul(1 << (n - 2).min(16) as u32),
         };
         let not_before = now + wait;
         self.not_before = Some(not_before);
@@ -201,7 +200,10 @@ mod tests {
         let policy = CrashPolicy::default();
         let mut t = CrashTracker::default();
         let t0 = Instant::now();
-        assert_eq!(t.record(t0, &policy), CrashVerdict::Restart { not_before: t0 });
+        assert_eq!(
+            t.record(t0, &policy),
+            CrashVerdict::Restart { not_before: t0 }
+        );
         assert_eq!(t.backoff_left(t0), None);
         let t1 = t0 + Duration::from_secs(5);
         assert_eq!(
@@ -212,7 +214,10 @@ mod tests {
         );
         assert_eq!(t.backoff_left(t1), Some(Duration::from_secs(1)));
         assert_eq!(t.backoff_left(t1 + Duration::from_secs(2)), None);
-        assert_eq!(t.record(t1 + Duration::from_secs(9), &policy), CrashVerdict::Disable);
+        assert_eq!(
+            t.record(t1 + Duration::from_secs(9), &policy),
+            CrashVerdict::Disable
+        );
         assert!(t.is_disabled());
     }
 
@@ -224,7 +229,10 @@ mod tests {
         t.record(t0, &policy);
         t.record(t0 + Duration::from_secs(1), &policy);
         let later = t0 + Duration::from_secs(700);
-        assert!(matches!(t.record(later, &policy), CrashVerdict::Restart { .. }));
+        assert!(matches!(
+            t.record(later, &policy),
+            CrashVerdict::Restart { .. }
+        ));
         assert!(!t.is_disabled());
     }
 

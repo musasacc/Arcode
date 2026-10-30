@@ -54,10 +54,24 @@ fn read_first(root: &Path, names: &[&str]) -> Option<String> {
 ///
 /// Skips recipe lines (indented), variable assignments (`=`, `:=`, `::=`,
 /// `?=`, `+=`), special targets (`.PHONY`), pattern rules (`%`) and
-/// variable references (`$`).
+/// variable references (`$`) and the bodies of `define ... endef` blocks.
 pub(crate) fn make_targets(text: &str) -> Vec<String> {
     let mut targets: Vec<String> = Vec::new();
+    let mut define_depth = 0usize;
     for line in text.lines() {
+        // A tab-indented line outside a block is a recipe, not a directive.
+        let recipe = define_depth == 0 && line.starts_with('\t');
+        let directive = if recipe { None } else { define_directive(line) };
+        if directive == Some(true) {
+            define_depth += 1;
+            continue;
+        }
+        if define_depth > 0 {
+            if directive == Some(false) {
+                define_depth -= 1;
+            }
+            continue;
+        }
         if line.starts_with([' ', '\t', '#']) {
             continue;
         }
@@ -77,6 +91,19 @@ pub(crate) fn make_targets(text: &str) -> Vec<String> {
         }
     }
     targets
+}
+
+/// `Some(true)` for a `define` line (with optional `override`/`export`
+/// prefixes), `Some(false)` for `endef`, `None` otherwise.
+fn define_directive(line: &str) -> Option<bool> {
+    let mut words = line
+        .split_whitespace()
+        .skip_while(|w| matches!(*w, "override" | "export"));
+    match words.next()? {
+        "define" => Some(true),
+        "endef" => Some(false),
+        _ => None,
+    }
 }
 
 /// Public recipe names (not starting with `_`, not marked `[private]`), in
@@ -129,6 +156,13 @@ mod tests {
                 .map(String::from)
                 .to_vec()
         );
+    }
+
+    #[test]
+    fn define_blocks_are_skipped() {
+        let text = "define HELP\nUsage: make <target>\n  define NESTED\nx: y\n  endef\nendef\n\
+                    export define SCRIPT =\nrun: it\nendef\nbuild:\n\tcc\n";
+        assert_eq!(make_targets(text), vec!["build".to_string()]);
     }
 
     #[test]

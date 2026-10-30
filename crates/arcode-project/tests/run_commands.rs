@@ -303,3 +303,45 @@ fn invalid_manifests_are_ignored() {
     p.write("package.json", "{ nope");
     assert!(detect_run_commands(p.root()).is_empty());
 }
+
+/// Housekeeping names are listed but never become the Run button.
+#[test]
+fn default_run_skips_housekeeping() {
+    let p = Project::new();
+    p.write(
+        "Makefile",
+        "clean:\n\trm -rf out\ninstall:\n\tcp app /usr/local/bin\n",
+    );
+    assert_eq!(detect_run_commands(p.root()).len(), 2);
+    assert_eq!(default_run_command(p.root()), None);
+
+    let q = Project::new();
+    q.write(
+        "package.json",
+        r#"{"scripts":{"clean":"rm -rf dist","lint":"eslint .","prestart":"x","serve":"node s.js"}}"#,
+    );
+    q.write("package-lock.json", "{}");
+    let cmd = default_run_command(q.root()).expect("a command");
+    assert_eq!(cmd.command_line(), "npm run serve");
+}
+
+/// A `go:generate` helper does not hide a real main package under `cmd/`.
+#[test]
+fn go_ignored_generator_in_main_package_dir() {
+    let p = Project::new();
+    p.write("go.mod", "module example.com/app\n\ngo 1.22\n");
+    p.write(
+        "gen.go",
+        "// +build ignore\n\npackage main\n\nfunc main() {}\n",
+    );
+    p.write(
+        "main.go",
+        "//go:build !windows\n\npackage main\n\nfunc main() {}\n",
+    );
+    let runs: Vec<String> = detect_run_commands(p.root())
+        .iter()
+        .filter(|c| c.kind == RunKind::Run)
+        .map(|c| c.command_line())
+        .collect();
+    assert_eq!(runs, ["go run ."]);
+}
