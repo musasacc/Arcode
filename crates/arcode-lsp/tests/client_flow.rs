@@ -161,6 +161,10 @@ async fn full_session_with_fake_server() {
         assert_eq!(reply["id"], id);
         assert_eq!(reply["result"], Value::Null, "{method}: {reply}");
     }
+    let refresh = next_event(&events, |e| matches!(e, LspEvent::Refresh { .. })).await;
+    assert!(
+        matches!(refresh, LspEvent::Refresh { ref feature, ref server, .. } if feature == "inlayHint" && server == "fake")
+    );
 
     // Progress becomes Progress events and Busy/Running status.
     let progress = |kind: Value| json!({ "token": "idx", "value": kind });
@@ -245,12 +249,46 @@ async fn full_session_with_fake_server() {
         "params": { "edit": { "changes": { uri.as_str(): [ { "range": range, "newText": "x" } ] } } }
     }))
     .await;
-    let reply = peer.recv().await;
-    assert_eq!(reply["result"]["applied"], false);
+    // The answer waits for the UI's verdict.
     let edit = next_event(&events, |e| matches!(e, LspEvent::ApplyEdit { .. })).await;
     match edit {
-        LspEvent::ApplyEdit { edit, .. } => assert!(edit.changes.unwrap().contains_key(&uri)),
+        LspEvent::ApplyEdit {
+            edit,
+            reply,
+            encoding,
+            ..
+        } => {
+            assert!(edit.changes.unwrap().contains_key(&uri));
+            assert_eq!(encoding, PositionEncoding::Utf16);
+            reply.send(true, None);
+        }
         _ => unreachable!(),
+    }
+    let reply = peer.recv().await;
+    assert_eq!(reply["id"], 12);
+    assert_eq!(reply["result"]["applied"], true);
+    // A refused edit carries the reason; a dropped reply means "not applied".
+    for id in [13, 14] {
+        peer.send(json!({
+            "jsonrpc": "2.0", "id": id, "method": "workspace/applyEdit",
+            "params": { "label": "Rename", "edit": { "changes": {} } }
+        }))
+        .await;
+        match next_event(&events, |e| matches!(e, LspEvent::ApplyEdit { .. })).await {
+            LspEvent::ApplyEdit { reply, label, .. } => {
+                assert_eq!(label.as_deref(), Some("Rename"));
+                if id == 13 {
+                    reply.send(false, Some("file changed".into()));
+                }
+            }
+            _ => unreachable!(),
+        }
+        let reply = peer.recv().await;
+        assert_eq!(reply["id"], id);
+        assert_eq!(reply["result"]["applied"], false);
+        if id == 13 {
+            assert_eq!(reply["result"]["failureReason"], "file changed");
+        }
     }
 
     // didSave / didClose.

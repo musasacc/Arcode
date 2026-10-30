@@ -18,7 +18,7 @@ impl FindBar {
         let c = theme(cx).colors.clone();
         let (text, color) = if let Some(error) = &self.error {
             (error.to_string(), c.error)
-        } else if let Some(notice) = &self.notice {
+        } else if let Some((notice, _)) = &self.notice {
             (notice.to_string(), c.text_muted)
         } else if self.query_text(cx).is_empty() {
             (String::new(), c.text_muted)

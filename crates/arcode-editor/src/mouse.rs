@@ -69,9 +69,14 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle);
+        self.lang_mouse_down(cx);
         let Some(layout) = self.layout.clone() else {
             return;
         };
+        if event.button == MouseButton::Right {
+            self.context_click(event, &layout, window, cx);
+            return;
+        }
         if event.button != MouseButton::Left {
             return;
         }

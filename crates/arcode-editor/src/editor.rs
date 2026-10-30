@@ -119,6 +119,8 @@ pub struct Editor {
     pub(crate) snippet: Option<SnippetSession>,
     /// Completion list, signature help and their sources.
     pub(crate) completion: CompletionState,
+    /// Inlay hints, code actions, rename and formatting.
+    pub(crate) lang: crate::lang::LangState,
 }
 
 impl EventEmitter<EditorEvent> for Editor {}
@@ -167,6 +169,7 @@ impl Editor {
             ext: ExtState::default(),
             snippet: None,
             completion: CompletionState::default(),
+            lang: Default::default(),
         };
         crate::completion::register_editor(cx.entity().downgrade(), cx);
         editor.init_syntax(cx);
@@ -210,6 +213,26 @@ impl Editor {
     /// Whether edits are blocked.
     pub fn is_read_only(&self) -> bool {
         self.read_only
+    }
+
+    /// Points the editor at another file (it was renamed or moved). The
+    /// text and undo history stay; the language follows the new name.
+    pub fn set_path(&mut self, path: impl Into<std::path::PathBuf>, cx: &mut Context<Self>) {
+        self.buffer.set_path(path);
+        let language = self
+            .buffer
+            .path()
+            .map(arcode_syntax::language_for_path)
+            .unwrap_or_else(arcode_syntax::plain_text);
+        if !std::ptr::eq(language, self.language) {
+            self.language = language;
+            self.syntax = None;
+            self.syntax_task = None;
+            self.pending_syntax_edits.clear();
+            self.highlights = None;
+            self.init_syntax(cx);
+        }
+        cx.notify();
     }
 
     /// Blocks or allows edits.
@@ -307,6 +330,7 @@ impl Editor {
         self.hover_after_cursor_move();
         self.completion_sync(cx);
         self.signature_refresh(cx);
+        self.lang_after_cursor_move(cx);
         self.autoscroll.get_or_insert(Autoscroll::Fit);
         self.reset_blink(cx);
         cx.emit(EditorEvent::SelectionsChanged);
@@ -352,6 +376,7 @@ impl Editor {
         self.completion_sync(cx);
         self.signature_refresh(cx);
         self.hide_hover();
+        self.lang_after_edits(cx);
         let version = self.buffer.version();
         cx.emit(EditorEvent::Edited { edits, version });
         self.check_dirty(cx);

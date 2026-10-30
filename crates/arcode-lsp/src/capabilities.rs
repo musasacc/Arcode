@@ -15,7 +15,14 @@ pub fn client_capabilities() -> ClientCapabilities {
             "applyEdit": true,
             "configuration": true,
             "workspaceFolders": true,
-            "workspaceEdit": { "documentChanges": true },
+            "workspaceEdit": {
+                "documentChanges": true,
+                "resourceOperations": ["create", "rename", "delete"],
+                "failureHandling": "abort",
+                "normalizesLineEndings": true
+            },
+            "executeCommand": { "dynamicRegistration": false },
+            "inlayHint": { "refreshSupport": true },
             "symbol": { "symbolKind": { "valueSet": (1..=26).collect::<Vec<u32>>() } }
         },
         "textDocument": {
@@ -48,21 +55,30 @@ pub fn client_capabilities() -> ClientCapabilities {
             "implementation": { "linkSupport": true },
             "references": {},
             "documentHighlight": {},
-            "rename": { "prepareSupport": true },
+            "rename": { "prepareSupport": true, "prepareSupportDefaultBehavior": 1 },
             "codeAction": {
                 "codeActionLiteralSupport": {
                     "codeActionKind": {
                         "valueSet": [
+                            "",
                             "quickfix",
                             "refactor",
                             "refactor.extract",
-                            "source.organizeImports"
+                            "refactor.inline",
+                            "refactor.rewrite",
+                            "source",
+                            "source.organizeImports",
+                            "source.fixAll"
                         ]
                     }
                 },
+                "isPreferredSupport": true,
+                "disabledSupport": true,
+                "dataSupport": true,
                 "resolveSupport": { "properties": ["edit"] }
             },
             "formatting": {},
+            "rangeFormatting": {},
             "inlayHint": {},
             "signatureHelp": {
                 "signatureInformation": {
@@ -182,11 +198,17 @@ mod tests {
             CodeActionKind::QUICKFIX,
             CodeActionKind::REFACTOR,
             CodeActionKind::REFACTOR_EXTRACT,
+            CodeActionKind::REFACTOR_INLINE,
+            CodeActionKind::REFACTOR_REWRITE,
             CodeActionKind::SOURCE_ORGANIZE_IMPORTS,
         ] {
             assert!(kinds.contains(&k.as_str().to_string()), "{k:?}");
         }
+        let actions = td.code_action.as_ref().unwrap();
+        assert_eq!(actions.is_preferred_support, Some(true));
+        assert_eq!(actions.data_support, Some(true));
         assert!(td.formatting.is_some());
+        assert!(td.range_formatting.is_some());
         assert!(td.inlay_hint.is_some());
         assert!(td.signature_help.is_some());
         assert!(td.document_symbol.is_some());
@@ -205,6 +227,14 @@ mod tests {
         assert_eq!(ws.configuration, Some(true));
         assert_eq!(ws.workspace_folders, Some(true));
         assert_eq!(ws.apply_edit, Some(true));
+        let edit = ws.workspace_edit.as_ref().unwrap();
+        assert_eq!(edit.document_changes, Some(true));
+        assert_eq!(edit.resource_operations.as_ref().map(Vec::len), Some(3));
+        assert!(ws.execute_command.is_some());
+        assert_eq!(
+            ws.inlay_hint.as_ref().and_then(|h| h.refresh_support),
+            Some(true)
+        );
         assert!(ws.symbol.is_some());
         assert_eq!(caps.window.as_ref().unwrap().work_done_progress, Some(true));
         assert_eq!(

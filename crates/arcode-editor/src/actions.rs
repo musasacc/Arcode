@@ -112,6 +112,21 @@ actions!(
         GoToImplementation,
         /// Lists every reference to the symbol at the cursor.
         FindAllReferences,
+        /// Shows the code actions (quick fixes, refactorings, source
+        /// actions) at the cursor.
+        ShowCodeActions,
+        /// Shows only the refactorings at the cursor.
+        Refactor,
+        /// Renames the symbol at the cursor in every file.
+        RenameSymbol,
+        /// Formats the whole document.
+        FormatDocument,
+        /// Formats the selection (or the cursor line).
+        FormatSelection,
+        /// Shows or hides inlay hints in every editor (for this session).
+        ToggleInlayHints,
+        /// Opens the editor's context menu at the cursor.
+        ShowContextMenu,
     ]
 );
 
@@ -168,6 +183,13 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("f12", GoToDefinition, ctx),
         KeyBinding::new("secondary-f12", GoToImplementation, ctx),
         KeyBinding::new("shift-f12", FindAllReferences, ctx),
+        KeyBinding::new("secondary-.", ShowCodeActions, ctx),
+        KeyBinding::new("secondary-shift-r", Refactor, ctx),
+        KeyBinding::new("f2", RenameSymbol, ctx),
+        KeyBinding::new("shift-alt-f", FormatDocument, ctx),
+        KeyBinding::new("secondary-k secondary-f", FormatSelection, ctx),
+        KeyBinding::new("shift-f10", ShowContextMenu, ctx),
+        KeyBinding::new("menu", ShowContextMenu, ctx),
     ];
     if cfg!(target_os = "macos") {
         b.extend([

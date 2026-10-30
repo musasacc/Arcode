@@ -53,6 +53,8 @@ pub struct EditorSettings {
     pub auto_close_brackets: bool,
     /// Format the file (via LSP or the language formatter) when saving.
     pub format_on_save: bool,
+    /// Longest wait for the formatter before saving unformatted.
+    pub format_on_save_timeout_ms: u64,
     /// Files at least this many bytes are "large": no full syntax tree is
     /// kept; only the visible region is parsed for highlighting.
     pub large_file_bytes: u64,
@@ -65,6 +67,11 @@ pub struct EditorSettings {
     pub hover_delay_ms: u64,
     /// Highlight the other occurrences of the symbol under the cursor.
     pub occurrence_highlight: bool,
+    /// Show inlay hints (types, parameter names) from language servers.
+    pub inlay_hints: bool,
+    /// Show a light bulb in the gutter when the cursor line has code
+    /// actions.
+    pub code_action_lightbulb: bool,
     /// `[editor.completion]`: completion popup, snippets, signature help.
     pub completion: CompletionSettings,
 }
@@ -93,11 +100,14 @@ impl Default for EditorSettings {
             keymap: Keymap::Default,
             auto_close_brackets: true,
             format_on_save: false,
+            format_on_save_timeout_ms: 1500,
             large_file_bytes: 4 * 1024 * 1024,
             large_file_lines: 50_000,
             hover: true,
             hover_delay_ms: 300,
             occurrence_highlight: true,
+            inlay_hints: true,
+            code_action_lightbulb: true,
             completion: CompletionSettings::default(),
         }
     }
@@ -118,11 +128,14 @@ impl_section!(EditorSettings {
     keymap,
     auto_close_brackets,
     format_on_save,
+    format_on_save_timeout_ms,
     large_file_bytes,
     large_file_lines,
     hover,
     hover_delay_ms,
     occurrence_highlight,
+    inlay_hints,
+    code_action_lightbulb,
 });
 
 impl EditorSettings {
@@ -174,11 +187,20 @@ impl EditorSettings {
             ));
             self.hover_delay_ms = Self::MAX_HOVER_DELAY_MS;
         }
+        if self.format_on_save_timeout_ms > Self::MAX_FORMAT_TIMEOUT_MS {
+            warnings.push(format!(
+                "`editor.format_on_save_timeout_ms` capped at {}",
+                Self::MAX_FORMAT_TIMEOUT_MS
+            ));
+            self.format_on_save_timeout_ms = Self::MAX_FORMAT_TIMEOUT_MS;
+        }
         self.completion.validate(warnings);
     }
 
     /// Longest accepted hover delay.
     pub const MAX_HOVER_DELAY_MS: u64 = 5000;
+    /// Longest accepted format-on-save wait.
+    pub const MAX_FORMAT_TIMEOUT_MS: u64 = 10_000;
 }
 
 /// Which theme to use. Written in TOML as a string: `"system"`, `"dark"`,

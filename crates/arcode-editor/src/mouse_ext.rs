@@ -10,7 +10,7 @@ use gpui::{
 use crate::Editor;
 use crate::EditorEvent;
 use crate::ext::{GutterLane, PopoverPlacement, RowKind};
-use crate::layout::LayoutSnapshot;
+use crate::layout::{LayoutSnapshot, MARKER_WIDTH};
 
 impl Editor {
     /// Handles a click on a lens item or a gutter lane. Returns `true` if
@@ -29,6 +29,10 @@ impl Editor {
         }
         if p.x >= layout.text_bounds.left() || p.x < layout.bounds.left() {
             return false;
+        }
+        if self.bulb_hit(layout, p) {
+            self.show_code_actions(false, cx);
+            return true;
         }
         let Some(lane) = layout.gutter.lane_at(p.x - layout.bounds.left()) else {
             return false;
@@ -50,6 +54,21 @@ impl Editor {
             modifiers: event.modifiers,
         });
         true
+    }
+
+    /// Whether `p` is on the light bulb (the whole marker column cell of
+    /// its line).
+    pub(crate) fn bulb_hit(&self, layout: &LayoutSnapshot, p: Point<Pixels>) -> bool {
+        let Some((line, _)) = self.lang.actions.bulb else {
+            return false;
+        };
+        if layout.visible(line).is_none() {
+            return false;
+        }
+        let cell = crate::gutter::bulb_bounds(layout, line, layout.line_height);
+        let left = layout.bounds.left() + layout.gutter.marker_left;
+        let cell = Bounds::new(point(left, cell.top()), size(MARKER_WIDTH, cell.size.height));
+        cell.contains(&p)
     }
 
     /// Tag of the first mark on `line` in `lane`.
@@ -80,6 +99,16 @@ impl Editor {
     pub(crate) fn clickable_bounds(&self, layout: &LayoutSnapshot) -> Vec<Bounds<Pixels>> {
         let mut out: Vec<Bounds<Pixels>> = layout.lens_hits.iter().map(|h| h.bounds).collect();
         out.extend(self.link_bounds(layout));
+        if let Some((line, _)) = self.lang.actions.bulb
+            && layout.visible(line).is_some()
+        {
+            let top = layout.line_top(line);
+            let left = layout.bounds.left() + layout.gutter.marker_left;
+            out.push(Bounds::new(
+                point(left, top),
+                size(MARKER_WIDTH, layout.line_height),
+            ));
+        }
         let left = layout.bounds.left();
         for &(lane, lane_left, width) in &layout.gutter.lanes {
             if lane.clickable_when_empty() {

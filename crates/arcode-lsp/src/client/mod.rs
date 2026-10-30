@@ -185,6 +185,7 @@ impl LspClient {
         };
         let encoding = PositionEncoding::from_kind(result.capabilities.position_encoding.as_ref());
         let sync = DocumentSync::from_capabilities(&result.capabilities);
+        shared.set_encoding(encoding);
         let client = LspClient {
             lifetime,
             negotiated: Arc::new(Negotiated {

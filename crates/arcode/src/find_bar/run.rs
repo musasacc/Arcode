@@ -93,6 +93,13 @@ impl FindBar {
         let previous = self.current.and_then(|ix| self.matches.get(ix).cloned());
         self.matches = match_ranges(&lines);
         self.capped = self.matches.len() >= MAX_MATCHES;
+        if self
+            .notice
+            .as_ref()
+            .is_some_and(|(_, version)| *version != searched.version)
+        {
+            self.notice = None;
+        }
         self.searched = Some(searched);
         self.current = match (select_from, previous) {
             (Some(from), _) => first_at_or_after(&self.matches, from),

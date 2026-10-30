@@ -33,7 +33,9 @@ pub use diagnostics::{DiagnosticCounts, DiagnosticStore, source_label};
 pub use error::{
     CONTENT_MODIFIED, INVALID_PARAMS, LspError, METHOD_NOT_FOUND, REQUEST_CANCELLED, Result,
 };
-pub use event::{EventReceiver, EventSink, LspEvent, PositionEncoding, ServerStatus};
+pub use event::{
+    EditOutcome, EditReply, EventReceiver, EventSink, LspEvent, PositionEncoding, ServerStatus,
+};
 pub use lsp_types;
 pub use manager::{LspManager, ServerConfig, find_root};
 pub use sync::{DocumentSync, TextChange};

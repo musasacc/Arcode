@@ -1,7 +1,7 @@
 //! Gutter geometry and painting: decoration lanes, the diagnostic marker
 //! column and line numbers.
 
-use arcode_ui_kit::ThemeColors;
+use arcode_ui_kit::{IconName, ThemeColors};
 use gpui::{Bounds, Hsla, Pixels, SharedString, fill, point, px, size};
 
 use crate::Editor;
@@ -102,9 +102,23 @@ pub(crate) fn paint_gutter(
     let lh = layout.line_height;
     let g = &layout.gutter;
     let severities = line_severities(&editor.diagnostics, visible.clone());
+    let bulb = editor.lang.actions.bulb.filter(|(l, _)| visible.contains(l));
+    if let Some((line, quick)) = bulb {
+        let s = px(13.).min(layout.line_height);
+        let bounds = bulb_bounds(layout, line, s);
+        d.gutter_icons.push(GutterIcon {
+            bounds,
+            path: SharedString::new_static(IconName::Lightbulb.path()),
+            color: if quick {
+                colors.warning
+            } else {
+                colors.text_muted
+            },
+        });
+    }
     for (line, severity) in visible.clone().zip(severities) {
         let top = layout.line_top(line);
-        if let Some(sev) = severity {
+        if let Some(sev) = severity.filter(|_| bulb.is_none_or(|(l, _)| l != line)) {
             let dot = px(6.);
             let origin = point(
                 left + g.marker_left + (MARKER_WIDTH - dot) * 0.5,
@@ -162,6 +176,17 @@ pub(crate) fn paint_gutter(
             }
         }
     }
+}
+
+/// Where the light bulb of `line` is drawn: centered on the diagnostic
+/// marker column (it replaces the marker on that line).
+pub(crate) fn bulb_bounds(layout: &LayoutSnapshot, line: usize, s: Pixels) -> Bounds<Pixels> {
+    let left = layout.bounds.left() + layout.gutter.marker_left;
+    let top = layout.line_top(line);
+    Bounds::new(
+        point(left + (MARKER_WIDTH - s) * 0.5, top + (layout.line_height - s) * 0.5),
+        size(s, s),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
