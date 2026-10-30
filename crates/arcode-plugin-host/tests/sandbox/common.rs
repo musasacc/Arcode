@@ -146,6 +146,7 @@ pub fn spec(plugin: RegisteredPlugin, services: Services, project: Option<&Path>
         user_settings,
         kv: KvFiles::none(),
         services,
+        approved_sha256: None,
     }
 }
 
@@ -277,10 +278,13 @@ impl HttpTransport for FakeHttp {
         &self,
         request: Request,
         _cancel: &CancelToken,
-        allow_redirect: &mut dyn FnMut(&str, u16) -> bool,
+        allow_redirect: &mut dyn FnMut(&str, &str) -> bool,
     ) -> Result<Response, HttpError> {
-        for (host, port) in [("127.0.0.1", 9090), ("evil.test", 80)] {
-            let ok = allow_redirect(host, port);
+        for (host, url) in [
+            ("127.0.0.1", "http://127.0.0.1:9090/"),
+            ("evil.test", "http://evil.test/"),
+        ] {
+            let ok = allow_redirect(&request.method, url);
             self.redirects.lock().unwrap().push((host.into(), ok));
         }
         let body = request.body.clone();

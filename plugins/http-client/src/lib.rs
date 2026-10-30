@@ -11,22 +11,24 @@
 //!
 //! Modules: [`parse`] (file syntax), [`vars`] (substitution), [`env`]
 //! (environment files), [`exchange`] (request building, response
-//! analysis), [`history`] (kv), [`view`] (the panel) and `commands`.
+//! analysis), [`history`] (kv), [`view`] (the panel), [`pretty`] (JSON for
+//! "Open in editor") and `commands`.
 
 mod commands;
 pub mod env;
 pub mod exchange;
 pub mod history;
 pub mod parse;
+pub mod pretty;
 pub mod vars;
 pub mod view;
 
 #[cfg(test)]
+mod review_tests;
+#[cfg(test)]
 mod test_support;
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod review_tests;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

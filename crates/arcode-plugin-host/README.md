@@ -57,7 +57,8 @@ receiver yielding `Result<CallOutput, CallError>`) on a GPUI task, and call
 | Table needs rows | `fetch_rows(&plugin, panel, table, PageRequest)` | no | `CallOutput::Rows(RowPage)` |
 | User closed a panel | `close_panel(&plugin, panel)` | no | `Done` |
 | Settings → Plugins → network switch | `set_network_enabled(bool)` | | |
-| Plugins view: enable/disable, settings | `set_enabled(&id, bool)`, `set_user_settings(&id, map)` | | |
+| Plugins view: enable/disable, settings | `is_enabled(&id)`, `set_enabled(&id, bool)`, `set_user_settings(&id, map)` | | persisted in `plugins.toml`; enabling an installed plugin approves its `plugin.wasm` |
+| "Plugins: Install from Folder…" | on a background task: `install::install_from_folder(src, &paths.installed)` then `install::precompile(manager.runtime(), &report)`; then `finish_install(&report)` (or the blocking `install_from_folder(src)`) | | the plugin starts disabled |
 | Permissions page | `grants(&id)`, `revoke(&id, &capability)`, `background_network_active()` | | revoking a file grant recycles the instance |
 | Plugin log, network log, counters | `instance(&id)?.log()`, `.network_log()`, `.stats()`, `.open_panels()`, `.panel_view(panel)` | | |
 | "[Restart]" after a crash | `restart(&id)` | | |
@@ -95,7 +96,8 @@ UnknownContribution, Disabled}`. Call failures are `CallError`:
 | `PanelView { plugin, panel, snapshot, changes }` | Redraw from `snapshot` (an `Arc<PanelSnapshot>`); see below. |
 | `PanelTitle { .. }`, `PanelClosed { .. }` | Retitle / remove the panel. |
 | `Notify { plugin, level, message }` | Toast (already rate-limited and capped). |
-| `Status { plugin, text, command }` | The plugin's status item; clicking runs `command` with `run_command`. `text: None` removes it. |
+| `Status { plugin, text, command }` | The plugin's status item; clicking runs `command` with `run_command`. `text: None` removes it. Coalesced: at most one per 100 ms, the latest when the call returns. |
+| `NeedsApproval { plugin }` | An installed plugin's `plugin.wasm` changed since the user enabled it; it does not run. Ask, then `set_enabled(&plugin, true)` (approves the new file) or `false`. |
 | `TaskStarted { plugin, call, title, cancel }` / `TaskFinished { plugin, call }` | Show / hide "title… [Cancel]"; the button calls `cancel.cancel()`. |
 | `Crashed { plugin, reason, disabled }` | Show "<Plugin> stopped: <reason>" in its panels, with [Restart] when `disabled`. |
 | `Unloaded { plugin }` | Informational (idle unload). |
@@ -108,7 +110,8 @@ quoted by `consent::quote`.
 
 The plugin thread validates every `render` / `apply-patches` with
 `ui_tree::PanelTree` (dangling ids, cycles, two parents, child counts per
-widget, 20k nodes, depth 64, 8 MiB of strings) and applies it atomically.
+widget, 20k nodes, depth 64, 8 MiB per panel of text and list elements)
+and applies it atomically.
 The app only ever sees valid trees:
 
 - `snapshot.root`, `snapshot.node(id)`, `snapshot.children(id)`: the whole
@@ -142,7 +145,9 @@ let row: Option<&[Cell]> = cache.row(index);       // None: draw a placeholder
 
 Pages are 200 rows, at most 6 pages are cached, visible pages come first and
 one page is prefetched. Text cells arrive cut to 4 KiB, and a page over
-4 MiB is refused with `CallError::Plugin`.
+4 MiB (32 bytes per cell plus its text) is refused with `CallError::Plugin`.
+`set_row_count` forgets an end learned from an `at-end` page and refetches
+a partial last page, so a table that grew without a reset fills in.
 
 ## Editor
 
@@ -156,8 +161,13 @@ Implement `bridge::EditorBridge` (called on plugin threads):
   step**, return the new version. The host has already validated the ranges
   against the snapshot and asked for editor-write consent. Wait at most
   `bridge::UI_REPLY_TIMEOUT` (1 s) for the UI thread.
-- `open_file(rel_path, at)` (path already validated: relative, no `..`) and
-  `open_scratch(title, language, text)`.
+- `open_file(rel_path, at)` (path already validated: relative, no `..`, and
+  a regular file inside the project reached without following symlinks)
+  and `open_scratch(title, language, text)`.
+- `editor = "context"` covers the call's origin document and documents of a
+  language the plugin contributes, unless the app has that language built
+  in: set `ManagerConfig.runtime.builtin_languages` from the syntax
+  registry (the default is a list of common language ids).
 
 `memory_editor::MemoryEditor` is a complete in-memory implementation. Use it
 headless, in tests, and as a reference for the version and range rules.
@@ -170,8 +180,11 @@ headless, in tests, and as a reference for the version and range rules.
   there is one.
 - `bridge::HttpTransport`: use `net::UreqTransport`. Set
   `TransportOptions { use_env_proxy: false, .. }` to ignore `HTTPS_PROXY`.
-  The host checks the master switch, the gesture, `network.hosts` and
-  per-host consent before calling it, and again on every redirect hop.
+  The host checks the master switch, the gesture, `network.hosts`, the
+  method (an HTTP token of at most 32 characters) and per-host consent
+  before calling it, and again on every redirect hop: `allow_redirect`
+  receives the hop's method and absolute URL, and the prompt shows that
+  hop's method, scheme, host and port.
 - `consent::ConsentProvider`: optional. The default `ChannelConsent` turns
   prompts into `PluginOutput::Consent`. A custom provider is called on the
   plugin thread, may block, and must return `Dismissed` once the token is
@@ -184,9 +197,13 @@ project: global grants in `<config>/arcode/plugin-grants.toml`, project
 grants in `<data>/arcode/projects/<hash>/plugin-grants.toml`, kv data in
 `<data>/arcode/plugin-data/<id>/{global,<hash>}.kv`, and compiled components
 in `<cache>/arcode/plugins/*.cwasm`. With `ManagerConfig.persist = false`,
-grants and kv stay in memory. Persisting `enabled` and `sha256` in
-`plugins.toml`, and the "Install from Folder…" copy, are not implemented
-yet. Call `set_enabled` from the app's own state for now.
+grants, kv and `plugins.toml` stay in memory. `<config>/arcode/plugins.toml`
+holds `enabled` and the approved `sha256` per plugin (§3); installed
+plugins live in `<data>/arcode/plugins/<id>/`.
+
+Release packaging puts the bundled plugins next to the binary:
+`ARCODE_WASM_PLUGINS=<prefix>/share/arcode/plugins scripts/build-plugins.sh`
+(the host looks in `<exe>/../share/arcode/plugins`).
 
 ## Tests
 
@@ -194,6 +211,7 @@ yet. Call `set_enabled` from the app's own state for now.
 scripts/build-test-plugins.sh            # fixtures -> target/test-plugins/
 scripts/build-plugins.sh                 # bundled plugins -> target/wasm-plugins/
 cargo test -p arcode-plugin-host         # unit tests + tests/sandbox + tests/db_viewer
+cargo run --release -p arcode-plugin-host --example plugin_bench   # activation + RSS (§13 step 12)
 ```
 
 `tests/db_viewer` runs the real `arcode.db-viewer` against SQLite

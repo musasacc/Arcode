@@ -56,10 +56,13 @@ pub fn resolve(base: &str, location: &str) -> Result<String, String> {
     let (origin, rest) = split_origin(base).ok_or("redirect from a relative URL")?;
     if let Some(net_path) = location.strip_prefix("//") {
         let scheme = &origin[..origin.find("://").unwrap_or(0)];
-        return Ok(format!("{scheme}://{net_path}"));
+        let (authority, path) = split_origin(&format!("{scheme}://{net_path}"))
+            .map(|(a, p)| (a.to_owned(), p.to_owned()))
+            .ok_or("invalid Location header")?;
+        return Ok(format!("{authority}{}", normalize(&path)));
     }
     if location.starts_with('/') {
-        return Ok(format!("{origin}{location}"));
+        return Ok(format!("{origin}{}", normalize(location)));
     }
     let path = rest.split(['?', '#']).next().unwrap_or_default();
     if location.starts_with('?') {
@@ -69,7 +72,39 @@ pub fn resolve(base: &str, location: &str) -> Result<String, String> {
         Some(i) => &path[..=i],
         None => "/",
     };
-    Ok(format!("{origin}{dir}{location}"))
+    Ok(format!(
+        "{origin}{}",
+        normalize(&format!("{dir}{location}"))
+    ))
+}
+
+/// Removes `.` and `..` segments from the path of `reference` (path plus
+/// optional query/fragment), as RFC 3986 §5.2.4 does; `..` never climbs
+/// above the root.
+fn normalize(reference: &str) -> String {
+    let split = reference.find(['?', '#']).unwrap_or(reference.len());
+    let (path, tail) = reference.split_at(split);
+    if path.is_empty() {
+        return reference.to_owned();
+    }
+    let mut out: Vec<&str> = Vec::new();
+    let segments: Vec<&str> = path.split('/').skip(1).collect();
+    for (i, segment) in segments.iter().enumerate() {
+        let last = i + 1 == segments.len();
+        match *segment {
+            "." | ".." => {
+                if *segment == ".." {
+                    out.pop();
+                }
+                // A trailing dot segment leaves a directory: keep the `/`.
+                if last {
+                    out.push("");
+                }
+            }
+            s => out.push(s),
+        }
+    }
+    format!("/{}{tail}", out.join("/"))
 }
 
 /// Headers that must not travel to another origin.
@@ -123,6 +158,12 @@ mod tests {
             ("other", "http://a.test:8080/api/v1/other"),
             ("?page=2", "http://a.test:8080/api/v1/items?page=2"),
             ("  /trim  ", "http://a.test:8080/trim"),
+            ("../x", "http://a.test:8080/api/x"),
+            ("./y?q=../z", "http://a.test:8080/api/v1/y?q=../z"),
+            ("../../../../up", "http://a.test:8080/up"),
+            ("..", "http://a.test:8080/api/"),
+            ("/a/./b/../c/", "http://a.test:8080/a/c/"),
+            ("//c.test/p/../q", "http://c.test/q"),
         ];
         for (location, want) in cases {
             assert_eq!(resolve(base, location).unwrap(), want, "{location}");

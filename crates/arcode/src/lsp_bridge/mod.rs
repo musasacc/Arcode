@@ -179,8 +179,12 @@ impl LspBridge {
         };
         let synced = has_servers && self.enabled;
         if synced && let Some(manager) = self.ensure_manager(cx) {
-            let text = editor.read(cx).buffer().text().to_string();
-            manager.open_document(&path, &language_id, lsp_version(version), text);
+            // A rope snapshot is cheap; the full text is only built while
+            // `didOpen` is sent, so no long-lived copy of a large file stays.
+            let rope = editor.read(cx).buffer().text().clone();
+            manager.open_document_lazy(&path, &language_id, lsp_version(version), move || {
+                rope.to_string()
+            });
         }
         let events = cx.subscribe(editor, |bridge, editor, event: &EditorEvent, cx| {
             bridge.on_editor_event(&editor, event, cx)

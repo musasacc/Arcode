@@ -20,6 +20,7 @@ pub mod diagnostics;
 mod error;
 mod event;
 mod manager;
+mod memory;
 mod rpc;
 pub mod sync;
 pub mod transport;

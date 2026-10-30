@@ -17,6 +17,7 @@
 
 mod anchor;
 mod brackets;
+mod comment_scan;
 mod edit;
 mod excerpt;
 mod highlight;

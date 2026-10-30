@@ -281,6 +281,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "async-channel 2.5.0",
+ "libc",
  "log",
  "lsp-types",
  "serde",
@@ -309,7 +310,9 @@ dependencies = [
  "dirs 6.0.0",
  "globset",
  "ignore",
+ "libc",
  "log",
+ "memory-stats",
  "ropey",
  "serde",
  "serde_json",

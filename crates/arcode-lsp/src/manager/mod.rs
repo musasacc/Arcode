@@ -14,7 +14,7 @@ use lsp_types::{ServerCapabilities, Uri};
 use tokio::runtime::{Handle, Runtime};
 use tokio::sync::oneshot;
 
-use actor::{Command, ServerSlot};
+use actor::{Command, MakeOpenText, ServerSlot};
 pub use config::{ServerConfig, find_root};
 use text::LazyText;
 
@@ -45,6 +45,10 @@ struct State {
 /// All methods may be called from any thread and never wait for server I/O
 /// (except [`LspManager::shutdown_all`], which blocks with a timeout).
 /// Request futures are runtime-agnostic and can be awaited on any executor.
+///
+/// On Linux with glibc, creating a manager pins the allocator's mmap
+/// threshold to 1 MiB so the transient copies of large documents are
+/// returned to the OS (see `memory.rs`).
 pub struct LspManager {
     configs: HashMap<String, ServerConfig>,
     languages: HashMap<String, Vec<String>>,
@@ -81,6 +85,7 @@ impl LspManager {
         servers: Vec<ServerConfig>,
         languages: HashMap<String, Vec<String>>,
     ) -> std::io::Result<(LspManager, EventReceiver)> {
+        crate::memory::tune_allocator();
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .thread_name("arcode-lsp")
@@ -117,9 +122,40 @@ impl LspManager {
         version: i32,
         text: impl Into<Arc<str>>,
     ) {
+        let text: Arc<str> = text.into();
+        let for_open = text.clone();
+        let make: Arc<MakeOpenText> = Arc::new(move || for_open.to_string());
+        self.open_with(path, language_id, version, make, LazyText::ready(text));
+    }
+
+    /// Like [`LspManager::open_document`], but the text is produced by
+    /// `text` only when it is needed: once per server when its `didOpen`
+    /// is sent (and dropped right after), and again for a `didSave` that
+    /// includes the text. Nothing keeps a full copy of the document, which
+    /// matters for very large files (pass a cheap rope snapshot).
+    pub fn open_document_lazy(
+        &self,
+        path: &Path,
+        language_id: &str,
+        version: i32,
+        text: impl Fn() -> String + Send + Sync + 'static,
+    ) {
+        let make: Arc<MakeOpenText> = Arc::new(text);
+        let for_save = make.clone();
+        let saved = LazyText::deferred(move || for_save());
+        self.open_with(path, language_id, version, make, saved);
+    }
+
+    fn open_with(
+        &self,
+        path: &Path,
+        language_id: &str,
+        version: i32,
+        make: Arc<MakeOpenText>,
+        text: Arc<LazyText>,
+    ) {
         let path = absolute(path);
         let uri = path_to_uri(&path);
-        let text: Arc<str> = text.into();
         let names = self.languages.get(language_id).cloned().unwrap_or_default();
         let mut state = self.lock();
         if let Some(old) = state.documents.remove(&path) {
@@ -145,11 +181,10 @@ impl LspManager {
                 uri: uri.clone(),
                 language_id: language_id.to_string(),
                 version,
-                text: text.clone(),
+                text: make.clone(),
             });
             servers.push(slot);
         }
-        let text = LazyText::ready(text);
         state.documents.insert(path, OpenDoc { uri, text, servers });
     }
 

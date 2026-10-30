@@ -376,5 +376,9 @@ fn open_in_editor_handles_a_large_json_body() {
         },
     };
     let result = h.dispatch(click, true).wait();
-    assert_eq!(result, Ok(CallOutput::Done), "Open in editor on a 15 MiB JSON body");
+    assert_eq!(
+        result,
+        Ok(CallOutput::Done),
+        "Open in editor on a 15 MiB JSON body"
+    );
 }

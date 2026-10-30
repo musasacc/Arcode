@@ -64,3 +64,17 @@ fn clicking_a_file_emits_open(cx: &mut TestAppContext) {
     tree.update(cx, |tree, cx| tree.click(0, cx));
     assert_eq!(opened.borrow().as_slice(), &[dir.path().join("a.txt")]);
 }
+
+#[gpui::test]
+fn revealing_a_file_outside_the_root_clears_the_selection(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let other = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join("main.rs"), "").expect("write");
+    let tree = cx.new(|cx| FileTree::new(dir.path().to_path_buf(), "demo", cx));
+    tree.update(cx, |tree, cx| {
+        tree.reveal(&dir.path().join("main.rs"), cx);
+        assert_eq!(tree.selected_index(), Some(0));
+        tree.reveal(&other.path().join("config.toml"), cx);
+        assert_eq!(tree.selected_path(), None);
+    });
+}

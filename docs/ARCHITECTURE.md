@@ -114,7 +114,8 @@ extension_points` shows all of them in one window.
   `set_selections` / `select_ranges`, `apply_edits(Vec<(Range<Point>,
   String)>)` (one undo step, cursors mapped), `insert_snippet` (LSP
   snippet syntax via `arcode-completion`: tab stops, mirrors, Tab /
-  Shift+Tab / Escape), `text_in_range`, `word_at`, `point_to_lsp` /
+  Shift+Tab / Escape; undoing the insertion ends the session),
+  `text_in_range`, `word_at`, `point_to_lsp` /
   `lsp_to_point`, `point_to_offset` / `offset_to_point` and
   `position_for_point` (window position, e.g. to place custom UI).
 
@@ -124,10 +125,21 @@ Above `editor.large_file_bytes` (default 4 MiB) or `editor.large_file_lines`
 (default 50 000) the editor keeps no tree-sitter tree. Each viewport is
 highlighted on the background executor from a parse of a small excerpt that
 starts at a nearby top-level line (`arcode_syntax::highlight_excerpt`), and
-bracket matching falls back to a bounded textual scan. Measured on a
-100 000-line, 8.8 MB Rust file: 420 MB RSS before, 186 MB after with no
-language server (plain text: 173 MB); with rust-analyzer attached 215 MB,
-the rest being the LSP document copy and its JSON serialisation.
+bracket matching falls back to a bounded textual scan. An excerpt that would
+start inside a block comment is found by scanning back for the nearest
+comment delimiter and is parsed from the comment's opener (or with a
+synthetic opener line in front when that is more than 2 MB back).
+
+The language server path keeps no copy either: the bridge opens documents
+with `LspManager::open_document_lazy` and a rope snapshot, so the text is
+built only while `didOpen` (or a `didSave` with text) is sent. The few
+short-lived multi-megabyte copies made while sending would stay resident in
+glibc's thread heaps after its dynamic mmap threshold grows, so creating an
+`LspManager` pins that threshold to 1 MiB (Linux/glibc only).
+
+Measured RSS on a 100 000-line, 8.8 MB Rust file: 420 MB before; after,
+178 MB with rust-analyzer attached and 178 MB with no language server
+(plain `.txt`: 173 MB).
 
 ## Text rendering fallbacks
 

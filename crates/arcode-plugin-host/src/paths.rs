@@ -84,7 +84,12 @@ pub fn project_key(project_root: &Path) -> String {
 
 /// Creates `dir` (and parents) readable only by the user where the
 /// platform supports it (mode 0700 on Unix).
-pub fn create_private_dir(dir: &Path) -> std::io::Result<()> {
+///
+/// On Unix an existing `dir` must belong to the current user (otherwise
+/// this fails with `PermissionDenied`) and is tightened to 0700 if group or
+/// others had access. Returns true when it had to be tightened: anything
+/// already inside may have been written by someone else.
+pub fn create_private_dir(dir: &Path) -> std::io::Result<bool> {
     let mut builder = std::fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -92,7 +97,36 @@ pub fn create_private_dir(dir: &Path) -> std::io::Result<()> {
         use std::os::unix::fs::DirBuilderExt;
         builder.mode(0o700);
     }
-    builder.create(dir)
+    builder.create(dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let meta = std::fs::metadata(dir)?;
+        if !meta.is_dir() {
+            return Err(std::io::Error::other(format!(
+                "{} is not a directory",
+                dir.display()
+            )));
+        }
+        if meta.uid() != current_uid() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!("{} belongs to another user", dir.display()),
+            ));
+        }
+        if meta.permissions().mode() & 0o077 != 0 {
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// The effective user id of this process.
+#[cfg(unix)]
+pub fn current_uid() -> u32 {
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    unsafe { libc::geteuid() }
 }
 
 /// `<exe>/../share/arcode/plugins`, and in a cargo build directory

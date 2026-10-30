@@ -39,6 +39,10 @@ pub struct InstanceSpec {
     pub kv: KvFiles,
     /// App services.
     pub services: Services,
+    /// sha256 of the `plugin.wasm` the user approved (`plugins.toml`);
+    /// activation refuses any other file. `None`: not checked (bundled and
+    /// dev plugins).
+    pub approved_sha256: Option<String>,
 }
 
 /// A call in flight: its id, its cancel token and its result.

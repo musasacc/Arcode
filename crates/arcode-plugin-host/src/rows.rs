@@ -2,8 +2,9 @@
 //! full"). Pure: no threads, no GPUI.
 //!
 //! - [`check_page`] validates a `fetch-rows` answer on the plugin thread:
-//!   it must start where it was asked to, at most 4 MiB of cell text, and
-//!   text cells are cut to 4 KiB for display.
+//!   it must start where it was asked to, at most 4 MiB per page counting
+//!   [`CELL_BYTES`] per cell plus its text, and text cells are cut to 4 KiB
+//!   for display.
 //! - [`RowCache`] is what a table widget keeps: an LRU of at most
 //!   [`MAX_CACHED_PAGES`] pages of [`PAGE_ROWS`] rows, and the scheduling of
 //!   fetches around the viewport (visible pages first, then one page of
@@ -19,8 +20,13 @@ use crate::bindings::ui::{Cell, RowPage};
 pub const PAGE_ROWS: u32 = 200;
 /// Pages kept per table.
 pub const MAX_CACHED_PAGES: usize = 6;
-/// Cell text per page (§5 host caps).
+/// Bytes per page (§5 host caps): every cell costs [`CELL_BYTES`] plus its
+/// text, so pages of many small cells are bounded too.
 pub const MAX_PAGE_BYTES: usize = 4 * 1024 * 1024;
+/// What one cell costs against [`MAX_PAGE_BYTES`] before its text (at
+/// least the host's in-memory size of a cell).
+pub const CELL_BYTES: usize = 32;
+const _: () = assert!(std::mem::size_of::<Cell>() <= CELL_BYTES);
 /// Text shown per cell.
 pub const MAX_CELL_BYTES: usize = 4 * 1024;
 
@@ -39,13 +45,14 @@ pub fn check_page(mut page: RowPage, start: u64, count: u32) -> Result<RowPage, 
         .iter()
         .flatten()
         .map(|c| match c {
-            Cell::Text(t) => t.len(),
-            _ => 0,
+            Cell::Text(t) => CELL_BYTES + t.len(),
+            _ => CELL_BYTES,
         })
         .sum();
     if bytes > MAX_PAGE_BYTES {
         return Err(format!(
-            "row page has {bytes} bytes of text (limit {MAX_PAGE_BYTES})"
+            "row page needs {bytes} bytes ({CELL_BYTES} per cell plus text; \
+             limit {MAX_PAGE_BYTES})"
         ));
     }
     for cell in page.rows.iter_mut().flatten() {
@@ -108,12 +115,21 @@ impl RowCache {
         self.in_flight = None;
     }
 
-    /// The table kept its rows but now has `row_count` rows.
+    /// The table kept its rows but now has `row_count` rows. The end
+    /// learned from an `at-end` page is forgotten, rows past the new count
+    /// are dropped, and a page that is now incomplete (the old partial last
+    /// page of a table that grew) is fetched again.
     pub fn set_row_count(&mut self, row_count: Option<u64>) {
         self.row_count = row_count;
-        if let Some(n) = row_count {
-            self.pages.retain(|(p, _)| p * u64::from(PAGE_ROWS) < n);
-        }
+        self.end = None;
+        let rows = u64::from(PAGE_ROWS);
+        self.pages.retain_mut(|(p, page)| {
+            let start = p.saturating_mul(rows);
+            let want = row_count.map_or(rows, |n| n.saturating_sub(start).min(rows));
+            let want = usize::try_from(want).unwrap_or(usize::MAX);
+            page.truncate(want);
+            want > 0 && page.len() == want
+        });
     }
 
     /// The rows on screen, inclusive.

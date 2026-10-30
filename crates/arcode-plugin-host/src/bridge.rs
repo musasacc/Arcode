@@ -113,15 +113,17 @@ pub trait ProjectIndex: Send + Sync {
 /// gesture, master switch and consent. The real implementation is
 /// [`crate::net::UreqTransport`].
 pub trait HttpTransport: Send + Sync {
-    /// Sends `request`. `allow_redirect` is called with the `(host, port)`
-    /// of every redirect target before following it and returns false to
-    /// stop (consent is re-checked per hop). Must return
-    /// [`HttpError::Cancelled`] promptly once `cancel` fires.
+    /// Sends `request`. `allow_redirect` is called with the
+    /// `(method, absolute url)` of every redirect hop exactly as it would
+    /// be sent, before following it, and returns false to stop (consent is
+    /// re-checked per hop and shows that hop's method, scheme, host and
+    /// port). Must return [`HttpError::Cancelled`] promptly once `cancel`
+    /// fires.
     fn send(
         &self,
         request: Request,
         cancel: &CancelToken,
-        allow_redirect: &mut dyn FnMut(&str, u16) -> bool,
+        allow_redirect: &mut dyn FnMut(&str, &str) -> bool,
     ) -> Result<Response, HttpError>;
 }
 
@@ -194,7 +196,7 @@ impl HttpTransport for NoHttp {
         &self,
         _: Request,
         _: &CancelToken,
-        _: &mut dyn FnMut(&str, u16) -> bool,
+        _: &mut dyn FnMut(&str, &str) -> bool,
     ) -> Result<Response, HttpError> {
         Err(HttpError::Io("no HTTP transport configured".into()))
     }

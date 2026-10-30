@@ -7,12 +7,14 @@ use rusqlite::types::ValueRef;
 /// Longest text cell the plugin sends (the host cuts at 4 KiB too).
 pub const MAX_CELL_BYTES: usize = 4096;
 
-/// Text bytes per page the plugin aims for; the host refuses pages over
-/// 4 MiB, so this leaves headroom for column titles and encoding.
-pub const PAGE_TEXT_BUDGET: usize = 3 * 1024 * 1024;
+/// What the host charges per cell on top of its text
+/// (`arcode_plugin_host::rows::CELL_BYTES`).
+pub const HOST_CELL_BYTES: usize = 32;
 
-/// Shortest a text cell is cut to when a page is over budget.
-const MIN_CUT_BYTES: usize = 64;
+/// Bytes per page the plugin aims for, counted like the host does
+/// ([`HOST_CELL_BYTES`] per cell plus text). The host refuses pages over
+/// 4 MiB; the rest is headroom for ellipses.
+pub const PAGE_BUDGET: usize = 3 * 1024 * 1024 + 512 * 1024;
 
 /// The cell for one SQLite value. Text that is not UTF-8 is shown lossily;
 /// blobs show only their size.
@@ -46,16 +48,21 @@ fn text_len(cell: &Cell) -> usize {
     }
 }
 
-/// Cuts text cells further when a page carries more than
-/// [`PAGE_TEXT_BUDGET`] bytes of text, so a page of wide rows is shown
-/// shortened instead of being refused by the host.
+/// Cuts text cells further when a page costs more than [`PAGE_BUDGET`],
+/// so a page of wide rows is shown shortened instead of being refused by
+/// the host. Every text cell gets an equal share of what the cells' fixed
+/// cost leaves; a share too small for any text leaves just "…". (A table
+/// so wide that the fixed cost alone is over the host's cap, about 650
+/// columns at 200 rows, still cannot be paged.)
 pub fn fit_page(rows: &mut [Vec<Cell>]) {
-    let total: usize = rows.iter().flatten().map(text_len).sum();
-    if total <= PAGE_TEXT_BUDGET {
+    let cells: usize = rows.iter().map(Vec::len).sum();
+    let fixed = cells.saturating_mul(HOST_CELL_BYTES);
+    let text: usize = rows.iter().flatten().map(text_len).sum();
+    if fixed.saturating_add(text) <= PAGE_BUDGET {
         return;
     }
-    let cells = rows.iter().flatten().filter(|c| text_len(c) > 0).count();
-    let per_cell = (PAGE_TEXT_BUDGET / cells.max(1)).max(MIN_CUT_BYTES);
+    let text_cells = rows.iter().flatten().filter(|c| text_len(c) > 0).count();
+    let per_cell = PAGE_BUDGET.saturating_sub(fixed) / text_cells.max(1);
     for c in rows.iter_mut().flatten() {
         if let Cell::Text(t) = c
             && t.len() > per_cell
@@ -111,8 +118,13 @@ mod tests {
             .map(|_| (0..8).map(|_| Cell::Text("x".repeat(4000))).collect())
             .collect();
         fit_page(&mut rows);
-        let total: usize = rows.iter().flatten().map(text_len).sum();
-        assert!(total <= PAGE_TEXT_BUDGET + 200 * 8 * 3, "{total}");
+        let text: usize = rows.iter().flatten().map(text_len).sum();
+        let fixed = 200 * 8 * HOST_CELL_BYTES;
+        assert!(fixed + text <= PAGE_BUDGET, "{text}");
+        assert!(
+            text > PAGE_BUDGET - fixed - 200 * 8 * 4,
+            "cut no further than needed"
+        );
         let mut small = vec![vec![Cell::Text("keep".into()), Cell::Int(1)]];
         fit_page(&mut small);
         assert_eq!(small[0][0], Cell::Text("keep".into()));

@@ -3,8 +3,15 @@
 //! One [`Ticker`] thread per engine calls `increment_epoch` every
 //! [`TICK`] **only while a call is in flight**; otherwise it parks on a
 //! condvar. Each store's epoch callback runs only while wasm is executing
-//! and charges one slice per invocation ([`SliceBudget::charge`]), so time
-//! spent in host imports (prompts, HTTP, quick picks) is free.
+//! and charges one slice per invocation ([`SliceBudget::charge`]).
+//!
+//! Host imports are charged by a store call hook ([`SliceBudget::charge_host`]):
+//! the time an import took, minus the time it spent waiting for the user or
+//! the network (prompts, quick picks, `http.send`, editor round trips), so a
+//! guest cannot burn host CPU for free by looping over an expensive import,
+//! and a WASI sleep counts like guest time. The hard-cancel grace runs from
+//! the later of the cancel and the start of the call, so a call cancelled
+//! while still queued gets its full grace once it runs.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
@@ -75,12 +82,14 @@ pub fn human(d: Duration) -> String {
     }
 }
 
-/// Slices of guest execution charged against one call.
+/// Slices of guest execution (plus charged host time) against one call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SliceBudget {
     budget: Duration,
     limit: u64,
     used: u64,
+    host: Duration,
+    started: Instant,
 }
 
 impl SliceBudget {
@@ -91,14 +100,58 @@ impl SliceBudget {
             budget,
             limit: u64::try_from(limit).unwrap_or(u64::MAX),
             used: 0,
+            host: Duration::ZERO,
+            started: Instant::now(),
         }
     }
 
-    /// Raises the budget (`host.begin-task`); slices already used count.
+    /// Raises the budget (`host.begin-task`); what was used still counts.
     pub fn raise_to(&mut self, budget: Duration) {
-        let used = self.used;
+        let (used, host, started) = (self.used, self.host, self.started);
         *self = Self::new(budget.max(self.budget));
-        self.used = used;
+        (self.used, self.host, self.started) = (used, host, started);
+    }
+
+    /// Slices used: guest slices plus charged host time in whole ticks.
+    fn slices(&self) -> u64 {
+        let host = self.host.as_nanos() / TICK.as_nanos();
+        self.used
+            .saturating_add(u64::try_from(host).unwrap_or(u64::MAX))
+    }
+
+    /// Budget left (zero once used up).
+    pub fn remaining(&self) -> Duration {
+        let left = self.limit.saturating_sub(self.slices());
+        TICK.saturating_mul(u32::try_from(left).unwrap_or(u32::MAX))
+    }
+
+    /// Charges `spent` of host time (call hook, on return to the guest).
+    pub fn charge_host(
+        &mut self,
+        spent: Duration,
+        cancel: &CancelToken,
+        grace: Duration,
+    ) -> Result<(), Interrupt> {
+        self.host = self.host.saturating_add(spent);
+        self.check(cancel, grace)
+    }
+
+    /// True once the call was cancelled at least `grace` ago, counting
+    /// from the start of the call if it was cancelled before it started.
+    fn hard_cancel(&self, cancel: &CancelToken, grace: Duration) -> bool {
+        cancel
+            .cancelled_at()
+            .is_some_and(|at| at.max(self.started).elapsed() >= grace)
+    }
+
+    fn check(&self, cancel: &CancelToken, grace: Duration) -> Result<(), Interrupt> {
+        if self.hard_cancel(cancel, grace) {
+            return Err(Interrupt::Cancelled);
+        }
+        if self.slices() > self.limit {
+            return Err(Interrupt::Budget(self.budget));
+        }
+        Ok(())
     }
 
     /// The budget.
@@ -114,13 +167,7 @@ impl SliceBudget {
     /// Charges one slice; called from the epoch callback.
     pub fn charge(&mut self, cancel: &CancelToken, grace: Duration) -> Result<(), Interrupt> {
         self.used += 1;
-        if cancel.cancelled_for().is_some_and(|t| t >= grace) {
-            return Err(Interrupt::Cancelled);
-        }
-        if self.used > self.limit {
-            return Err(Interrupt::Budget(self.budget));
-        }
-        Ok(())
+        self.check(cancel, grace)
     }
 }
 
@@ -264,6 +311,24 @@ mod tests {
         assert_eq!((b.used(), b.budget()), (1, Duration::from_secs(1)));
         b.raise_to(Duration::from_millis(10));
         assert_eq!(b.budget(), Duration::from_secs(1));
+    }
+
+    #[test]
+    fn host_time_counts_and_grace_starts_with_the_call() {
+        let token = CancelToken::new();
+        let mut b = SliceBudget::new(Duration::from_millis(100));
+        b.charge_host(Duration::from_millis(95), &token, Duration::ZERO)
+            .unwrap();
+        assert_eq!(b.remaining(), Duration::from_millis(10));
+        assert_eq!(
+            b.charge_host(Duration::from_millis(20), &token, Duration::ZERO),
+            Err(Interrupt::Budget(Duration::from_millis(100)))
+        );
+        // Cancelled long before this call started: the grace starts now.
+        token.cancel();
+        std::thread::sleep(Duration::from_millis(30));
+        let mut b = SliceBudget::new(Duration::from_secs(60));
+        assert_eq!(b.charge(&token, Duration::from_millis(20)), Ok(()));
     }
 
     #[test]

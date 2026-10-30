@@ -15,13 +15,17 @@ use crate::client::LspClient;
 use crate::event::{EventSink, PositionEncoding};
 use crate::sync::TextChange;
 
+/// Produces a document's text for `didOpen`.
+pub(crate) type MakeOpenText = dyn Fn() -> String + Send + Sync;
+
 /// Work queued for a server.
 pub(crate) enum Command {
     Open {
         uri: Uri,
         language_id: String,
         version: i32,
-        text: Arc<str>,
+        /// Called when the notification is sent; the text is dropped after.
+        text: Arc<MakeOpenText>,
     },
     Change {
         uri: Uri,
@@ -128,7 +132,7 @@ fn apply(client: &LspClient, cmd: Command) -> crate::Result<()> {
             language_id,
             version,
             text,
-        } => client.did_open(uri, &language_id, version, text.to_string()),
+        } => client.did_open(uri, &language_id, version, text()),
         Command::Change {
             uri,
             version,

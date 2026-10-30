@@ -44,6 +44,11 @@ impl CancelToken {
     pub fn cancelled_for(&self) -> Option<Duration> {
         self.inner.at.get().map(Instant::elapsed)
     }
+
+    /// When the token was cancelled, if it was.
+    pub fn cancelled_at(&self) -> Option<Instant> {
+        self.inner.at.get().copied()
+    }
 }
 
 /// Locks a mutex, ignoring poisoning: host state stays usable even if a

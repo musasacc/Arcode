@@ -14,7 +14,8 @@ impl Editor {
     /// Replaces `range` with the LSP/TextMate `snippet` (one undo step) and
     /// selects its first tabstop. While the snippet is active, Tab and
     /// Shift+Tab move between tabstops, mirrors update as you type, and
-    /// Escape or moving the cursor out of the snippet ends it.
+    /// Escape, moving the cursor out of the snippet or undoing the insertion
+    /// ends it.
     pub fn insert_snippet(&mut self, range: Range<Point>, snippet: &str, cx: &mut Context<Self>) {
         if self.read_only {
             return;

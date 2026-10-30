@@ -71,11 +71,17 @@ impl host::Host for HostState {
         let command = command
             .filter(|c| manifest.contributes.commands.iter().any(|k| &k.id == c))
             .map(|c| manifest.id().qualify(&c));
-        self.ctx.output(PluginOutput::Status {
+        let status = PluginOutput::Status {
             plugin: manifest.id().clone(),
             text: text.map(|t| cap(t, MAX_MESSAGE_BYTES)),
             command,
-        });
+        };
+        // Coalesced: a flood of updates sends at most one per 100 ms, and
+        // the latest one when the call returns.
+        let now = lock(&self.ctx.shared.status).offer(status, Instant::now());
+        if let Some(status) = now {
+            self.ctx.output(status);
+        }
         Ok(())
     }
 
@@ -96,8 +102,9 @@ impl host::Host for HostState {
             items,
             reply,
         });
-        // Host time: the wait does not count against the CPU budget.
-        let picked = answer.wait(&self.call.cancel, None).ok().flatten();
+        // A wait for the user: not charged to the CPU budget.
+        let cancel = self.call.cancel.clone();
+        let picked = self.waiting(|_| answer.wait(&cancel, None).ok().flatten());
         Ok(picked.filter(|i| (*i as usize) < count))
     }
 
