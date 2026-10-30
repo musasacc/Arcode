@@ -1,0 +1,26 @@
+[package]
+name = "arcode-lsp"
+description = "Async LSP client: one tokio task per server, JSON-RPC over stdio."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+lsp-types.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "process", "io-util", "sync", "macros", "time"] }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+log.workspace = true
+async-channel.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "process", "io-util", "sync", "macros", "time", "test-util", "io-std"] }
+tempfile.workspace = true
+
+# Runs its own `main`: doubles as a fake language server process when
+# ARCODE_FAKE_LSP is set, so manager tests need no real server.
+[[test]]
+name = "manager"
+harness = false

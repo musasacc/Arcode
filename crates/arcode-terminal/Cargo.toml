@@ -1,0 +1,13 @@
+[package]
+name = "arcode-terminal"
+description = "PTY-backed terminal emulator core (alacritty_terminal), UI-agnostic."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+alacritty_terminal.workspace = true
+async-channel.workspace = true
+anyhow.workspace = true
+log.workspace = true

@@ -1,0 +1,13 @@
+[package]
+name = "arcode-ui-kit"
+description = "Shared GPUI layer: theme and settings globals, embedded assets, icons and small components."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+gpui.workspace = true
+arcode-config.workspace = true
+anyhow.workspace = true
+log.workspace = true
