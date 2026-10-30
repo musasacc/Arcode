@@ -93,6 +93,14 @@ pub(crate) fn text_position(
 }
 
 impl LspBridge {
+    /// Marks `path` (outside the project, about to be opened by a jump) to
+    /// join the project's running server instead of starting its own.
+    pub(crate) fn attach_to_workspace(&self, path: &Path) {
+        if let Some(manager) = &self.manager {
+            manager.attach_to_workspace(path);
+        }
+    }
+
     /// The manager and the document path when a server runs for `editor`.
     pub(crate) fn served(&self, editor: &Editor) -> Option<(Arc<LspManager>, PathBuf)> {
         let manager = self.manager.clone()?;

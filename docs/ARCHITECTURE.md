@@ -191,7 +191,14 @@ app's `lsp_bridge::hover`) answers `textDocument/hover` as plain
   the popover itself (its bounds are recorded in prepaint), so long
   documentation scrolls. It opens above the line in the lower part of the
   window. Ctrl+K Ctrl+I shows it for the cursor; that one stays until the
-  cursor moves or Escape. Markdown is rendered by the completion docs
+  cursor moves or Escape, and mouse motion never cancels its request.
+  The popover is built and placed in the editor element's prepaint from
+  that frame's layout (`window.defer_draw`, priority 1), so it follows
+  its line: a mouse hover closes when the view scrolls, any hover when
+  its line leaves the view, and when the window's focus moves to
+  something else (a picker, the finder, the terminal, another editor),
+  so it never covers an overlay. Moving inside one diagnostic does not
+  redraw. Markdown is rendered by the completion docs
   renderer; fenced code is colored with tree-sitter by its fence tag (an
   untagged block uses the document's language), cached per block.
 - **Definition link.** While Ctrl (Cmd) is held over an identifier the
@@ -212,10 +219,13 @@ app's `lsp_bridge::hover`) answers `textDocument/hover` as plain
 - **Opening targets.** A target opens in the active pane, or activates
   the pane where it is open, and is centered. LSP ranges are converted
   against the buffer once it is open. A file outside the project (e.g.
-  the Rust standard library) opens read-only. `LspManager` sends such a
-  file to the server already running for the workspace instead of
-  starting a server for its own root (`reuse_root`), so
-  rust-analyzer keeps answering inside library sources.
+  the Rust standard library) opens read-only: the editor then refuses
+  every edit, completion and `save`. Before opening it the jump calls
+  `LspManager::attach_to_workspace`, so the file joins the server already
+  running (and not failed) for the workspace instead of starting one for
+  its own root, and rust-analyzer keeps answering inside library
+  sources. Other files outside the workspace (another project opened
+  with File > Open) still get their own server.
 - **History.** Every jump and every switch to another file records the
   previous cursor place; Alt+Left / Alt+Right (macOS Ctrl+- /
   Ctrl+Shift+-) walk it. Places a few lines apart in one file merge, and
@@ -290,8 +300,14 @@ UI never walks the project or scans a file on the main thread.
   matches are drawn through the background-highlight extension point (sets
   `"find"` and `"find-current"`) and searched again 150 ms after an edit.
   Replace and Replace All are `apply_edits` calls (Replace All is one undo
-  step); regex groups expand per match with `line_replacements`. A hidden
-  bar keeps its query (F3 reopens it) but neither searches nor highlights.
+  step); regex groups expand per match with `arcode_search::LineReplacer`
+  (the query compiled once). Replace All (`find_bar::bulk`) hands the editor
+  at most 256 edits: beyond that, neighbouring matched lines are merged into
+  whole-line edits, so 200 000 matches stay one fast edit batch. Next and
+  previous only step through matches of the current text: when they are
+  stale (edit, other tab, F3 on a closed bar) the bar searches first and
+  steps when the result is in. A hidden bar keeps its query (F3 reopens it)
+  but neither searches nor highlights.
 - **Search view** (`crates/arcode/src/search_view/`, Ctrl+Shift+F,
   Ctrl+Shift+H for replace): typing re-runs the search after
   `search.debounce_ms`; a new run cancels the old one through its
@@ -300,11 +316,16 @@ UI never walks the project or scans a file on the main thread.
   more" raises the limit). Include and exclude globs come from the view,
   `search.exclude` and the folders the file tree skips (`target`,
   `node_modules`). A file open with unsaved changes is shown with the
-  matches of its buffer. Replace in a file or Replace All first counts every
-  match (not only those listed) and asks for confirmation with the counts;
-  open files are changed in their editors (undoable, left unsaved), others
-  are rewritten with `replace_in_file`, which skips non-UTF-8 and binary
-  files; the reasons are shown in the view.
+  matches of its buffer; after the disk search, unsaved buffers it did not
+  list are searched too (`SearchQuery::includes_path` applies the globs).
+  Replace All first counts every match (not only those listed) and asks for
+  confirmation with the counts; exactly the counted query and replacement
+  are applied, whatever is typed meanwhile. Open files are changed in their
+  editors (undoable, left unsaved), others are rewritten with
+  `replace_in_file`, which skips non-UTF-8 and binary files; the reasons are
+  shown in the view. Enter in the replace or glob fields searches again
+  (it does not open a result); Ctrl+Alt+Enter in the replace field is
+  Replace All.
 - **Command palette** (`crates/arcode/src/commands/`, Ctrl+Shift+P, F1, or
   `>` in the file finder; Backspace on an empty query goes back to files):
   `CommandRegistry` is a global of commands (category, name, action), built
@@ -321,7 +342,17 @@ UI never walks the project or scans a file on the main thread.
   in Arcode, and paths the project watcher reports. The git watcher records
   changed working-tree paths in a shared set and `GitStore` emits them as
   `GitEvent::FilesChanged` after its 250 ms debounce (more than 1000 paths,
-  or 500 pending, fall back to a full rescan).
+  or 500 pending, fall back to a full rescan). Gitignored paths (root and
+  repository `.gitignore`, `info/exclude`) are left out of that set, so a
+  build writing to `dist/` does not cause rescans where the root is watched
+  recursively. Changes that arrive while a full scan runs are held and
+  scanned after its result is applied, so a stale full-scan read never
+  overwrites a newer incremental one.
+- **Workspace subscriptions** (`workspace/subs.rs`): overlays (finder,
+  palette, prompts) keep one subscription each, replaced when they open
+  again; editor and pane subscriptions are dropped with their entity. The
+  finder and the palette never stack: Ctrl+P in the palette switches to
+  the finder.
 
 ## Large files
 

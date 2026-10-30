@@ -46,7 +46,11 @@
 //! held. Secondary-click dispatches [`GoToDefinition`]; it and the other
 //! navigation actions ([`GoToTypeDefinition`], [`GoToImplementation`],
 //! [`FindAllReferences`]) are bound in the editor context and handled by
-//! the application. See [`hover`].
+//! the application. See [`hover`]. The hover closes when the window's
+//! focus moves elsewhere, so it never covers a picker or overlay.
+//!
+//! A read-only editor ([`Editor::set_read_only`]) takes no edits, shows no
+//! completions and refuses [`Editor::save`].
 //!
 //! # Large files
 //!

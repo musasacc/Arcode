@@ -142,7 +142,8 @@ fn replace_in_files_uses_open_editors_and_skips_non_utf8(cx: &mut TestAppContext
     });
     view.update(cx, |v, cx| {
         v.set_replacement("omega", cx);
-        v.replace_files(paths, cx);
+        let (query, replacement) = v.replace_query(cx).expect("valid query");
+        v.replace_files(paths, query, replacement, cx);
     });
     settle(cx);
     let a_buffer = editor.read_with(cx, |e, _| e.buffer().text().to_string());
@@ -192,4 +193,49 @@ fn preview_inserts_replacements_after_matches() {
         line_row::preview_line("é xy", &std::iter::once(2..4).collect::<Vec<_>>(), None);
     assert_eq!(text, "é xy");
     assert_eq!(spans, vec![(3..5, line_row::Span::Match)]);
+}
+
+#[gpui::test]
+fn unsaved_buffers_are_searched_even_when_their_file_does_not_match(cx: &mut TestAppContext) {
+    let (_dir, root) = project();
+    let view = view(&root, cx);
+    let mut buffer = Buffer::from_file(root.join("src/b.rs")).expect("buffer");
+    buffer.set_path(root.join("src/b.rs"));
+    let editor = cx.new(|cx| Editor::new(buffer, cx));
+    editor.update(cx, |e, cx| {
+        e.apply_edits(
+            vec![(Point::new(0, 0)..Point::new(0, 0), "zeta ".into())],
+            cx,
+        );
+    });
+    let editors = editor.clone();
+    view.update(cx, |v, _| {
+        v.set_editors_fn(Rc::new(move |_| vec![editors.clone()]))
+    });
+    search(&view, "zeta", cx);
+    assert_eq!(files(&view, cx), ["src/b.rs"], "listed from the buffer");
+    view.update(cx, |v, cx| v.set_globs("*.txt", "", cx));
+    settle(cx);
+    assert!(
+        files(&view, cx).is_empty(),
+        "the include glob still applies"
+    );
+
+    // Replace All covers it as well (through the editor).
+    view.update(cx, |v, cx| v.set_globs("", "", cx));
+    settle(cx);
+    let (query, replacement) = view.update(cx, |v, cx| {
+        v.set_replacement("eta", cx);
+        v.replace_query(cx).expect("valid")
+    });
+    let counted = view.read_with(cx, |v, cx| v.unsaved_only_counts(&[], &query, cx));
+    assert_eq!(counted, [(root.join("src/b.rs"), 1)]);
+    view.update(cx, |v, cx| {
+        v.replace_files(vec![root.join("src/b.rs")], query, replacement, cx)
+    });
+    settle(cx);
+    assert_eq!(
+        editor.read_with(cx, |e, _| e.buffer().text().to_string()),
+        "eta // alpha beta\n"
+    );
 }

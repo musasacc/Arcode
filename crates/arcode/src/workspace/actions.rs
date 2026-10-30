@@ -83,6 +83,9 @@ impl Workspace {
             self.close_finder(window, cx);
             return;
         }
+        // Ctrl+P in the palette switches it to the file finder; the two
+        // overlays never stack (the palette would hide the finder).
+        self.close_palette(window, cx);
         let Some(root) = self.project.as_ref().map(|p| p.root.clone()) else {
             self.show_toast("Open a folder to search its files", cx);
             return;
@@ -108,7 +111,7 @@ impl Workspace {
                     }
                 },
             );
-        self._subscriptions.push(sub);
+        self.subs.set("finder", sub);
         window.focus(&finder.focus_handle(cx));
         self.finder = Some(finder);
         if !self.files_loading {
@@ -228,7 +231,7 @@ impl Workspace {
                 cx.notify();
             },
         );
-        self._subscriptions.push(sub);
+        self.subs.set("path_prompt", sub);
         window.focus(&prompt.focus_handle(cx));
         self.path_prompt = Some(prompt);
         self.path_prompt_then = Some(then);

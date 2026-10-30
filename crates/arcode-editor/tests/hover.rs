@@ -238,9 +238,7 @@ fn moving_within_one_diagnostic_does_not_redraw(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn keyboard_hover_follows_its_line_and_closes_when_it_leaves_the_view(
-    cx: &mut TestAppContext,
-) {
+fn keyboard_hover_follows_its_line_and_closes_when_it_leaves_the_view(cx: &mut TestAppContext) {
     let mut text = String::from("let value = other;\n");
     for i in 0..200 {
         text.push_str(&format!("let line_{i} = {i};\n"));
@@ -255,10 +253,30 @@ fn keyboard_hover_follows_its_line_and_closes_when_it_leaves_the_view(
     assert!(docs(&editor, cx).is_some());
     // Scrolling a little keeps it (attached to its moved line); scrolling
     // the line out of view closes it.
-    editor.update(cx, |e, cx| e.scroll_to_line(0, arcode_editor::ScrollAnchor::Top, cx));
+    editor.update(cx, |e, cx| {
+        e.scroll_to_line(0, arcode_editor::ScrollAnchor::Top, cx)
+    });
     cx.run_until_parked();
     assert!(docs(&editor, cx).is_some());
-    editor.update(cx, |e, cx| e.scroll_to_line(150, arcode_editor::ScrollAnchor::Top, cx));
+    editor.update(cx, |e, cx| {
+        e.scroll_to_line(150, arcode_editor::ScrollAnchor::Top, cx)
+    });
     cx.run_until_parked();
     assert_eq!(docs(&editor, cx), None);
+}
+
+#[gpui::test]
+fn operators_are_hovered_but_whitespace_is_not(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "let v = f()?;");
+    let asked = install_hover(&editor, cx);
+    let blank = pos_of(&editor, Point::new(0, 3), cx);
+    cx.simulate_mouse_move(blank, None, Modifiers::none());
+    cx.executor().advance_clock(Duration::from_millis(400));
+    cx.run_until_parked();
+    assert!(asked.borrow().is_empty(), "nothing asked over a space");
+    let question = pos_of(&editor, Point::new(0, 11), cx);
+    cx.simulate_mouse_move(question, None, Modifiers::none());
+    cx.executor().advance_clock(Duration::from_millis(400));
+    cx.run_until_parked();
+    assert_eq!(*asked.borrow(), vec![Point::new(0, 11)]);
 }

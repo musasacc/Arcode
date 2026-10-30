@@ -1,12 +1,12 @@
-//! Floating layers above the workspace: the project menu, the file finder
-//! and toast messages. Each fades in when animations are enabled.
+//! Floating layers above the workspace: the project menu, the file finder,
+//! toast messages and the discard-changes prompt. Each fades in when animations are enabled.
 
 use std::path::PathBuf;
 
 use arcode_ui_kit::{IconName, animation_duration, icon, kbd, theme};
 use gpui::{
-    Animation, AnimationExt, AnyElement, App, Context, Div, ElementId, MouseButton, SharedString,
-    Stateful, Window, div, ease_out_quint, prelude::*, px,
+    Animation, AnimationExt, AnyElement, App, Context, Div, ElementId, MouseButton, PromptLevel,
+    SharedString, Stateful, Window, div, ease_out_quint, prelude::*, px,
 };
 
 use super::Workspace;
@@ -251,5 +251,41 @@ impl Workspace {
             );
         }
         root
+    }
+}
+
+impl Workspace {
+    /// Runs `then` right away, or after the user agreed to discard unsaved
+    /// changes in open editors.
+    pub(super) fn confirm_discard(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        then: impl FnOnce(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+    ) {
+        let dirty = self
+            .editors(cx)
+            .iter()
+            .filter(|e| e.read(cx).is_dirty())
+            .count();
+        if dirty == 0 {
+            then(self, window, cx);
+            return;
+        }
+        let message = format!("{dirty} file(s) have unsaved changes. Discard them?");
+        let answer = window.prompt(
+            PromptLevel::Warning,
+            &message,
+            None,
+            &["Discard", "Cancel"],
+            cx,
+        );
+        cx.spawn_in(window, async move |this, cx| {
+            if answer.await.ok() == Some(0) {
+                this.update_in(cx, |ws, window, cx| then(ws, window, cx))
+                    .ok();
+            }
+        })
+        .detach();
     }
 }

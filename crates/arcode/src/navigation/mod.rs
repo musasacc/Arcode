@@ -172,6 +172,11 @@ impl Workspace {
         if from.as_ref() != Some(&path) {
             self.nav.expect = Some(path.clone());
         }
+        let outside = !was_open && self.is_outside_project(&path, from.as_deref());
+        if outside {
+            // A library source belongs to the project's language server.
+            self.lsp().read(cx).attach_to_workspace(&path);
+        }
         self.open_file(&path, window, cx);
         let Some(editor) = self.active_editor(cx) else {
             self.nav.expect = None;
@@ -181,7 +186,7 @@ impl Workspace {
             self.nav.expect = None;
             return false;
         }
-        if !was_open && self.is_outside_project(&path, from.as_deref()) {
+        if outside {
             editor.update(cx, |e, cx| e.set_read_only(true, cx));
             self.show_toast("Opened read-only: the file is outside the project", cx);
         }

@@ -5,11 +5,14 @@
 //! or in every file goes through the editor for open files (undoable) and
 //! writes other files directly (see [`replace`]).
 
+mod buffers;
 pub mod line_row;
 mod nav;
 mod render;
 pub mod replace;
 pub mod results;
+#[cfg(test)]
+mod review_search_view;
 #[cfg(test)]
 mod tests;
 
@@ -23,33 +26,23 @@ use arcode_editor::Editor;
 use arcode_search::{CancelToken, FileMatches, SearchQuery, SearchStats, parse_glob_list};
 use arcode_ui_kit::settings;
 use gpui::{
-    App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding,
-    SharedString, Subscription, Task, UniformListScrollHandle, Window,
+    App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, SharedString,
+    Subscription, Task, UniformListScrollHandle, Window,
 };
 
-use crate::find_bar::{ToggleCase, ToggleRegex, ToggleWord};
-use crate::finder::{Confirm, SelectNext, SelectPrev};
-use crate::search_widgets::{SearchOption, SearchOptions};
+use crate::search_widgets::{SearchOption, SearchOptions, short_error};
 use crate::text_field::{TextChanged, TextField};
+pub use nav::{ReplaceAllMatches, RunSearch, bind_keys};
 use results::{Results, Row};
 
 /// Key context of the Search view.
 pub const CONTEXT: &str = "ProjectSearch";
+/// Key context of the replace field.
+pub const REPLACE_CONTEXT: &str = "ProjectSearchReplace";
+/// Key context of the include and exclude glob fields.
+pub const GLOB_CONTEXT: &str = "ProjectSearchGlob";
 /// How long streamed results are collected before the list redraws.
 const BATCH_DELAY: Duration = Duration::from_millis(40);
-
-/// Registers the Search view's key bindings.
-pub fn bind_keys(cx: &mut App) {
-    let ctx = Some(CONTEXT);
-    cx.bind_keys([
-        KeyBinding::new("up", SelectPrev, ctx),
-        KeyBinding::new("down", SelectNext, ctx),
-        KeyBinding::new("enter", Confirm, ctx),
-        KeyBinding::new("alt-c", ToggleCase, ctx),
-        KeyBinding::new("alt-w", ToggleWord, ctx),
-        KeyBinding::new("alt-r", ToggleRegex, ctx),
-    ]);
-}
 
 /// Lists the open editors (for replacing in open buffers).
 pub type EditorsFn = Rc<dyn Fn(&App) -> Vec<Entity<Editor>>>;
@@ -105,6 +98,9 @@ pub struct ProjectSearch {
     /// Outcome of the last replace.
     notice: Option<SharedString>,
     replacing: bool,
+    /// The replace preview's compiled query, for the query and replacement
+    /// it was built from (rebuilt only when they change).
+    preview: Option<line_row::Preview>,
     editors: Option<EditorsFn>,
     focus_handle: FocusHandle,
     _subs: Vec<Subscription>,
@@ -157,6 +153,7 @@ impl ProjectSearch {
             debounce: None,
             notice: None,
             replacing: false,
+            preview: None,
             editors: None,
             focus_handle: cx.focus_handle(),
             _subs: subs,
@@ -300,7 +297,7 @@ impl ProjectSearch {
             return;
         }
         if let Err(err) = query.validate() {
-            self.status = Status::Invalid(err.to_string().into());
+            self.status = Status::Invalid(short_error(&err.to_string()).into());
             cx.notify();
             return;
         }
@@ -336,10 +333,17 @@ impl ProjectSearch {
                 }
             }
             let outcome = search.await;
+            if outcome.is_ok()
+                && buffers::add_unsaved(&this, buffer_query, cx)
+                    .await
+                    .is_none()
+            {
+                return;
+            }
             this.update(cx, |view, cx| {
                 view.status = match outcome {
                     Ok(stats) => Status::Done(stats),
-                    Err(err) => Status::Invalid(err.to_string().into()),
+                    Err(err) => Status::Invalid(short_error(&err.to_string()).into()),
                 };
                 view.cancel = None;
                 cx.notify();

@@ -7,7 +7,9 @@ use arcode_ui_kit::{IconName, icon, icon_button, theme};
 use gpui::{AnyElement, Context, SharedString, Window, div, prelude::*, px, uniform_list};
 
 use super::results::{Row, split_path};
-use super::{CONTEXT, ProjectSearch, Status};
+use super::{
+    CONTEXT, GLOB_CONTEXT, ProjectSearch, REPLACE_CONTEXT, ReplaceAllMatches, RunSearch, Status,
+};
 use crate::file_icons::file_icon;
 use crate::find_bar::{ToggleCase, ToggleRegex, ToggleWord};
 use crate::search_widgets::{SearchOption, field_box, option_toggles};
@@ -46,12 +48,14 @@ impl ProjectSearch {
                 window,
                 cx,
             )
+            .key_context(REPLACE_CONTEXT)
         });
         let globs = self.show_globs.then(|| {
             div()
                 .flex()
                 .flex_col()
                 .gap_1()
+                .key_context(GLOB_CONTEXT)
                 .child(field_box(&self.include, false, None, window, cx))
                 .child(field_box(&self.exclude, false, None, window, cx))
         });
@@ -277,6 +281,7 @@ impl ProjectSearch {
 
 impl Render for ProjectSearch {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.refresh_preview(cx);
         let count = self.rows.len();
         let list = (count > 0).then(|| {
             uniform_list(
@@ -296,6 +301,10 @@ impl Render for ProjectSearch {
             .on_action(cx.listener(Self::select_prev))
             .on_action(cx.listener(Self::select_next))
             .on_action(cx.listener(Self::confirm))
+            .on_action(cx.listener(|view, _: &RunSearch, _, cx| view.run(false, cx)))
+            .on_action(
+                cx.listener(|view, _: &ReplaceAllMatches, window, cx| view.replace_all(window, cx)),
+            )
             .on_action(
                 cx.listener(|view, _: &ToggleCase, _, cx| {
                     view.toggle_option(SearchOption::Case, cx)

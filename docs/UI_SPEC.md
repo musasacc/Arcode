@@ -84,7 +84,9 @@ Search: find in the active file (Ctrl+F; replace Ctrl+H, Cmd+Alt+F on
 macOS; Enter / Shift+Enter or F3 / Shift+F3 for next / previous; Alt+C,
 Alt+W, Alt+R toggle match case, whole word, regex; Ctrl+Alt+Enter in the
 replace field replaces all), Search view (Ctrl+Shift+F; with the replace
-field Ctrl+Shift+H), command palette (Ctrl+Shift+P or F1, or type `>` in
+field Ctrl+Shift+H; Enter in the replace or glob fields searches again,
+Ctrl+Alt+Enter in the replace field replaces all after a confirmation),
+command palette (Ctrl+Shift+P or F1, or type `>` in
 the title bar search box). Every command is registered in
 `arcode::commands` with a name, a category and its key binding.
 

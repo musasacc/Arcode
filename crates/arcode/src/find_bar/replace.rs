@@ -2,10 +2,11 @@
 //! undoable editor edits.
 
 use arcode_buffer::Point;
-use arcode_search::{SearchQuery, search_text};
+use arcode_search::SearchQuery;
 use gpui::{Context, Focusable, Window};
 
-use super::{FindBar, FocusNextField, logic, replace_edits};
+use super::bulk::{BulkReplace, MAX_EDITS, replace_all_edits};
+use super::{FindBar, FocusNextField, logic};
 
 impl FindBar {
     /// Replaces the current match (or moves to the first one) and goes on
@@ -47,21 +48,11 @@ impl FindBar {
             return 0;
         }
         let replacement = self.replacement.read(cx).text().to_string();
-        let edits = {
-            let e = editor.read(cx);
-            let text = e.buffer().text().to_string();
-            let Ok(lines) = search_text(&text, &query) else {
-                return 0;
-            };
-            let buffer = e.buffer();
-            replace_edits(
-                lines.iter().map(|l| l.line),
-                |line| buffer.line_text(line),
-                &query,
-                &replacement,
-            )
+        let text = editor.read(cx).buffer().text().to_string();
+        let Ok(bulk) = replace_all_edits(&text, &query, &replacement, MAX_EDITS) else {
+            return 0;
         };
-        let count = edits.len();
+        let BulkReplace { edits, count } = bulk;
         if count > 0 {
             editor.update(cx, |e, cx| e.apply_edits(edits, cx));
         }

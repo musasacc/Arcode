@@ -261,7 +261,10 @@ fn read_only_editor_never_writes_its_file(cx: &mut TestAppContext) {
         Editor::new(buffer, cx)
     });
     editor.update(cx, |e, cx| {
-        e.apply_edits(vec![(Point::new(0, 0)..Point::new(0, 0), "edited ".into())], cx);
+        e.apply_edits(
+            vec![(Point::new(0, 0)..Point::new(0, 0), "edited ".into())],
+            cx,
+        );
         e.set_read_only(true, cx);
         assert!(e.save(cx).is_err(), "a read-only editor refuses to save");
     });

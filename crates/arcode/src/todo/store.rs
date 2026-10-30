@@ -2,6 +2,11 @@
 //! then updated per file: after a save in Arcode and for files the watcher
 //! reports as changed on disk, only those files are scanned again
 //! (`arcode_search::scan_todos_in_paths`).
+//!
+//! Changes reported while a full scan runs are held back until the scan's
+//! result is in place, then scanned again: the full scan may have read a
+//! file before it changed, and its (older) result must not overwrite the
+//! newer one of an incremental update.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -114,16 +119,24 @@ impl TodoStore {
                 log::debug!("todo scan: {err}");
                 Vec::new()
             });
-            this.update(cx, |store, cx| {
-                store.files = group(items);
-                store.scanning = false;
-                store.loaded = true;
-                store.cancel = None;
-                cx.notify();
-            })
-            .ok();
+            this.update(cx, |store, cx| store.apply_full_scan(items, cx))
+                .ok();
         }));
         cx.notify();
+    }
+
+    /// Puts a full scan's result in place, then rescans the files changed
+    /// while it ran.
+    fn apply_full_scan(&mut self, items: Vec<TodoItem>, cx: &mut Context<Self>) {
+        self.files = group(items);
+        self.scanning = false;
+        self.loaded = true;
+        self.cancel = None;
+        self.scan_task = None;
+        cx.notify();
+        if !self.pending.is_empty() && self.update_task.is_none() {
+            self.paths_changed(&[], false, cx);
+        }
     }
 
     /// Rescans when the configured tags changed (after a settings reload).
@@ -160,6 +173,10 @@ impl TodoStore {
         let Some(root) = self.root.clone() else {
             return;
         };
+        if self.scanning {
+            // Kept pending until the full scan is applied (module docs).
+            return;
+        }
         if self.pending.len() > MAX_INCREMENTAL {
             self.pending.clear();
             self.rescan(cx);
@@ -181,7 +198,7 @@ impl TodoStore {
                 store.update_task = None;
                 store.replace(&files, &dirs, items);
                 cx.notify();
-                if !store.pending.is_empty() {
+                if !store.pending.is_empty() && !store.scanning {
                     store.paths_changed(&[], false, cx);
                 }
             })
@@ -210,6 +227,10 @@ impl TodoStore {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "store_race_tests.rs"]
+mod race_tests;
 
 /// Groups items by file, each file's items sorted by line.
 fn group(items: Vec<TodoItem>) -> BTreeMap<PathBuf, Vec<TodoItem>> {

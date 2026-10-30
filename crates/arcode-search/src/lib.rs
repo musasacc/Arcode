@@ -17,6 +17,8 @@
 mod cancel;
 mod error;
 mod line;
+mod line_replace;
+mod path_filter;
 mod query;
 mod replace;
 mod search;
@@ -27,6 +29,7 @@ mod walk;
 pub use cancel::CancelToken;
 pub use error::{Result, SearchError};
 pub use line::{ELLIPSIS, LineMatch, MAX_LINE_CHARS};
+pub use line_replace::LineReplacer;
 pub use query::{DEFAULT_MAX_FILE_SIZE, DEFAULT_MAX_RESULTS, SearchQuery, escape, parse_glob_list};
 pub use replace::{
     ChangedFile, ReplaceSummary, SkipReason, SkippedFile, line_replacements, replace_all,

@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex, Weak};
 use arcode_git::Repo;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
+use super::ignore_filter::IgnoreFilter;
 use crate::project::is_skipped_dir;
 
 /// Upper bound on per-folder watches (Linux).
@@ -132,6 +133,11 @@ impl RepoWatcher {
         let walk_tx = dir_tx.clone();
         let repo_tx = tx.clone();
         let depth = repos.is_empty().then_some(NO_REPO_DEPTH);
+        // Gitignored paths stay out of `paths`; the rules are read on the
+        // watcher thread at the first event, not on the caller's thread.
+        let ignore_root = root.to_path_buf();
+        let ignore_repos = IgnoreFilter::repo_dirs(repos);
+        let mut ignored: Option<IgnoreFilter> = None;
         let handler = move |res: notify::Result<notify::Event>| {
             let Ok(event) = res else { return };
             if matches!(event.kind, EventKind::Access(_)) {
@@ -142,6 +148,9 @@ impl RepoWatcher {
                 if let Some(kind) = classify(path, &dirs) {
                     if kind == Change::Worktree
                         && let Some(sink) = &paths
+                        && !ignored
+                            .get_or_insert_with(|| IgnoreFilter::new(&ignore_root, &ignore_repos))
+                            .is_ignored(path)
                         && let Ok(mut sink) = sink.lock()
                     {
                         sink.push(path);

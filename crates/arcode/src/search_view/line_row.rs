@@ -3,7 +3,7 @@
 
 use std::ops::Range;
 
-use arcode_search::line_replacements;
+use arcode_search::{LineReplacer, SearchQuery};
 use arcode_ui_kit::theme;
 use gpui::{
     AnyElement, Context, FontWeight, HighlightStyle, SharedString, StrikethroughStyle, StyledText,
@@ -58,7 +58,38 @@ pub fn preview_line(
     (out, spans)
 }
 
+/// The compiled replace preview (see [`ProjectSearch::refresh_preview`]).
+pub struct Preview {
+    query: SearchQuery,
+    replacement: String,
+    replacer: Option<LineReplacer>,
+}
+
 impl ProjectSearch {
+    /// Compiles the replace preview's query once per change of the query
+    /// or replacement, not once per row and frame.
+    pub(super) fn refresh_preview(&mut self, cx: &mut Context<Self>) {
+        let replacement = self.replacement.read(cx).text().to_string();
+        if !self.show_replace || replacement.is_empty() {
+            self.preview = None;
+            return;
+        }
+        let query = self.build_query(cx);
+        if self
+            .preview
+            .as_ref()
+            .is_some_and(|p| p.query == query && p.replacement == replacement)
+        {
+            return;
+        }
+        let replacer = LineReplacer::new(&query, &replacement).ok();
+        self.preview = Some(Preview {
+            query,
+            replacement,
+            replacer,
+        });
+    }
+
     pub(super) fn render_line_row(
         &self,
         ix: usize,
@@ -70,22 +101,23 @@ impl ProjectSearch {
             return div().into_any_element();
         };
         let (text, ranges) = trimmed_line(line);
-        let replacement = self.replacement.read(cx).text().to_string();
-        let expanded: Option<Vec<String>> =
-            (self.show_replace && !replacement.is_empty()).then(|| {
-                let query = self.build_query(cx);
-                let found = line_replacements(&text, &query, &replacement).unwrap_or_default();
-                ranges
-                    .iter()
-                    .map(|r| {
-                        found
-                            .iter()
-                            .find(|(fr, _)| fr == r)
-                            .map(|(_, s)| s.clone())
-                            .unwrap_or_else(|| replacement.clone())
-                    })
-                    .collect()
-            });
+        let expanded: Option<Vec<String>> = self.preview.as_ref().map(|p| {
+            let found = p
+                .replacer
+                .as_ref()
+                .and_then(|r| r.replacements(&text).ok())
+                .unwrap_or_default();
+            ranges
+                .iter()
+                .map(|r| {
+                    found
+                        .iter()
+                        .find(|(fr, _)| fr == r)
+                        .map(|(_, s)| s.clone())
+                        .unwrap_or_else(|| p.replacement.clone())
+                })
+                .collect()
+        });
         let (shown, spans) = preview_line(&text, &ranges, expanded.as_deref());
         let struck = expanded.is_some();
         let styles = spans.into_iter().map(|(r, span)| {
