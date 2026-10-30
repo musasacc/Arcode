@@ -274,3 +274,107 @@ fn redirect_locations_remove_dot_segments() {
         Ok("http://a.test/api/v1/y")
     );
 }
+
+/// The bundled HTTP client, registered as bundled (the `arcode.` prefix is
+/// reserved) from `target/wasm-plugins` (`scripts/build-plugins.sh`).
+fn bundled_http_client() -> arcode_plugin_host::RegisteredPlugin {
+    use arcode_plugin_host::PluginSource;
+    use arcode_plugin_host::manifest::UserLimits;
+    use arcode_plugin_host::registry::load;
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/wasm-plugins/arcode.http-client");
+    assert!(
+        dir.join("plugin.wasm").is_file(),
+        "run scripts/build-plugins.sh http-client"
+    );
+    let manifest = load(&dir, PluginSource::Bundled).expect("manifest");
+    let limits = manifest.limits.clamp(&UserLimits::default());
+    arcode_plugin_host::RegisteredPlugin {
+        manifest,
+        dir,
+        source: PluginSource::Bundled,
+        limits,
+        shadowed: Vec::new(),
+    }
+}
+
+/// §9: "Open in editor" calls `open-scratch` with the body. Appendix B
+/// says the plugin caps responses at 16 MiB so "the body, its text and the
+/// view fit in the manifest's 64 MiB memory limit" and that Open in editor
+/// "gets the whole body (JSON pretty-printed)". Pretty-printing goes
+/// through `serde_json::Value`, which needs many times the text size, so a
+/// 15 MiB JSON array (well under the cap, not truncated) traps the plugin
+/// (out of memory or the 1 s `handle-ui-event` budget) instead of opening.
+#[test]
+fn open_in_editor_handles_a_large_json_body() {
+    use arcode_plugin_host::bindings::ui::{Event, EventKind};
+    use arcode_plugin_host::bridge::DocSnapshot;
+    use arcode_plugin_host::consent::{ConsentAnswer, ScriptedConsent};
+    use arcode_plugin_host::grants::GrantScope;
+    use arcode_plugin_host::memory_editor::MemoryEditor;
+    use arcode_plugin_host::net::{TransportOptions, UreqTransport};
+    use loopback::{Reply, Server};
+
+    let _serial = timing_lock();
+    let mut body = String::from("[");
+    while body.len() < 15 * 1024 * 1024 {
+        body.push_str(r#"{"id":12345,"v":"x"},"#);
+    }
+    body.push_str(r#"{"id":0,"v":"end"}]"#);
+    let body = body.into_bytes();
+    let server = Server::start(move |_| Reply {
+        status: 200,
+        headers: vec![("content-type".into(), "application/json".into())],
+        body: body.clone(),
+        delay: Duration::ZERO,
+    });
+    let project = tempfile::tempdir().expect("project");
+    let file = format!("GET {}\n", server.url("/big"));
+    let editor = Arc::new(MemoryEditor::default());
+    editor.publish(DocSnapshot {
+        id: 1,
+        path: Some("big.http".into()),
+        language: "http".into(),
+        version: 1,
+        rope: ropey::Rope::from_str(&file),
+        selections: vec![],
+    });
+    let app = App::start(None);
+    let consent = Arc::new(ScriptedConsent::always(ConsentAnswer::Allow {
+        scope: GrantScope::Global,
+        write: false,
+    }));
+    let transport = UreqTransport::new(&TransportOptions {
+        use_env_proxy: false,
+        ..TransportOptions::default()
+    });
+    let services = services(&app, consent, editor.clone(), Arc::new(transport));
+    let (rt, _cache) = runtime(|_| {});
+    let h = arcode_plugin_host::InstanceHandle::new(
+        rt,
+        spec(bundled_http_client(), services, Some(project.path())),
+    );
+    let send = Call::Command {
+        command: "send".into(),
+        args: json!({"doc": 1, "line": 0}).to_string(),
+    };
+    assert_eq!(h.dispatch_about(send, true, 1).wait(), Ok(CallOutput::Done));
+    let (panel, _) = h.open_panels().first().cloned().expect("response panel");
+    let snapshot = h.panel_view(panel).expect("view");
+    let button = snapshot
+        .nodes
+        .values()
+        .find(|n| matches!(&n.widget, Widget::Button(b) if b.label == "Open in editor"))
+        .map(|n| n.id)
+        .expect("Open in editor button");
+    let click = Call::UiEvent {
+        panel,
+        event: Event {
+            node: button,
+            kind: EventKind::Click,
+            values: vec![],
+        },
+    };
+    let result = h.dispatch(click, true).wait();
+    assert_eq!(result, Ok(CallOutput::Done), "Open in editor on a 15 MiB JSON body");
+}

@@ -69,7 +69,11 @@ extension_points` shows all of them in one window.
   `"debugger"`, `"search"`, ...) and replaces only that owner's items.
   `clear_decorations(set)` removes everything of a set. Positions (buffer
   lines / `Point`s) are mapped through every edit until the owner replaces
-  them; items inside deleted text are dropped.
+  them; items inside deleted text are dropped (a whole-line highlight
+  keeps its surviving lines and is dropped when all of them are deleted;
+  a text range is dropped when an edit replaces text across one of its
+  ends). Text typed exactly at a range's start or end stays outside it, so
+  a search match on `foo` does not grow into `foox`.
 - **Colors** are theme keys (`ColorKey::new("diff_added").opacity(0.2)`),
   resolved against the active theme at paint time, never literal colors.
 - **Gutter lanes** (`set_gutter_decorations`, `set_gutter_lane_visible`),
@@ -96,6 +100,8 @@ extension_points` shows all of them in one window.
   `AnyView` anchored below or above a buffer position, drawn on top via
   `defer_draw`. The editor keeps focus, so typing continues; the popover's
   `on_key` handler sees keys first (a list takes up/down/enter/escape).
+  A popover whose anchor line is scrolled out of view is not drawn, and
+  its `on_key` gets no keys until it is back in view.
 - **Key interception** (`add_key_interceptor(priority, f)`): GPUI runs
   bound actions before element key listeners, so the editor installs one
   app-wide `intercept_keystrokes` hook in `arcode_editor::init`. For the

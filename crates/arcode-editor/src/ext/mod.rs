@@ -275,8 +275,10 @@ pub enum PopoverPlacement {
 /// A floating view anchored at a buffer position.
 ///
 /// The editor keeps keyboard focus, so typing continues in the buffer.
-/// `on_key` (if any) sees every keystroke first while the popover is shown,
-/// which lets a list take up/down/enter/escape.
+/// `on_key` (if any) sees every keystroke first while the popover is drawn,
+/// which lets a list take up/down/enter/escape. A popover whose anchor line
+/// is scrolled out of view is not drawn and gets no keys until it is back
+/// in view.
 #[derive(Clone)]
 pub struct EditorPopover {
     /// Buffer position the popover is attached to (follows edits).
