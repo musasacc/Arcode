@@ -164,8 +164,8 @@ fn modes() {
 fn selected_cells_are_marked() {
     let p = Palette::default();
     let mut t = term(10, 2, "hello");
-    let a = selection::start(&mut t, GridPoint::new(0, 1), SelectionKind::Simple);
-    selection::update(&mut t, a, GridPoint::new(0, 3));
+    selection::start(&mut t, GridPoint::new(0, 1), SelectionKind::Simple);
+    selection::update(&mut t, GridPoint::new(0, 3));
     let s = build(&t, &p);
     let selected: Vec<bool> = (0..5).map(|c| s.cell(0, c).unwrap().selected).collect();
     assert_eq!(selected, vec![false, true, true, true, false]);
@@ -180,7 +180,20 @@ fn selection_follows_scrolled_view() {
     let mut t = term(10, 3, &lines);
     // Screen shows row4, row5 and an empty line; one line up shows row3 first.
     t.scroll_display(Scroll::Delta(1));
-    let a = selection::start(&mut t, GridPoint::new(0, 0), SelectionKind::Simple);
-    selection::update(&mut t, a, GridPoint::new(0, 3));
+    selection::start(&mut t, GridPoint::new(0, 0), SelectionKind::Simple);
+    selection::update(&mut t, GridPoint::new(0, 3));
     assert_eq!(selection::text(&t).as_deref(), Some("row3"));
+}
+
+#[test]
+fn row_access_out_of_range() {
+    let p = Palette::default();
+    let s = build(&term(4, 2, "ab\r\ncd"), &p);
+    assert_eq!(s.row(1).map(|r| r.len()), Some(4));
+    assert_eq!(s.row_text(1), "cd");
+    assert!(s.row(2).is_none());
+    assert!(s.row(usize::MAX).is_none());
+    assert!(s.row(usize::MAX / 4).is_none());
+    assert_eq!(s.row_text(usize::MAX), "");
+    assert!(s.cell(usize::MAX, 0).is_none());
 }

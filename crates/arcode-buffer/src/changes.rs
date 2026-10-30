@@ -68,9 +68,16 @@ pub(crate) fn normalize_changes(edits: Vec<(Range<usize>, String)>, len: usize) 
 ///
 /// Positions inside a replaced range move to its start (`Before`) or to the
 /// end of the replacement (`After`); the end of a replaced range always maps
-/// to the end of its replacement.
+/// to the end of its replacement. O(number of changes); use [`ChangeMap`]
+/// to map many positions.
+#[cfg(test)]
 pub(crate) fn map_pos(pos: usize, changes: &[Change], assoc: Assoc) -> usize {
-    let mut delta: isize = 0;
+    map_from(pos, changes, assoc, 0)
+}
+
+/// [`map_pos`] over `changes` (a suffix of a change list) with `delta` the
+/// accumulated length change of the changes before them.
+fn map_from(pos: usize, changes: &[Change], assoc: Assoc, mut delta: isize) -> usize {
     for c in changes {
         let (s, e) = (c.range.start, c.range.end);
         let shifted = |p: usize| (p as isize + delta) as usize;
@@ -97,6 +104,36 @@ pub(crate) fn map_pos(pos: usize, changes: &[Change], assoc: Assoc) -> usize {
         delta += c.text_chars as isize - (e - s) as isize;
     }
     (pos as isize + delta) as usize
+}
+
+/// Maps many positions through one change list in O(log k) each (plus the
+/// changes sitting exactly at the position), instead of O(k).
+pub(crate) struct ChangeMap<'a> {
+    changes: &'a [Change],
+    /// `prefix[i]` = total length change of `changes[..i]`.
+    prefix: Vec<isize>,
+}
+
+impl<'a> ChangeMap<'a> {
+    /// Precomputes prefix sums for sorted, non-overlapping `changes`.
+    pub(crate) fn new(changes: &'a [Change]) -> Self {
+        let mut prefix = Vec::with_capacity(changes.len() + 1);
+        let mut acc = 0isize;
+        prefix.push(acc);
+        for c in changes {
+            acc += c.text_chars as isize - c.range.len() as isize;
+            prefix.push(acc);
+        }
+        ChangeMap { changes, prefix }
+    }
+
+    /// Same result as [`map_pos`].
+    pub(crate) fn map(&self, pos: usize, assoc: Assoc) -> usize {
+        // Changes ending strictly before `pos` only shift it; their ends are
+        // sorted because the ranges are sorted and non-overlapping.
+        let i = self.changes.partition_point(|c| c.range.end < pos);
+        map_from(pos, &self.changes[i..], assoc, self.prefix[i])
+    }
 }
 
 #[cfg(test)]
@@ -161,6 +198,34 @@ mod tests {
         assert_eq!(map_pos(6, &c, Assoc::After), 8);
         assert_eq!(map_pos(7, &c, Assoc::Before), 8);
         assert_eq!(map_pos(9, &c, Assoc::Before), 10);
+    }
+
+    #[test]
+    fn change_map_agrees_with_map_pos() {
+        let c = ch(
+            &[
+                (2..2, "XY"),
+                (2..2, "q"),
+                (2..4, ""),
+                (5..7, "z"),
+                (7..7, "abc"),
+                (9..12, "\n"),
+                (15..15, "w"),
+            ],
+            20,
+        );
+        let m = ChangeMap::new(&c);
+        for pos in 0..=20 {
+            for assoc in [Assoc::Before, Assoc::After] {
+                assert_eq!(
+                    m.map(pos, assoc),
+                    map_pos(pos, &c, assoc),
+                    "{pos} {assoc:?}"
+                );
+            }
+        }
+        let empty = ChangeMap::new(&[]);
+        assert_eq!(empty.map(7, Assoc::After), 7);
     }
 
     #[test]

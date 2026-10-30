@@ -9,10 +9,10 @@ use gpui::{
     ScrollWheelEvent, Window, point,
 };
 
+use crate::Editor;
 use crate::diagnostics::EditorDiagnostic;
 use crate::editor::Autoscroll;
 use crate::layout::LayoutSnapshot;
-use crate::Editor;
 
 /// Granularity of a drag selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,7 +26,10 @@ pub(crate) enum DragMode {
 #[derive(Debug, Clone)]
 pub(crate) enum DragState {
     /// Selecting text; `origin` is the unit first clicked.
-    Text { mode: DragMode, origin: Range<usize> },
+    Text {
+        mode: DragMode,
+        origin: Range<usize>,
+    },
     /// Dragging the scrollbar thumb, grabbed `grab` below its top.
     Scrollbar { grab: Pixels },
 }
@@ -139,7 +142,9 @@ impl Editor {
             Some(DragState::Scrollbar { grab }) => {
                 self.drag_scrollbar(&layout, event.position.y, grab, cx);
             }
-            Some(DragState::Text { mode, origin }) if event.pressed_button == Some(MouseButton::Left) => {
+            Some(DragState::Text { mode, origin })
+                if event.pressed_button == Some(MouseButton::Left) =>
+            {
                 let pos = self.char_for_position(&layout, event.position);
                 let unit = self.unit_at(pos, mode);
                 let sel = if unit.start < origin.start {
@@ -191,7 +196,13 @@ impl Editor {
         }
     }
 
-    fn drag_scrollbar(&mut self, layout: &LayoutSnapshot, y: Pixels, grab: Pixels, cx: &mut Context<Self>) {
+    fn drag_scrollbar(
+        &mut self,
+        layout: &LayoutSnapshot,
+        y: Pixels,
+        grab: Pixels,
+        cx: &mut Context<Self>,
+    ) {
         let Some(bar) = layout.scrollbar else {
             return;
         };

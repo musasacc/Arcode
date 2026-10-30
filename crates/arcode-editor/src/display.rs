@@ -46,7 +46,6 @@ impl DisplayLine {
             .partition_point(|&b| b <= byte)
             .saturating_sub(1)
     }
-
 }
 
 /// Expands `line` (no line break) and maps highlight `spans` (byte ranges
@@ -112,7 +111,12 @@ pub fn build_display_line(
         pos = end;
     }
     if pos < text.len() || runs.is_empty() {
-        runs.push(text_run(text.len() - pos, font, &default, theme.colors.text));
+        runs.push(text_run(
+            text.len() - pos,
+            font,
+            &default,
+            theme.colors.text,
+        ));
     }
     DisplayLine {
         text: text.into(),

@@ -9,7 +9,7 @@ use arcode_terminal::{Cell, GridPoint, MIN_COLS, MIN_ROWS, Rgb};
 /// `(cols, rows)`, clamped to the terminal's minimum size.
 pub fn grid_size(width: f32, height: f32, cell_width: f32, cell_height: f32) -> (u16, u16) {
     let fit = |len: f32, cell: f32, min: u16| -> u16 {
-        if !(cell > 0.) || !len.is_finite() || len <= 0. {
+        if cell.is_nan() || cell <= 0. || !len.is_finite() || len <= 0. {
             return min;
         }
         let n = (len / cell).floor();
@@ -36,7 +36,7 @@ pub fn grid_point(
     rows: usize,
 ) -> GridPoint {
     let index = |pos: f32, cell: f32, count: usize| -> usize {
-        if !(cell > 0.) || !(pos > 0.) || count == 0 {
+        if cell.is_nan() || cell <= 0. || pos.is_nan() || pos <= 0. || count == 0 {
             return 0;
         }
         ((pos / cell).floor() as usize).min(count - 1)

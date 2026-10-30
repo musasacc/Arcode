@@ -1,0 +1,13 @@
+[package]
+name = "arcode-vim"
+description = "Vim mode: modal editing state machine over arcode-buffer."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+arcode-buffer.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

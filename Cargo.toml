@@ -22,6 +22,11 @@ arcode-git = { path = "crates/arcode-git" }
 arcode-editor = { path = "crates/arcode-editor" }
 arcode-terminal-view = { path = "crates/arcode-terminal-view" }
 arcode-ui-kit = { path = "crates/arcode-ui-kit" }
+arcode-search = { path = "crates/arcode-search" }
+arcode-dap = { path = "crates/arcode-dap" }
+arcode-completion = { path = "crates/arcode-completion" }
+arcode-project = { path = "crates/arcode-project" }
+arcode-vim = { path = "crates/arcode-vim" }
 
 ropey = "1.6.1"
 tree-sitter = "0.25"

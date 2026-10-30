@@ -53,7 +53,9 @@ impl Editor {
         self.edit_with(cx, ops::insert_tab);
     }
     pub(crate) fn outdent(&mut self, _: &Outdent, _: &mut Window, cx: &mut Context<Self>) {
-        self.edit_with(cx, |b, s, cfg| ops::outdent_lines(b, s, cfg.indent, cfg.tab_width));
+        self.edit_with(cx, |b, s, cfg| {
+            ops::outdent_lines(b, s, cfg.indent, cfg.tab_width)
+        });
     }
     pub(crate) fn toggle_line_comment(
         &mut self,
@@ -189,7 +191,10 @@ impl Editor {
             let mut shift = 0;
             for sel in s.iter() {
                 let at = b.line_start(b.char_to_line(sel.head));
-                if raw.last().is_some_and(|(r, _): &(Range<usize>, String)| r.start == at) {
+                if raw
+                    .last()
+                    .is_some_and(|(r, _): &(Range<usize>, String)| r.start == at)
+                {
                     sels.push(Selection::cursor(sel.head + shift));
                     continue;
                 }

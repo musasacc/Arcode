@@ -25,7 +25,11 @@ fn setup(cx: &mut TestAppContext) {
 fn open<'a>(
     cx: &'a mut TestAppContext,
     text: &str,
-) -> (Entity<Editor>, &'a mut VisualTestContext, Rc<RefCell<Vec<EditorEvent>>>) {
+) -> (
+    Entity<Editor>,
+    &'a mut VisualTestContext,
+    Rc<RefCell<Vec<EditorEvent>>>,
+) {
     setup(cx);
     let text = text.to_string();
     let (editor, cx) = cx.add_window_view(move |_, cx| {
@@ -37,8 +41,10 @@ fn open<'a>(
     let sink = events.clone();
     cx.update(|window, cx| {
         window.focus(&editor.focus_handle(cx));
-        cx.subscribe(&editor, move |_, e: &EditorEvent, _| sink.borrow_mut().push(e.clone()))
-            .detach();
+        cx.subscribe(&editor, move |_, e: &EditorEvent, _| {
+            sink.borrow_mut().push(e.clone())
+        })
+        .detach();
     });
     cx.run_until_parked();
     (editor, cx, events)
@@ -55,7 +61,10 @@ fn typing_inserts_text(cx: &mut TestAppContext) {
     assert_eq!(text(&editor, cx), "fn x");
     cx.simulate_input("(");
     assert_eq!(text(&editor, cx), "fn x()");
-    assert_eq!(editor.read_with(cx, |e, _| e.cursor_position()), Point::new(0, 5));
+    assert_eq!(
+        editor.read_with(cx, |e, _| e.cursor_position()),
+        Point::new(0, 5)
+    );
     let edited: Vec<_> = events
         .borrow()
         .iter()
@@ -69,7 +78,10 @@ fn typing_inserts_text(cx: &mut TestAppContext) {
     assert_eq!(edited[0].0[0].new_text, "f");
     assert_eq!(edited[0].0[0].start_byte, 0);
     assert_eq!(edited[4].0[0].new_text, "()");
-    assert_eq!(edited[4].1, editor.read_with(cx, |e, _| e.buffer().version()));
+    assert_eq!(
+        edited[4].1,
+        editor.read_with(cx, |e, _| e.buffer().version())
+    );
     assert!(events.borrow().contains(&EditorEvent::DirtyChanged(true)));
 }
 
@@ -109,9 +121,14 @@ fn undo_and_redo(cx: &mut TestAppContext) {
             _ => None,
         })
         .collect();
+    // One undo step; replaying its edits in order on the old text yields
+    // the new text.
     assert_eq!(undo_edits.len(), 1);
-    assert_eq!(undo_edits[0][0].range, 5..11);
-    assert_eq!(undo_edits[0][0].new_text, "");
+    let mut replay = Buffer::new("hello world");
+    for e in &undo_edits[0] {
+        replay.edit(vec![(e.range.clone(), e.new_text.clone())]);
+    }
+    assert_eq!(replay.to_string(), "hello");
     assert!(events.borrow().contains(&EditorEvent::DirtyChanged(false)));
     cx.simulate_keystrokes("secondary-shift-z");
     assert_eq!(text(&editor, cx), "hello world");
@@ -124,7 +141,9 @@ fn select_next_occurrence(cx: &mut TestAppContext) {
     let (editor, cx, _) = open(cx, "foo bar foo baz foo");
     cx.simulate_keystrokes("secondary-d");
     let ranges = |cx: &mut VisualTestContext| {
-        editor.read_with(cx, |e, _| e.selections().iter().map(|s| s.range()).collect::<Vec<_>>())
+        editor.read_with(cx, |e, _| {
+            e.selections().iter().map(|s| s.range()).collect::<Vec<_>>()
+        })
     };
     assert_eq!(ranges(cx), vec![0..3]);
     cx.simulate_keystrokes("secondary-d secondary-d");
@@ -150,7 +169,10 @@ fn go_to_moves_and_scrolls(cx: &mut TestAppContext) {
     cx.update(|window, cx| {
         editor.update(cx, |e, cx| e.go_to(Point::new(9999, 99), window, cx));
     });
-    assert_eq!(editor.read_with(cx, |e, _| e.cursor_position()), Point::new(500, 0));
+    assert_eq!(
+        editor.read_with(cx, |e, _| e.cursor_position()),
+        Point::new(500, 0)
+    );
 }
 
 #[gpui::test]
@@ -169,12 +191,18 @@ fn diagnostics_follow_edits(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("enter");
     let ranges = |cx: &mut VisualTestContext| {
         editor.read_with(cx, |e, _| {
-            e.diagnostics().iter().map(|d| d.range.clone()).collect::<Vec<_>>()
+            e.diagnostics()
+                .iter()
+                .map(|d| d.range.clone())
+                .collect::<Vec<_>>()
         })
     };
     assert_eq!(
         ranges(cx),
-        vec![Point::new(2, 8)..Point::new(2, 9), Point::new(3, 4)..Point::new(3, 5)]
+        vec![
+            Point::new(2, 8)..Point::new(2, 9),
+            Point::new(3, 4)..Point::new(3, 5)
+        ]
     );
     // Replacing the `y` drops that diagnostic only.
     cx.update(|window, cx| editor.update(cx, |e, cx| e.go_to(Point::new(2, 8), window, cx)));
@@ -205,7 +233,7 @@ fn line_commands(cx: &mut TestAppContext) {
     assert_eq!(text(&editor, cx), "// a\n// a\nb\n");
     cx.simulate_keystrokes("alt-down");
     assert_eq!(text(&editor, cx), "// a\nb\n// a\n");
-    cx.simulate_keystrokes("tab");
+    cx.simulate_keystrokes("home tab");
     assert_eq!(text(&editor, cx), "// a\nb\n    // a\n");
     cx.simulate_keystrokes("shift-tab");
     assert_eq!(text(&editor, cx), "// a\nb\n// a\n");
@@ -218,4 +246,87 @@ fn read_only_blocks_edits(cx: &mut TestAppContext) {
     cx.simulate_input("x");
     cx.simulate_keystrokes("backspace delete enter");
     assert_eq!(text(&editor, cx), "keep");
+}
+
+#[gpui::test]
+fn ime_composition_and_utf16(cx: &mut TestAppContext) {
+    use gpui::EntityInputHandler;
+    let (editor, cx, _) = open(cx, "😀\n😀\n");
+    editor.update(cx, |e, cx| {
+        let set = SelectionSet::from_vec(vec![Selection::cursor(1), Selection::cursor(3)], 0)
+            .expect("set");
+        e.set_selections(set, cx);
+    });
+    cx.update(|window, cx| {
+        editor.update(cx, |e, cx| {
+            // The emoji is two UTF-16 units.
+            let sel = e.selected_text_range(false, window, cx).expect("selection");
+            assert_eq!(sel.range, 2..2);
+            e.replace_and_mark_text_in_range(None, "´", None, window, cx);
+            assert_eq!(e.marked_text_range(window, cx), Some(2..3));
+            e.replace_text_in_range(None, "é", window, cx);
+            assert_eq!(e.marked_text_range(window, cx), None);
+            let mut actual = None;
+            let text = e.text_for_range(0..3, &mut actual, window, cx);
+            assert_eq!(text.as_deref(), Some("😀é"));
+            assert_eq!(actual, Some(0..3));
+        })
+    });
+    assert_eq!(text(&editor, cx), "😀é\n😀é\n");
+    cx.simulate_keystrokes("secondary-z");
+    assert_eq!(text(&editor, cx), "😀\n😀\n");
+}
+
+#[gpui::test]
+fn large_buffer_reparses_in_background(cx: &mut TestAppContext) {
+    let body: String = (0..20_000)
+        .map(|i| format!("fn f{i}() {{ let x = {i}; }}\n"))
+        .collect();
+    let (editor, cx, _) = open(cx, &body);
+    cx.update(|window, cx| {
+        editor.update(cx, |e, cx| e.go_to(Point::new(10_000, 0), window, cx));
+    });
+    // Several edits in a row while a reparse may be in flight.
+    cx.simulate_input("// a");
+    cx.simulate_keystrokes("enter");
+    cx.simulate_input("b");
+    cx.run_until_parked();
+    let line = editor.read_with(cx, |e, _| e.buffer().line_text(10_001));
+    assert_eq!(line, "bfn f10000() { let x = 10000; }");
+    cx.simulate_keystrokes("secondary-z secondary-z secondary-z");
+    cx.run_until_parked();
+    assert_eq!(text(&editor, cx), body);
+}
+
+#[gpui::test]
+fn mouse_click_shift_click_and_alt_click(cx: &mut TestAppContext) {
+    use gpui::{Modifiers, point, px};
+    let (editor, cx, _) = open(cx, "first line\nsecond\nthird line here\n");
+    let line_y = |line: f32| px(21. * line + 10.);
+    // Clicking far right of a line puts the cursor at its end.
+    cx.simulate_click(point(px(1500.), line_y(0.)), Modifiers::default());
+    assert_eq!(
+        editor.read_with(cx, |e, _| e.cursor_position()),
+        Point::new(0, 10)
+    );
+    // Shift-click extends the selection.
+    let shift = Modifiers {
+        shift: true,
+        ..Default::default()
+    };
+    cx.simulate_click(point(px(1500.), line_y(2.)), shift);
+    let ranges = editor.read_with(cx, |e, _| {
+        e.selections().iter().map(|s| s.range()).collect::<Vec<_>>()
+    });
+    assert_eq!(ranges, vec![10..33]);
+    // Alt-click adds a cursor.
+    cx.simulate_click(point(px(1500.), line_y(1.)), Modifiers::default());
+    let alt = Modifiers {
+        alt: true,
+        ..Default::default()
+    };
+    cx.simulate_click(point(px(1500.), line_y(0.)), alt);
+    assert_eq!(editor.read_with(cx, |e, _| e.selections().len()), 2);
+    cx.simulate_input("!");
+    assert_eq!(text(&editor, cx), "first line!\nsecond!\nthird line here\n");
 }

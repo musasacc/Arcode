@@ -2,7 +2,9 @@
 
 use arcode_buffer::ops::{AutoClose, IndentUnit, OpsConfig};
 use arcode_ui_kit::settings;
-use gpui::{App, Font, FontFallbacks, FontFeatures, FontStyle, FontWeight, Pixels, SharedString, px};
+use gpui::{
+    App, Font, FontFallbacks, FontFeatures, FontStyle, FontWeight, Pixels, SharedString, px,
+};
 
 /// Font and metrics the editor draws with.
 #[derive(Debug, Clone)]

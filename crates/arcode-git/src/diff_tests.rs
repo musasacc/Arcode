@@ -208,3 +208,28 @@ fn random_scripts_are_valid_and_minimal() {
         check(&old, &new, &line_diff(&old_text, &new_text));
     }
 }
+
+#[test]
+fn split_lines_matches_buffer_line_breaks() {
+    let lines = |t| split_lines(t).collect::<Vec<_>>();
+    assert!(lines("").is_empty());
+    assert_eq!(lines("\n"), vec![""]);
+    assert_eq!(lines("a"), vec!["a"]);
+    assert_eq!(lines("a\nb\n"), vec!["a", "b"]);
+    assert_eq!(lines("a\r\nb\rc"), vec!["a", "b", "c"]);
+    assert_eq!(lines("\r\r\n"), vec!["", ""]);
+    assert_eq!(lines("a\n\nb"), vec!["a", "", "b"]);
+    assert_eq!(
+        lines("1\u{0B}2\u{0C}3\u{85}4\u{2028}5\u{2029}6"),
+        vec!["1", "2", "3", "4", "5", "6"]
+    );
+    assert_eq!(lines("é\r\n😀\r"), vec!["é", "😀"]);
+}
+
+#[test]
+fn mixed_line_endings_compare_equal() {
+    assert!(line_diff("a\rb\r\nc\n", "a\nb\nc").is_empty());
+    let changes = line_diff("a\u{2028}b\nc\n", "a\u{2028}b\nC\n");
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].new_lines, 2..3);
+}

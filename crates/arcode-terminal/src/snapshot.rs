@@ -141,10 +141,14 @@ impl Snapshot {
         self.cells.get(row * self.cols + col)
     }
 
-    /// The cells of one row.
+    /// The cells of one row, `None` when `row` is outside the grid.
     pub fn row(&self, row: usize) -> Option<&[Cell]> {
+        if row >= self.rows {
+            return None;
+        }
         let start = row.checked_mul(self.cols)?;
-        self.cells.get(start..start + self.cols)
+        let end = start.checked_add(self.cols)?;
+        self.cells.get(start..end)
     }
 
     /// Iterates rows top to bottom.

@@ -13,6 +13,7 @@
 //! [syntax]
 //! keyword = { color = "#ff79c6", bold = true }
 //! comment = "#6a737d"          # shorthand for { color = ... }
+//! function.method = "#82aaff" # dotted keys (quoted or not) name sub-captures
 //!
 //! [terminal]
 //! foreground = "#e0e0e0"
@@ -20,6 +21,7 @@
 //! ```
 
 mod color;
+mod loader;
 mod palette;
 mod parse;
 mod registry;

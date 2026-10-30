@@ -1,8 +1,8 @@
 //! Line-oriented commands: indent, outdent, duplicate, move, comment.
 
-use super::{IndentUnit, commit, map_selection, prepare, set_from};
+use super::{IndentUnit, clamp_stale, commit, map_selection, prepare, set_from};
 use crate::buffer::Buffer;
-use crate::changes::Change;
+use crate::changes::{Assoc, Change, ChangeMap};
 use crate::edit::Edit;
 use crate::history::UndoGroup;
 use crate::selection::{Selection, SelectionSet};
@@ -33,10 +33,8 @@ fn commit_mapped(
     selections: &mut SelectionSet,
     changes: Vec<Change>,
 ) -> Vec<Edit> {
-    let after: Vec<Selection> = selections
-        .iter()
-        .map(|s| map_selection(s, &changes))
-        .collect();
+    let map = ChangeMap::new(&changes);
+    let after: Vec<Selection> = selections.iter().map(|s| map_selection(s, &map)).collect();
     let after = set_from(after, selections.primary_index(), selections);
     buffer.break_undo_group();
     commit(buffer, selections, &changes, after, UndoGroup::New)
@@ -60,6 +58,7 @@ pub fn indent_lines(
     selections: &mut SelectionSet,
     unit: IndentUnit,
 ) -> Vec<Edit> {
+    clamp_stale(buffer, selections);
     let text = unit.text();
     let mut raw = Vec::new();
     for (first, last) in line_blocks(buffer, selections) {
@@ -83,6 +82,7 @@ pub fn outdent_lines(
     unit: IndentUnit,
     tab_width: usize,
 ) -> Vec<Edit> {
+    clamp_stale(buffer, selections);
     let width = unit.width(tab_width);
     let mut raw = Vec::new();
     for (first, last) in line_blocks(buffer, selections) {
@@ -117,6 +117,7 @@ fn block_text(buffer: &Buffer, first: usize, last: usize) -> String {
 /// Duplicates the selected lines below themselves; selections move to the
 /// copy.
 pub fn duplicate_line(buffer: &mut Buffer, selections: &mut SelectionSet) -> Vec<Edit> {
+    clamp_stale(buffer, selections);
     let raw = line_blocks(buffer, selections)
         .into_iter()
         .map(|(first, last)| {
@@ -127,11 +128,14 @@ pub fn duplicate_line(buffer: &mut Buffer, selections: &mut SelectionSet) -> Vec
     // Inserting the copy above with "after" mapping puts selections on the
     // lower copy.
     let changes = prepare(buffer, raw);
+    let map = ChangeMap::new(&changes);
     let after: Vec<Selection> = selections
         .iter()
         .map(|s| {
-            let pos = |p| crate::changes::map_pos(p, &changes, crate::changes::Assoc::After);
-            Selection::new(pos(s.anchor), pos(s.head))
+            Selection::new(
+                map.map(s.anchor, Assoc::After),
+                map.map(s.head, Assoc::After),
+            )
         })
         .collect();
     let after = set_from(after, selections.primary_index(), selections);
@@ -141,6 +145,7 @@ pub fn duplicate_line(buffer: &mut Buffer, selections: &mut SelectionSet) -> Vec
 
 /// Swaps each selected line block with the line above (`up`) or below.
 fn move_lines(buffer: &mut Buffer, selections: &mut SelectionSet, up: bool) -> Vec<Edit> {
+    clamp_stale(buffer, selections);
     let last_line = buffer.line_count() - 1;
     let mut raw = Vec::new();
     // (first, last, signed shift) per moved block.
@@ -168,9 +173,11 @@ fn move_lines(buffer: &mut Buffer, selections: &mut SelectionSet, up: bool) -> V
         .iter()
         .map(|s| {
             let line = buffer.char_to_line(s.start());
+            // `moved` is sorted and disjoint: binary search for the block.
+            let i = moved.partition_point(|&(_, l, _)| l < line);
             let shift = moved
-                .iter()
-                .find(|(f, l, _)| (*f..=*l).contains(&line))
+                .get(i)
+                .filter(|&&(f, l, _)| (f..=l).contains(&line))
                 .map_or(0, |m| m.2);
             let apply = |p: usize| (p as isize + shift).max(0) as usize;
             Selection::new(apply(s.anchor), apply(s.head))
@@ -206,6 +213,7 @@ pub fn toggle_line_comment(
     if prefix.is_empty() {
         return Vec::new();
     }
+    clamp_stale(buffer, selections);
     let lines: Vec<usize> = line_blocks(buffer, selections)
         .into_iter()
         .flat_map(|(f, l)| f..=l)

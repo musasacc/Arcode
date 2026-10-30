@@ -12,7 +12,9 @@ impl Editor {
     }
 
     fn page_lines(&self) -> usize {
-        self.layout.as_ref().map_or(20, |l| l.page_lines().saturating_sub(1).max(1))
+        self.layout
+            .as_ref()
+            .map_or(20, |l| l.page_lines().saturating_sub(1).max(1))
     }
 
     /// Applies a selection-only change and syncs state.
@@ -96,7 +98,12 @@ impl Editor {
     pub(crate) fn page_down(&mut self, _: &PageDown, _: &mut Window, cx: &mut Context<Self>) {
         self.page(false, 1, cx);
     }
-    pub(crate) fn select_page_up(&mut self, _: &SelectPageUp, _: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn select_page_up(
+        &mut self,
+        _: &SelectPageUp,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.page(true, -1, cx);
     }
     pub(crate) fn select_page_down(
@@ -117,7 +124,12 @@ impl Editor {
         self.vertical(extend, dir * lines as isize, cx);
     }
 
-    pub(crate) fn move_word_left(&mut self, _: &MoveWordLeft, _: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn move_word_left(
+        &mut self,
+        _: &MoveWordLeft,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.move_by(false, cx, movement::word_left);
     }
     pub(crate) fn move_word_right(
@@ -156,7 +168,12 @@ impl Editor {
     pub(crate) fn select_end(&mut self, _: &SelectEnd, _: &mut Window, cx: &mut Context<Self>) {
         self.move_by(true, cx, movement::line_end);
     }
-    pub(crate) fn move_doc_start(&mut self, _: &MoveDocStart, _: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn move_doc_start(
+        &mut self,
+        _: &MoveDocStart,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.update_selections(cx, |_, s| *s = SelectionSet::single(0));
     }
     pub(crate) fn move_doc_end(&mut self, _: &MoveDocEnd, _: &mut Window, cx: &mut Context<Self>) {
@@ -170,7 +187,12 @@ impl Editor {
     ) {
         self.move_by(true, cx, |_, _| 0);
     }
-    pub(crate) fn select_doc_end(&mut self, _: &SelectDocEnd, _: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn select_doc_end(
+        &mut self,
+        _: &SelectDocEnd,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.move_by(true, cx, |b, _| b.len_chars());
     }
     pub(crate) fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {

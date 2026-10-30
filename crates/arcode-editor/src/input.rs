@@ -13,23 +13,23 @@ use gpui::{
 use crate::Editor;
 
 impl Editor {
-    fn to_utf16(&self, char_idx: usize) -> usize {
+    fn char_to_utf16(&self, char_idx: usize) -> usize {
         let rope = self.buffer.text();
         rope.char_to_utf16_cu(char_idx.min(rope.len_chars()))
     }
 
-    fn from_utf16(&self, utf16: usize) -> usize {
+    fn char_from_utf16(&self, utf16: usize) -> usize {
         let rope = self.buffer.text();
         rope.utf16_cu_to_char(utf16.min(rope.len_utf16_cu()))
     }
 
     fn range_to_utf16(&self, r: &Range<usize>) -> Range<usize> {
-        self.to_utf16(r.start)..self.to_utf16(r.end)
+        self.char_to_utf16(r.start)..self.char_to_utf16(r.end)
     }
 
     fn range_from_utf16(&self, r: &Range<usize>) -> Range<usize> {
-        let a = self.from_utf16(r.start);
-        let b = self.from_utf16(r.end);
+        let a = self.char_from_utf16(r.start);
+        let b = self.char_from_utf16(r.end);
         a.min(b)..a.max(b)
     }
 
@@ -82,7 +82,10 @@ impl Editor {
             delta += len as isize - r.len() as isize;
         }
         let cursors = inserted.iter().map(|r| Selection::cursor(r.end)).collect();
-        let primary = self.selections.primary_index().min(inserted.len().saturating_sub(1));
+        let primary = self
+            .selections
+            .primary_index()
+            .min(inserted.len().saturating_sub(1));
         let after = SelectionSet::from_vec(cursors, primary).unwrap_or_default();
         let raw = merged.into_iter().map(|r| (r, text.clone())).collect();
         let edits = self
@@ -120,9 +123,16 @@ impl EntityInputHandler for Editor {
         })
     }
 
-    fn marked_text_range(&self, _window: &mut Window, _cx: &mut Context<Self>) -> Option<Range<usize>> {
+    fn marked_text_range(
+        &self,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<Range<usize>> {
         let marked = self.marked.as_ref()?;
-        let idx = self.selections.primary_index().min(marked.len().saturating_sub(1));
+        let idx = self
+            .selections
+            .primary_index()
+            .min(marked.len().saturating_sub(1));
         marked.get(idx).map(|r| self.range_to_utf16(r))
     }
 
@@ -225,6 +235,6 @@ impl EntityInputHandler for Editor {
     ) -> Option<usize> {
         let layout = self.layout.clone()?;
         let pos = self.char_for_position(&layout, point);
-        Some(self.to_utf16(pos))
+        Some(self.char_to_utf16(pos))
     }
 }

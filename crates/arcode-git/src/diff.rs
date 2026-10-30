@@ -35,9 +35,11 @@ pub struct LineChange {
 /// Diffs `old` against `new` line by line and returns the changed blocks in
 /// order.
 ///
-/// Lines are split like [`str::lines`]: a trailing newline does not start an
-/// extra line and `\r\n` endings compare equal to `\n`, so a file that only
-/// gained or lost its final newline (or switched line endings) is unchanged.
+/// Lines are split on the same breaks as the editor buffer (ropey with
+/// `unicode_lines`): `\n`, `\r\n`, a lone `\r`, VT, FF, NEL (U+0085), and
+/// U+2028/U+2029; see [`split_lines`]. Terminators are not compared and a
+/// trailing break does not start an extra line, so a file that only gained
+/// or lost its final newline (or switched line endings) is unchanged.
 /// A block where lines were both removed and inserted is reported as
 /// [`ChangeKind::Modified`] over the inserted lines.
 pub fn line_diff(old: &str, new: &str) -> Vec<LineChange> {
@@ -52,9 +54,43 @@ fn intern(old: &str, new: &str) -> (Vec<u32>, Vec<u32>) {
         let next = ids.len() as u32;
         *ids.entry(line).or_insert(next)
     };
-    let a = old.lines().map(&mut id_of).collect();
-    let b = new.lines().map(&mut id_of).collect();
+    let a = split_lines(old).map(&mut id_of).collect();
+    let b = split_lines(new).map(&mut id_of).collect();
     (a, b)
+}
+
+/// Splits `text` into lines without their terminators, using the editor
+/// buffer's line breaks: `\n`, `\r\n` (one break), a lone `\r`, VT
+/// (U+000B), FF (U+000C), NEL (U+0085), LS (U+2028) and PS (U+2029).
+///
+/// Like [`str::lines`], an empty text has no lines and a final terminator
+/// does not produce a trailing empty line.
+pub fn split_lines(text: &str) -> impl Iterator<Item = &str> {
+    let mut rest = text;
+    std::iter::from_fn(move || {
+        if rest.is_empty() {
+            return None;
+        }
+        let Some((idx, ch)) = rest.char_indices().find(|&(_, c)| is_line_break(c)) else {
+            let line = rest;
+            rest = "";
+            return Some(line);
+        };
+        let line = &rest[..idx];
+        let mut end = idx + ch.len_utf8();
+        if ch == '\r' && rest[end..].starts_with('\n') {
+            end += 1;
+        }
+        rest = &rest[end..];
+        Some(line)
+    })
+}
+
+fn is_line_break(c: char) -> bool {
+    matches!(
+        c,
+        '\n' | '\r' | '\u{0B}' | '\u{0C}' | '\u{85}' | '\u{2028}' | '\u{2029}'
+    )
 }
 
 /// Merges adjacent edit operations (no unchanged line between them) into

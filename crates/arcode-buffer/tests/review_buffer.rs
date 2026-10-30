@@ -50,11 +50,26 @@ fn review_word_right_does_not_split_grapheme() {
 
 /// `page_down` casts `lines` to `isize`; a huge count wraps negative and the
 /// cursor moves UP instead of down.
+///
+/// Adjusted after review: an overshooting page move clamps to the last
+/// (first) line at the goal column, and only a move from that line goes to
+/// the buffer edge. This matches the documented behavior and the existing
+/// `page_moves` unit test (page_up overshooting to line 0 keeps column 2),
+/// so from line 1 the first page_down lands on "c" (char 4), and the next one
+/// reaches the end.
 #[test]
 fn review_page_down_huge_count_moves_down() {
     let b = Buffer::new("a\nb\nc");
-    let (pos, _) = movement::page_down(&b, 2, None, usize::MAX, 4);
+    let (pos, goal) = movement::page_down(&b, 2, None, usize::MAX, 4);
+    assert_eq!(pos, 4, "moves down to the last line");
+    let (pos, _) = movement::page_down(&b, pos, Some(goal), usize::MAX, 4);
     assert_eq!(pos, b.len_chars());
+    // Counts that used to overflow isize arithmetic must not panic.
+    for lines in [1usize << 63, usize::MAX, (1usize << 63) + 1] {
+        assert_eq!(movement::page_down(&b, 0, None, lines, 4).0, 4);
+        assert_eq!(movement::page_up(&b, 5, None, lines, 4).0, 1);
+        assert_eq!(movement::page_up(&b, 0, None, lines, 4).0, 0);
+    }
 }
 
 /// Ops panic (slice out of bounds) when a selection is past the end of the

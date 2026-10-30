@@ -139,21 +139,59 @@ fn continues(prev_after: Option<&SelectionSet>, before: Option<&SelectionSet>) -
 
 /// Cursors at the end of each sequentially applied edit, mapped to the
 /// final text.
+///
+/// Each edit moves earlier ends at or after its old end by its length
+/// change and collapses ends inside it to its new end. Edits produced by
+/// this crate run strictly back to front or front to back, which is O(1)
+/// per edit (a shared offset); other orders fall back to updating every
+/// end.
 fn cursors_after(edits: &[Edit]) -> SelectionSet {
-    let mut ends: Vec<usize> = Vec::with_capacity(edits.len());
+    // Actual end = stored + offset.
+    let mut stored: Vec<isize> = Vec::with_capacity(edits.len());
+    let mut offset: isize = 0;
+    let (mut min, mut max) = (isize::MAX, isize::MIN);
     for e in edits {
-        let old_len = e.range.len();
-        let new_len = e.new_end_char() - e.range.start;
-        for p in ends.iter_mut() {
-            if *p >= e.range.end {
-                *p = *p + new_len - old_len;
-            } else if *p > e.range.start {
-                *p = e.range.start + new_len;
+        let (start, end) = (e.range.start as isize, e.range.end as isize);
+        let new_end = e.new_end_char() as isize;
+        let delta = new_end - end;
+        if stored.is_empty() || (max < end && max <= start) {
+            // Every earlier end lies before this edit: unaffected.
+        } else if min >= end {
+            // Every earlier end lies at or after this edit: all shift.
+            offset += delta;
+            min += delta;
+            max += delta;
+        } else {
+            for p in &mut stored {
+                let actual = *p + offset;
+                let moved = if actual >= end {
+                    actual + delta
+                } else if actual > start {
+                    new_end
+                } else {
+                    actual
+                };
+                *p = moved - offset;
             }
+            min = stored
+                .iter()
+                .map(|p| p + offset)
+                .min()
+                .unwrap_or(isize::MAX);
+            max = stored
+                .iter()
+                .map(|p| p + offset)
+                .max()
+                .unwrap_or(isize::MIN);
         }
-        ends.push(e.new_end_char());
+        stored.push(new_end - offset);
+        min = min.min(new_end);
+        max = max.max(new_end);
     }
-    let selections: Vec<Selection> = ends.into_iter().map(Selection::cursor).collect();
+    let selections: Vec<Selection> = stored
+        .into_iter()
+        .map(|p| Selection::cursor((p + offset).max(0) as usize))
+        .collect();
     SelectionSet::from_vec(selections, 0).unwrap_or_default()
 }
 
@@ -192,5 +230,68 @@ impl Buffer {
         selections.clamp(self.len_chars());
         self.history.undo.push(tx);
         Some(UndoResult { edits, selections })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The straightforward O(k^2) reference.
+    fn naive(edits: &[Edit]) -> Vec<usize> {
+        let mut ends: Vec<usize> = Vec::new();
+        for e in edits {
+            let old_len = e.range.len();
+            let new_len = e.new_end_char() - e.range.start;
+            for p in ends.iter_mut() {
+                if *p >= e.range.end {
+                    *p = *p + new_len - old_len;
+                } else if *p > e.range.start {
+                    *p = e.range.start + new_len;
+                }
+            }
+            ends.push(e.new_end_char());
+        }
+        let mut sels: Vec<Selection> = ends.into_iter().map(Selection::cursor).collect();
+        sels.sort_by_key(Selection::start);
+        sels.dedup();
+        sels.into_iter().map(|s| s.head).collect()
+    }
+
+    fn heads(set: &SelectionSet) -> Vec<usize> {
+        set.iter().map(|s| s.head).collect()
+    }
+
+    #[test]
+    fn cursors_after_matches_naive() {
+        let cases: [&[(std::ops::Range<usize>, &str)]; 4] = [
+            // Back to front (as applied by Buffer::edit).
+            &[(8..9, "xyz"), (5..5, "ab"), (1..3, "")],
+            // Front to back (as replayed by undo).
+            &[(1..1, "ab"), (4..6, "q"), (9..9, "\n\n")],
+            // Mixed order.
+            &[(5..5, "abc"), (1..2, ""), (7..7, "z"), (0..9, "w")],
+            &[(3..3, "a"), (3..3, "b"), (3..4, "")],
+        ];
+        for ops in cases {
+            let mut b = Buffer::new("0123456789abcdef");
+            let mut edits = Vec::new();
+            for (r, t) in ops {
+                edits.extend(b.edit(vec![(r.clone(), t.to_string())]));
+            }
+            assert_eq!(heads(&cursors_after(&edits)), naive(&edits), "{ops:?}");
+        }
+    }
+
+    #[test]
+    fn cursors_after_many_edits_is_fast() {
+        let n = 50_000;
+        let mut b = Buffer::new(&"ab\n".repeat(n));
+        let edits = b.edit((0..n).map(|i| (i * 3..i * 3, "x".to_string())).collect());
+        let start = std::time::Instant::now();
+        let set = cursors_after(&edits);
+        assert!(start.elapsed() < std::time::Duration::from_secs(1));
+        assert_eq!(set.len(), n);
+        assert_eq!(set.iter().next().map(|s| s.head), Some(1));
     }
 }

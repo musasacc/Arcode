@@ -103,7 +103,11 @@ fn hover_popover(hover: &HoverState, cx: &Context<Editor>) -> AnyElement {
             .flex_row()
             .items_start()
             .gap_2()
-            .child(div().pt(px(2.)).child(icon(d.severity.icon()).size(px(14.)).color(color)))
+            .child(
+                div()
+                    .pt(px(2.))
+                    .child(icon(d.severity.icon()).size(px(14.)).color(color)),
+            )
             .child(div().flex_1().child(SharedString::from(d.message.clone())));
         if !d.source.is_empty() {
             row = row.child(

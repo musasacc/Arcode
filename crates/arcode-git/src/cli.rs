@@ -19,13 +19,32 @@ const SCRUBBED_ENV: &[&str] = &[
     "GIT_NAMESPACE",
 ];
 
-/// Builds a `git` command running in `workdir` with interactive prompts
-/// disabled, unquoted paths, no optional locks and no fsmonitor hook.
+/// Environment that keeps every git process (and any git it spawns) off the
+/// network.
+///
+/// - `GIT_NO_LAZY_FETCH=1` (git 2.44+, backported by some distributions)
+///   stops a partial clone from fetching missing objects from its promisor
+///   remote on demand.
+/// - `GIT_ALLOW_PROTOCOL` set to an empty list overrides all `protocol.*`
+///   configuration and forbids every transport (file, ssh, http(s), git,
+///   ext, remote helpers). This also covers older git without the variable
+///   above: a lazy fetch fails before any connection, credential helper or
+///   askpass dialog is involved.
+/// - `GIT_TERMINAL_PROMPT=0` never blocks on a terminal prompt.
+pub(crate) const NO_NETWORK_ENV: &[(&str, &str)] = &[
+    ("GIT_NO_LAZY_FETCH", "1"),
+    ("GIT_ALLOW_PROTOCOL", ""),
+    ("GIT_TERMINAL_PROMPT", "0"),
+];
+
+/// Builds a `git` command running in `workdir` with network access and
+/// interactive prompts disabled ([`NO_NETWORK_ENV`]), unquoted paths, no
+/// optional locks and no fsmonitor hook.
 pub(crate) fn git_command(workdir: &Path) -> Command {
     let mut cmd = Command::new("git");
     cmd.current_dir(workdir)
         .args(["-c", "core.quotepath=off", "-c", "core.fsmonitor=false"])
-        .env("GIT_TERMINAL_PROMPT", "0")
+        .envs(NO_NETWORK_ENV.iter().copied())
         .env("GIT_OPTIONAL_LOCKS", "0")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -94,12 +113,36 @@ impl Repo {
     /// rejects directories and submodules.
     ///
     /// Returns `None` when git is not installed, the file is not tracked in
-    /// `HEAD`, the repository has no commits, or the blob is not UTF-8.
+    /// `HEAD`, the repository has no commits, or the blob is not UTF-8. In a
+    /// partial clone, a blob (or tree) that is not present locally is also
+    /// `None`: it is never fetched from the promisor remote.
     pub fn head_file_contents(&self, rel_path: &Path) -> Option<String> {
         let rel = self.relative_path(rel_path)?;
         let git_path = paths::to_git_path(&rel)?;
         let spec = format!("HEAD:{git_path}");
         let out = run(&self.workdir, ["cat-file", "blob", spec.as_str()])?;
         String::from_utf8(out).ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn git_command_disables_network_and_redirection() {
+        let cmd = git_command(Path::new("."));
+        let envs: Vec<_> = cmd.get_envs().collect();
+        for (key, value) in NO_NETWORK_ENV {
+            assert!(
+                envs.contains(&(OsStr::new(key), Some(OsStr::new(value)))),
+                "{key} not set"
+            );
+        }
+        for var in SCRUBBED_ENV {
+            assert!(envs.contains(&(OsStr::new(var), None)), "{var} not removed");
+        }
+        let args: Vec<_> = cmd.get_args().collect();
+        assert!(args.contains(&OsStr::new("core.quotepath=off")));
     }
 }

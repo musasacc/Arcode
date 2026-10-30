@@ -151,21 +151,42 @@ impl Buffer {
         (edits, applied)
     }
 
-    fn apply_one(&mut self, range: Range<usize>, text: &str) -> (Edit, String) {
-        let start_byte = self.rope.char_to_byte(range.start);
-        let old_end_byte = self.rope.char_to_byte(range.end);
-        let start_position = self.char_to_ts_point(range.start);
-        let old_end_position = self.char_to_ts_point(range.end);
-        let start_point = self.char_to_point(range.start);
-        let old_end_point = self.char_to_point(range.end);
-        let start_line_char = range.start - start_point.column;
-        let start_utf16 = self.units_between(start_line_char, range.start, PositionEncoding::Utf16);
-        let end_line_char = range.end - old_end_point.column;
-        let old_end_utf16 = self.units_between(end_line_char, range.end, PositionEncoding::Utf16);
-        let old_text = self.rope.slice(range.clone()).to_string();
+    /// Coordinates of `char_idx` (must be in bounds) in one pass over its
+    /// line: `(byte, ts point, char point, utf16 column)`.
+    fn locate(&self, char_idx: usize) -> (usize, TsPoint, Point, usize) {
+        let line = self.char_to_line(char_idx);
+        let line_char = self.line_start(line);
+        let byte = self.rope.char_to_byte(char_idx);
+        let line_byte = self.rope.char_to_byte(line_char);
+        let utf16 = self.units_between(line_char, char_idx, PositionEncoding::Utf16);
+        (
+            byte,
+            TsPoint::new(line, byte - line_byte),
+            Point::new(line, char_idx - line_char),
+            utf16,
+        )
+    }
 
-        self.rope.remove(range.clone());
-        self.rope.insert(range.start, text);
+    fn apply_one(&mut self, range: Range<usize>, text: &str) -> (Edit, String) {
+        let start = self.locate(range.start);
+        let end = if range.is_empty() {
+            start
+        } else {
+            self.locate(range.end)
+        };
+        let (start_byte, start_position, start_point, start_utf16) = start;
+        let (old_end_byte, old_end_position, old_end_point, old_end_utf16) = end;
+        let old_text = if range.is_empty() {
+            String::new()
+        } else {
+            let old = self.rope.slice(range.clone()).to_string();
+            self.rope.remove(range.clone());
+            old
+        };
+        if !text.is_empty() {
+            self.rope.insert(range.start, text);
+        }
+        self.extras.on_edit(range.start, range.len(), text);
 
         let ext = TextExtent::of(text);
         let (new_end_position, new_end_point) = if ext.newlines == 0 {

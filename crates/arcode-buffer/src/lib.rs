@@ -35,6 +35,7 @@ mod edit;
 mod history;
 mod io;
 mod line_ending;
+mod line_index;
 pub mod movement;
 pub mod ops;
 pub mod search;

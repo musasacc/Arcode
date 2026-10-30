@@ -100,3 +100,67 @@ fn delete_undo_restores_selections() {
     let redo = b.redo().expect("redo");
     assert_eq!(show(&b, &redo.selections), "|c|");
 }
+
+#[test]
+fn delete_word_keeps_grapheme_clusters() {
+    let (mut b, mut s) = setup("x cafe\u{301}|");
+    delete_word_left(&mut b, &mut s);
+    assert_eq!(show(&b, &s), "x |");
+    let (mut b, mut s) = setup("|cafe\u{301} x");
+    delete_word_right(&mut b, &mut s);
+    assert_eq!(show(&b, &s), "| x");
+}
+
+#[test]
+fn stale_selections_past_the_end_are_clamped() {
+    let c = OpsConfig::default();
+    let stale = || {
+        SelectionSet::from_vec(vec![Selection::cursor(50), Selection::new(1, 90)], 0)
+            .expect("non-empty")
+    };
+    let mut b = Buffer::new("abc");
+    let mut s = stale();
+    backspace(&mut b, &mut s, &c);
+    assert_eq!(show(&b, &s), "a|");
+    let mut b = Buffer::new("abc");
+    let mut s = SelectionSet::single(100);
+    delete_forward(&mut b, &mut s);
+    delete_word_left(&mut b, &mut s);
+    assert_eq!(show(&b, &s), "|");
+    let mut b = Buffer::new("ab\ncd");
+    let mut s = SelectionSet::single(100);
+    delete_word_right(&mut b, &mut s);
+    assert_eq!(show(&b, &s), "ab\ncd|");
+    let mut b = Buffer::new("ab\ncd");
+    let mut s = SelectionSet::single(100);
+    crate::ops::type_text(&mut b, &mut s, "(", &c);
+    crate::ops::newline_and_indent(&mut b, &mut s, &c);
+    crate::ops::insert_tab(&mut b, &mut s, &c);
+    crate::ops::paste(&mut b, &mut s, "p");
+    assert_eq!(b.to_string(), "ab\ncd(\n        p\n)");
+    for op in [
+        |b: &mut Buffer, s: &mut SelectionSet| {
+            crate::ops::indent_lines(b, s, IndentUnit::Tab);
+        },
+        |b: &mut Buffer, s: &mut SelectionSet| {
+            crate::ops::outdent_lines(b, s, IndentUnit::Tab, 4);
+        },
+        |b: &mut Buffer, s: &mut SelectionSet| {
+            crate::ops::duplicate_line(b, s);
+        },
+        |b: &mut Buffer, s: &mut SelectionSet| {
+            crate::ops::move_lines_up(b, s);
+        },
+        |b: &mut Buffer, s: &mut SelectionSet| {
+            crate::ops::move_lines_down(b, s);
+        },
+        |b: &mut Buffer, s: &mut SelectionSet| {
+            crate::ops::toggle_line_comment(b, s, "//");
+        },
+    ] {
+        let mut b = Buffer::new("ab\ncd");
+        let mut s = stale();
+        op(&mut b, &mut s);
+        assert!(s.iter().all(|sel| sel.end() <= b.len_chars()));
+    }
+}

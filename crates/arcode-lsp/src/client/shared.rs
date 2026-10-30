@@ -21,6 +21,10 @@ struct State {
     alive: bool,
     reason: String,
     pending: HashMap<i64, PendingSender>,
+    /// `initialize` finished; status changes may be reported.
+    ready: bool,
+    /// Title of the work-done progress shown as `Busy`, if any.
+    busy: Option<String>,
 }
 
 /// Connection state for one server.
@@ -55,6 +59,8 @@ impl Shared {
                 alive: true,
                 reason: String::new(),
                 pending: HashMap::new(),
+                ready: false,
+                busy: None,
             }),
             next_id: AtomicI64::new(1),
             shutting_down: AtomicBool::new(false),
@@ -72,7 +78,8 @@ impl Shared {
         self.lock().alive
     }
 
-    fn stopped_error(&self) -> LspError {
+    /// The error requests fail with once the connection has terminated.
+    pub(crate) fn stopped_error(&self) -> LspError {
         let reason = self.lock().reason.clone();
         LspError::ServerStopped(if reason.is_empty() {
             "not running".into()
@@ -94,6 +101,34 @@ impl Shared {
     /// Sends a notification.
     pub(crate) fn notify_value(&self, method: &str, params: Value) -> Result<()> {
         self.send_raw(rpc::notification(method, params))
+    }
+
+    /// Records the work-done progress to show (`None`: idle). Reports
+    /// `Busy`/`Running` only after [`Shared::mark_ready`], so progress that
+    /// starts during `initialize` is not masked by a later `Running`.
+    pub(crate) fn set_busy(&self, title: Option<String>) {
+        let mut state = self.lock();
+        if state.busy == title {
+            return;
+        }
+        state.busy = title;
+        if state.alive && state.ready {
+            // Emitted under the lock so status events are totally ordered.
+            self.emit_status(ready_status(&state.busy));
+        }
+    }
+
+    /// Marks initialization complete and reports `Running` (or `Busy` if
+    /// progress is already active). Returns false, reporting nothing, if
+    /// the connection has already terminated.
+    pub(crate) fn mark_ready(&self) -> bool {
+        let mut state = self.lock();
+        if !state.alive {
+            return false;
+        }
+        state.ready = true;
+        self.emit_status(ready_status(&state.busy));
+        true
     }
 
     /// Emits a status event for this server.
@@ -192,17 +227,18 @@ impl Shared {
             }
             state.alive = false;
             state.reason = reason.clone();
+            let status = if self.shutting_down.load(Ordering::SeqCst) {
+                ServerStatus::Stopped
+            } else {
+                ServerStatus::Failed(reason.clone())
+            };
+            // Under the lock: nothing can report `Running`/`Busy` after this.
+            self.emit_status(status);
             state.pending.drain().map(|(_, tx)| tx).collect()
         };
         for tx in drained {
             let _ = tx.send(Err(LspError::ServerStopped(reason.clone())));
         }
-        let status = if self.shutting_down.load(Ordering::SeqCst) {
-            ServerStatus::Stopped
-        } else {
-            ServerStatus::Failed(reason)
-        };
-        self.emit_status(status);
         self.terminated.send_replace(true);
     }
 
@@ -212,6 +248,13 @@ impl Shared {
         async move {
             let _ = rx.wait_for(|t| *t).await;
         }
+    }
+}
+
+fn ready_status(busy: &Option<String>) -> ServerStatus {
+    match busy {
+        Some(title) => ServerStatus::Busy(title.clone()),
+        None => ServerStatus::Running,
     }
 }
 
