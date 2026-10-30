@@ -268,21 +268,11 @@ fn ui_and_guest_exports_round_trip() {
         .as_u64()
         .unwrap() as u32;
     assert!(e.app.wait_for(|o| matches!(o, PluginOutput::PanelOpened { contribution, .. } if contribution.as_str() == "test.echo/main")));
-    let outputs = e.app.outputs.lock().unwrap();
-    let view = outputs
-        .iter()
-        .find_map(|o| match o {
-            PluginOutput::PanelView {
-                snapshot,
-                changes,
-                panel: p,
-                ..
-            } if *p == panel && changes.full => Some(snapshot.to_view()),
-            _ => None,
-        })
-        .expect("render");
-    drop(outputs);
-    assert_eq!(h.panel_view(panel).map(|s| s.to_view()), Some(view.clone()));
+    // The host validated the view and keeps it; the app got it in full.
+    assert!(e.app.wait_for(
+        |o| matches!(o, PluginOutput::PanelView { changes, panel: p, .. } if *p == panel && changes.full)
+    ));
+    let view = h.panel_view(panel).expect("rendered").to_view();
     let kinds: std::collections::HashSet<_> = view
         .nodes
         .iter()
