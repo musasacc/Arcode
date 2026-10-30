@@ -4,6 +4,7 @@
 //! Only this module and [`crate::bindings`] name wasmtime's engine types,
 //! so the engine stays swappable.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -54,7 +55,73 @@ pub struct RuntimeConfig {
     pub thread_stack: usize,
     /// Network requests allowed per user gesture.
     pub gesture_requests: u32,
+    /// Language ids the app itself provides. A plugin that lists one under
+    /// `contributes.languages` does not get `editor = "context"` read access
+    /// to documents of that language (only to its origin document), so
+    /// claiming `rust` is not an unprompted "all open Rust files". The app
+    /// should set this from its syntax registry; the default is
+    /// [`DEFAULT_BUILTIN_LANGUAGES`].
+    pub builtin_languages: BTreeSet<String>,
 }
+
+/// Language ids treated as built in when the app sets none: Arcode's own
+/// grammars plus common LSP language ids.
+pub const DEFAULT_BUILTIN_LANGUAGES: &[&str] = &[
+    "c",
+    "clojure",
+    "cpp",
+    "csharp",
+    "css",
+    "dart",
+    "diff",
+    "dockerfile",
+    "elixir",
+    "erlang",
+    "fsharp",
+    "go",
+    "graphql",
+    "groovy",
+    "haskell",
+    "html",
+    "ini",
+    "java",
+    "javascript",
+    "javascriptreact",
+    "json",
+    "jsonc",
+    "julia",
+    "kotlin",
+    "latex",
+    "less",
+    "lua",
+    "makefile",
+    "markdown",
+    "nix",
+    "objective-c",
+    "ocaml",
+    "perl",
+    "php",
+    "plaintext",
+    "powershell",
+    "python",
+    "r",
+    "ruby",
+    "rust",
+    "scala",
+    "scss",
+    "shellscript",
+    "sql",
+    "svelte",
+    "swift",
+    "text",
+    "toml",
+    "typescript",
+    "typescriptreact",
+    "vue",
+    "xml",
+    "yaml",
+    "zig",
+];
 
 impl RuntimeConfig {
     /// The §5 defaults with the given cache directory.
@@ -69,6 +136,10 @@ impl RuntimeConfig {
             mailbox: 64,
             thread_stack: 2 * 1024 * 1024,
             gesture_requests: 64,
+            builtin_languages: DEFAULT_BUILTIN_LANGUAGES
+                .iter()
+                .map(|l| (*l).to_owned())
+                .collect(),
         }
     }
 }
@@ -163,6 +234,8 @@ fn load(config: &RuntimeConfig) -> wasmtime::Result<Loaded> {
     // WASI (sync): cli, clocks, random, io, filesystem, sockets. Sockets are
     // linked so std links, but the context denies every address.
     wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
+    // Cancellable sleeps and descriptor caps on top (`wasi_hooks`).
+    crate::wasi_hooks::add_to_linker(&mut linker)?;
     crate::bindings::PluginWorld::add_to_linker::<HostState, HasSelf<HostState>>(
         &mut linker,
         |state| state,

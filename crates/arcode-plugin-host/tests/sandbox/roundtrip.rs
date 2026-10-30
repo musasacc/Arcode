@@ -44,6 +44,9 @@ struct Echo {
 fn echo() -> Echo {
     let project = tempfile::tempdir().unwrap();
     std::fs::write(project.path().join("hello.txt"), "hello from the project").unwrap();
+    // `editor.open-file` only opens regular files inside the project.
+    std::fs::create_dir_all(project.path().join("src")).unwrap();
+    std::fs::write(project.path().join("src/lib.rs"), "").unwrap();
     let app = App::start(Some(2));
     let editor = Arc::new(FakeEditor {
         docs: vec![

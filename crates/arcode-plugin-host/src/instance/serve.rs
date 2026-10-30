@@ -176,8 +176,19 @@ fn activate(inner: &Inner, reason: &Activation, cancel: &CancelToken) -> Result<
     let engine = runtime.engine().map_err(CallError::Activation)?;
     let component = runtime
         .cache()
-        .load(engine, &spec.plugin.entry_path())
-        .map_err(|e| CallError::Activation(e.to_string()))?;
+        .load_approved(
+            engine,
+            &spec.plugin.entry_path(),
+            spec.approved_sha256.as_deref(),
+        )
+        .map_err(|e| {
+            if e == crate::cache::LoadError::Changed {
+                spec.services.output.send(PluginOutput::NeedsApproval {
+                    plugin: manifest.id().clone(),
+                });
+            }
+            CallError::Activation(e.to_string())
+        })?;
     let imports = crate::imports_check::component_imports(engine, &component);
     crate::imports_check::check_imports(imports.iter().map(String::as_str), &manifest.capabilities)
         .map_err(|e| CallError::Activation(e.to_string()))?;

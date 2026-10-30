@@ -11,6 +11,7 @@ mod common;
 mod convert;
 mod http_client;
 mod imports;
+mod install;
 mod lifecycle;
 mod loopback;
 mod manager;

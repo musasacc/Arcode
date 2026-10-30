@@ -10,8 +10,8 @@ fn keys_and_quota() {
     s.set("a/2", vec![0; 10]).unwrap();
     s.set("b", vec![]).unwrap();
     assert_eq!(s.keys("a/"), ["a/1", "a/2"]);
-    assert_eq!(s.bytes(), 3 + 10 + 3 + 10 + 1);
-    let big = KV_QUOTA_BYTES - s.bytes() - 1;
+    assert_eq!(s.bytes(), 3 + 10 + 3 + 10 + 1 + 3 * KV_ENTRY_BYTES);
+    let big = KV_QUOTA_BYTES - s.bytes() - 1 - KV_ENTRY_BYTES;
     assert_eq!(s.set("c", vec![0; big + 1]), Err(KvError::QuotaExceeded));
     s.set("c", vec![0; big]).unwrap();
     assert_eq!(s.bytes(), KV_QUOTA_BYTES);
@@ -19,7 +19,7 @@ fn keys_and_quota() {
     s.set("c", vec![0; big]).unwrap();
     assert!(s.delete("c"));
     assert!(!s.delete("missing"));
-    assert_eq!(s.bytes(), 27);
+    assert_eq!(s.bytes(), 27 + 3 * KV_ENTRY_BYTES);
     assert_eq!(s.get("a/1").map(<[u8]>::len), Some(10));
 }
 
@@ -62,7 +62,7 @@ fn scopes_are_separate_and_persist_per_call() {
 #[test]
 fn quota_holds_per_scope() {
     let mut kv = KvStore::new(KvFiles::none());
-    let value = vec![7; KV_QUOTA_BYTES - 1];
+    let value = vec![7; KV_QUOTA_BYTES - 1 - KV_ENTRY_BYTES];
     kv.set(Scope::Global, "g", value.clone()).unwrap();
     kv.set(Scope::Project, "p", value).unwrap();
     assert_eq!(

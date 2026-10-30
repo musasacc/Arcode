@@ -3,19 +3,20 @@
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use wasmtime::component::Component;
-use wasmtime::{Store, UpdateDeadline};
+use wasmtime::{CallHook, Store, UpdateDeadline};
 
 use crate::bindings::PluginWorld;
 use crate::bindings::guest::Activation;
-use crate::budget::Interrupt;
+use crate::budget::{Interrupt, TICK};
 use crate::cancel::CancelToken;
 use crate::dispatch::{Call, CallError, CallOutput, CallResult, Dispatch};
 use crate::limits::Limiter;
 use crate::output::PluginOutput;
 use crate::state::{CallState, HostState, InstanceCtx};
+use crate::wasi_hooks::WaitGate;
 
 /// How a call into the guest failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,10 +46,15 @@ impl Live {
         let budgets = runtime.config().budgets;
         let state = HostState {
             wasi,
-            table: wasmtime::component::ResourceTable::new(),
+            table: {
+                let mut table = wasmtime::component::ResourceTable::new();
+                table.set_max_capacity(runtime.config().store.resources);
+                table
+            },
             limiter,
             ctx,
             call: CallState::new(0, false, budgets.activate, None, CancelToken::new()),
+            gate: WaitGate::default(),
         };
         let mut store = Store::new(engine, state);
         store.limiter(|s| &mut s.limiter);
@@ -61,6 +67,23 @@ impl Live {
                 .charge(&cancel, grace)
                 .map_err(wasmtime::Error::new)?;
             Ok(UpdateDeadline::Continue(1))
+        });
+        // Host imports are charged too, minus their waits (budget.rs), and
+        // WASI sleeps wake on cancel or when the budget is gone.
+        store.call_hook(move |mut s, hook| {
+            let data = s.data_mut();
+            match hook {
+                CallHook::CallingHost => {
+                    data.call.enter_host();
+                    let wake_by = Instant::now() + data.call.budget.remaining() + TICK;
+                    data.gate.arm(&data.call.cancel, wake_by);
+                    Ok(())
+                }
+                CallHook::ReturningFromHost => {
+                    data.call.leave_host(grace).map_err(wasmtime::Error::new)
+                }
+                CallHook::CallingWasm | CallHook::ReturningFromWasm => Ok(()),
+            }
         });
         // Instantiation may run guest code (initializers) under the
         // activation budget.
@@ -90,6 +113,7 @@ impl Live {
         let peak = u64::try_from(data.limiter.peak_memory()).unwrap_or(u64::MAX);
         stats.peak_memory.fetch_max(peak, Ordering::SeqCst);
         crate::cancel::lock(&data.ctx.shared.kv).flush();
+        data.ctx.flush_status();
         if data.call.task_started {
             data.ctx.output(PluginOutput::TaskFinished {
                 plugin: data.ctx.manifest.id().clone(),

@@ -10,6 +10,7 @@ use std::ops::Range;
 
 use ropey::Rope;
 
+use crate::comment_scan::enclosing_block_comment;
 use crate::{HighlightSpan, Language, Syntax};
 
 /// How far back [`highlight_excerpt`] looks for a top-level line.
@@ -22,8 +23,12 @@ pub const EXCERPT_MAX_BYTES: usize = 2 * 1024 * 1024;
 ///
 /// Returns one `Vec` per requested line, like [`Syntax::highlight_lines`].
 /// Results match a full parse whenever the excerpt starts outside any
-/// multi-line construct (block comment, raw string); otherwise the first
-/// lines may be colored as if the construct were not there.
+/// multi-line string. An excerpt that starts inside a block comment is
+/// detected by scanning back for the nearest comment delimiter and parsed
+/// from the comment's opener (or with a synthetic opener in front when
+/// that is too far back). Inside a long multi-line string (raw string,
+/// docstring, template literal) the first lines may still be colored as
+/// if the string were not there.
 pub fn highlight_excerpt(
     language: &'static Language,
     text: &Rope,
@@ -47,12 +52,36 @@ pub fn highlight_excerpt(
     if size(first, last) > EXCERPT_MAX_BYTES {
         return out;
     }
+    // An excerpt starting inside a block comment would be parsed as code:
+    // start it at the comment's opener, or, if that is too far back, put a
+    // synthetic opener line in front of it.
+    let mut prefix = None;
+    if let Some(delims) = language.block_comment {
+        let at = text.line_to_byte(first);
+        if let Some(opener) = enclosing_block_comment(text, at, delims, language.line_comment) {
+            let opener_line = text.byte_to_line(opener);
+            if size(opener_line, last) <= EXCERPT_MAX_BYTES {
+                first = opener_line;
+            } else {
+                prefix = Some(delims.0);
+            }
+        }
+    }
     let slice = text.slice(text.line_to_char(first)..text.line_to_char(last));
-    let excerpt = Rope::from(slice);
+    let (excerpt, shift) = match prefix {
+        Some(open) => {
+            let mut rope = Rope::from_str(open);
+            rope.insert(rope.len_chars(), "\n");
+            rope.append(Rope::from(slice));
+            (rope, 1)
+        }
+        None => (Rope::from(slice), 0),
+    };
     let Some(syntax) = Syntax::new(language, &excerpt) else {
         return out;
     };
-    let spans = syntax.highlight_lines(&excerpt, lines.start - first..end - first);
+    let rel = lines.start - first + shift..end - first + shift;
+    let spans = syntax.highlight_lines(&excerpt, rel);
     for (slot, line) in out.iter_mut().zip(spans) {
         *slot = line;
     }
@@ -126,6 +155,42 @@ mod tests {
                 .iter()
                 .all(Vec::is_empty)
         );
+    }
+
+    #[test]
+    fn viewport_inside_a_long_block_comment_is_a_comment() {
+        let rust = language_by_id("rust").expect("rust");
+        let mut s = String::from("/* Large header comment\n");
+        for i in 0..600 {
+            s.push_str(&format!("fn f{i}() {{ let s = \"{i}\"; }}\n"));
+        }
+        s.push_str("*/\nfn real() { let x = \"a\"; }\n");
+        let text = Rope::from_str(&s);
+        let full = Syntax::new(rust, &text).expect("parse");
+        for range in [443..470, 590..605] {
+            let expected = full.highlight_lines(&text, range.clone());
+            let got = highlight_excerpt(rust, &text, range.clone());
+            assert_eq!(got, expected, "lines {range:?}");
+        }
+    }
+
+    #[test]
+    fn far_away_comment_opener_is_synthesized() {
+        let rust = language_by_id("rust").expect("rust");
+        let filler = "x".repeat(4000);
+        let mut s = String::from("/* Huge comment\n");
+        for i in 0..700 {
+            s.push_str(&format!("fn f{i}() {{ let s = \"{filler}\"; }}\n"));
+        }
+        s.push_str("*/\nfn real() { let x = \"a\"; }\n");
+        let text = Rope::from_str(&s);
+        assert!(text.len_bytes() > EXCERPT_MAX_BYTES);
+        let full = Syntax::new(rust, &text).expect("parse");
+        for range in [650..660, 695..703] {
+            let expected = full.highlight_lines(&text, range.clone());
+            let got = highlight_excerpt(rust, &text, range.clone());
+            assert_eq!(got, expected, "lines {range:?}");
+        }
     }
 
     #[test]

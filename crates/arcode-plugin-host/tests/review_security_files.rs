@@ -10,11 +10,11 @@ mod common;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 use arcode_plugin_host::bridge::DocSnapshot;
-use arcode_plugin_host::consent::{ConsentAnswer, ScriptedConsent};
-use arcode_plugin_host::grants::GrantScope;
+use arcode_plugin_host::consent::ScriptedConsent;
 use arcode_plugin_host::manifest::UserLimits;
 use arcode_plugin_host::registry::load;
 use arcode_plugin_host::{CallOutput, PluginSource, RegisteredPlugin};
@@ -22,10 +22,12 @@ use serde_json::{Value, json};
 
 use common::*;
 
-const ALLOW_WRITE: ConsentAnswer = ConsentAnswer::Allow {
-    scope: GrantScope::Once,
-    write: true,
-};
+#[cfg(unix)]
+const ALLOW_WRITE: arcode_plugin_host::consent::ConsentAnswer =
+    arcode_plugin_host::consent::ConsentAnswer::Allow {
+        scope: arcode_plugin_host::grants::GrantScope::Once,
+        write: true,
+    };
 
 /// A plugin folder `dir/<id>` holding `manifest` and a copy of `wasm`.
 fn plugin_folder(dir: &Path, id: &str, manifest: &str, wasm: &Path) -> PathBuf {
@@ -148,9 +150,11 @@ languages = ["rust", "python", "plaintext"]
     let r = command(&h, "echo", json!({"op": "editor", "doc": 7}), true);
     assert_eq!(r, Ok(CallOutput::Done));
     let text = op_result(&h, "editor")["text"].clone();
+    // The echo fixture reports errors with wit-bindgen's `Display`
+    // ("EditorError::Denied"), as in tests/sandbox/roundtrip.rs.
     assert_eq!(
         text,
-        json!({"Err": "Denied"}),
+        json!({"Err": "EditorError::Denied"}),
         "an unrelated Rust document was readable without any prompt"
     );
 }

@@ -1,5 +1,7 @@
 //! `arcode:plugin/kv`: keys are 1..=128 bytes of printable ASCII, and each
-//! (plugin, scope) holds at most [`KV_QUOTA_BYTES`] of keys plus values.
+//! (plugin, scope) holds at most [`KV_QUOTA_BYTES`]: keys plus values plus
+//! [`KV_ENTRY_BYTES`] per entry, so tiny entries cannot make the host keep
+//! far more memory than the quota says.
 //!
 //! A scope is read from its file on first use (never at startup) and kept
 //! in memory per plugin, so it survives instance restarts. Changes are
@@ -16,8 +18,11 @@ use crate::kv_file;
 use crate::paths::PluginPaths;
 use crate::state::HostState;
 
-/// Bytes of keys plus values per scope.
+/// Bytes per scope: keys plus values plus [`KV_ENTRY_BYTES`] per entry.
 pub const KV_QUOTA_BYTES: usize = 1024 * 1024;
+/// What one entry costs against the quota on top of its key and value (about
+/// the host's per-entry memory: a `String`, a `Vec` and B-tree node space).
+pub const KV_ENTRY_BYTES: usize = 64;
 /// Longest key.
 pub const MAX_KEY_BYTES: usize = 128;
 /// Largest kv file read (quota plus framing).
@@ -32,7 +37,7 @@ pub struct KvScope {
 
 impl KvScope {
     fn from_entries(entries: BTreeMap<String, Vec<u8>>) -> Self {
-        let bytes = entries.iter().map(|(k, v)| k.len() + v.len()).sum();
+        let bytes = entries.iter().map(|(k, v)| cost(k, v)).sum();
         Self { entries, bytes }
     }
 
@@ -46,8 +51,8 @@ impl KvScope {
         if !valid_key(key) {
             return Err(KvError::InvalidKey);
         }
-        let old = self.entries.get(key).map_or(0, |v| key.len() + v.len());
-        let new = key.len() + value.len();
+        let old = self.entries.get(key).map_or(0, |v| cost(key, v));
+        let new = cost(key, &value);
         if self.bytes - old + new > KV_QUOTA_BYTES {
             return Err(KvError::QuotaExceeded);
         }
@@ -60,7 +65,7 @@ impl KvScope {
     pub fn delete(&mut self, key: &str) -> bool {
         match self.entries.remove(key) {
             Some(v) => {
-                self.bytes -= key.len() + v.len();
+                self.bytes -= cost(key, &v);
                 true
             }
             None => false,
@@ -146,7 +151,14 @@ fn read_scope(file: &Path) -> KvScope {
         }
     };
     match kv_file::decode(&bytes, valid_key, KV_QUOTA_BYTES) {
-        Ok(entries) => KvScope::from_entries(entries),
+        Ok(entries) => {
+            let scope = KvScope::from_entries(entries);
+            if scope.bytes > KV_QUOTA_BYTES {
+                log::warn!("ignoring over-quota plugin data {}", file.display());
+                return KvScope::default();
+            }
+            scope
+        }
         Err(e) => {
             log::warn!("ignoring damaged plugin data {}: {e}", file.display());
             KvScope::default()
@@ -219,6 +231,11 @@ impl KvStore {
         self.global.flush();
         self.project.flush();
     }
+}
+
+/// What `key = value` costs against the quota.
+fn cost(key: &str, value: &[u8]) -> usize {
+    key.len() + value.len() + KV_ENTRY_BYTES
 }
 
 fn valid_key(key: &str) -> bool {

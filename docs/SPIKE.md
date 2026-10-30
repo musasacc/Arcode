@@ -234,3 +234,20 @@ tables `dense` (rowids 1..1M) and `gaps` (rowids 3, 6, ... 3M), 44 MB.
 | cancel during a ~10M-row `GROUP BY` (task chip token, after 300 ms) | the call returns 9.8-14 ms after `cancel()`, no trap |
 | peak guest memory over the whole 1M-row test | 25-32 MiB (limit 128 MiB) |
 | native tests (`cargo test -p db-viewer`) | 28 unit + 22 integration tests, ~2 s including the 1M-row ones |
+
+## Plugin engine, review fixes and Step 12
+
+Same VM. `cargo run --release -p arcode-plugin-host --example plugin_bench`
+(release host, bundled plugins from `scripts/build-plugins.sh`, warm
+`.cwasm` cache; activation = thread start, sealed-cache read and
+deserialize, import check, instantiate, `activate(restore)` and one
+`view-closed`; RSS = growth with one idle instance alive):
+
+| plugin | precompile | activation from cache (min / median of 20) | RSS of one instance |
+|---|---|---|---|
+| arcode.http-client | 505 ms | 2.1 ms / 2.7 ms | 1.2 MB |
+| arcode.db-viewer | 3 s | 9.5 ms / 11.0 ms | 5.5 MB |
+
+Targets (§13 step 12): activation under 30 ms, RSS under 5 MB (HTTP) and
+around 15 MB (DB): met. The activation time includes the cache seal check
+(one sha256 over the compiled artifact).

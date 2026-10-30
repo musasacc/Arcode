@@ -139,7 +139,9 @@ impl ExtState {
         }
         for list in self.highlights.values_mut() {
             list.retain_mut(|h| match &mut h.range {
-                HighlightRange::Lines(lines) => map_lines(lines, edit).map(|n| *lines = n).is_some(),
+                HighlightRange::Lines(lines) => {
+                    map_lines(lines, edit).map(|n| *lines = n).is_some()
+                }
                 HighlightRange::Text(r) => map_range(r, edit).map(|n| *r = n).is_some(),
             });
         }

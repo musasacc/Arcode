@@ -153,7 +153,7 @@ impl HttpClient {
             return Ok(());
         };
         let (language, text) = match classify(&r.headers, &r.body) {
-            BodyKind::Json => ("json", pretty_json(&r.body)),
+            BodyKind::Json => ("json", crate::pretty::pretty_json(&r.body)),
             BodyKind::Text(language) => (
                 language.unwrap_or("text"),
                 String::from_utf8_lossy(&r.body).into_owned(),
@@ -175,14 +175,6 @@ fn cursor() -> Result<(editor::DocId, u32)> {
         .and_then(|s| s.first().map(|r| r.start.line))
         .unwrap_or(0);
     Ok((doc.id, line))
-}
-
-/// JSON re-indented for the editor; the original text if it does not parse.
-fn pretty_json(body: &[u8]) -> String {
-    serde_json::from_slice::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| serde_json::to_string_pretty(&v).ok())
-        .unwrap_or_else(|| String::from_utf8_lossy(body).into_owned())
 }
 
 /// A user-facing sentence for a failed send.

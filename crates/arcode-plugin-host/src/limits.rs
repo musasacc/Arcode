@@ -16,6 +16,36 @@ pub struct StoreCaps {
     pub instances: usize,
     /// Elements per table.
     pub table_elements: usize,
+    /// Entries in the store's WASI resource table (open files, streams,
+    /// pollables). Every open file is a real host descriptor, so this keeps
+    /// a plugin from exhausting the editor's descriptor limit; see
+    /// [`default_resource_cap`].
+    pub resources: usize,
+}
+
+/// The default [`StoreCaps::resources`]: an eighth of the process's
+/// descriptor limit (`RLIMIT_NOFILE`, soft) on Unix, clamped to 256..=4096,
+/// and 4096 elsewhere (Windows handles are not a scarce per-process table).
+pub fn default_resource_cap() -> usize {
+    #[cfg(unix)]
+    {
+        let mut limit = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        // SAFETY: `limit` is a valid, writable rlimit for the call.
+        let ok = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut limit) } == 0;
+        let soft = if ok {
+            usize::try_from(limit.rlim_cur).unwrap_or(usize::MAX)
+        } else {
+            1024
+        };
+        (soft / 8).clamp(256, 4096)
+    }
+    #[cfg(not(unix))]
+    {
+        4096
+    }
 }
 
 impl Default for StoreCaps {
@@ -29,6 +59,7 @@ impl Default for StoreCaps {
             tables: 8,
             instances: 16,
             table_elements: 100_000,
+            resources: default_resource_cap(),
         }
     }
 }

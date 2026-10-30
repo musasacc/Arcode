@@ -6,6 +6,7 @@
 //! thread blocks on it, the UI thread never waits on a plugin.
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crate::bindings::ui::Location;
 use crate::bindings::{Level, PanelId};
@@ -132,6 +133,14 @@ pub enum PluginOutput {
         /// Owner.
         plugin: PluginId,
     },
+    /// An installed plugin's `plugin.wasm` is not the one the user approved
+    /// (§3): it does not run. Ask the user, then call
+    /// `PluginManager::set_enabled(plugin, true)` (approves the new file)
+    /// or `false`.
+    NeedsApproval {
+        /// The plugin.
+        plugin: PluginId,
+    },
 }
 
 /// The sending side of the output channel, shared by every plugin.
@@ -156,5 +165,42 @@ impl OutputSender {
     /// ignored; a dropped `QuickPick` then reads as "dismissed".
     pub fn send(&self, output: PluginOutput) {
         let _ = self.tx.try_send(output);
+    }
+}
+
+/// Shortest time between two `Status` outputs of one plugin.
+pub const STATUS_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Coalesces `host.set-status` so a plugin cannot queue outputs without
+/// bound: at most one `Status` per [`STATUS_INTERVAL`] is sent at once; a
+/// newer one in between replaces the waiting one, which is sent when the
+/// call returns ([`StatusThrottle::flush`]). The app always ends up with
+/// the latest status.
+#[derive(Debug, Default)]
+pub(crate) struct StatusThrottle {
+    last_sent: Option<Instant>,
+    pending: Option<PluginOutput>,
+}
+
+impl StatusThrottle {
+    /// `status` to send now, or `None` if it waits for the next flush.
+    pub fn offer(&mut self, status: PluginOutput, now: Instant) -> Option<PluginOutput> {
+        if self
+            .last_sent
+            .is_some_and(|t| now.duration_since(t) < STATUS_INTERVAL)
+        {
+            self.pending = Some(status);
+            return None;
+        }
+        self.last_sent = Some(now);
+        self.pending = None;
+        Some(status)
+    }
+
+    /// The status that is still waiting, if any.
+    pub fn flush(&mut self, now: Instant) -> Option<PluginOutput> {
+        let pending = self.pending.take()?;
+        self.last_sent = Some(now);
+        Some(pending)
     }
 }

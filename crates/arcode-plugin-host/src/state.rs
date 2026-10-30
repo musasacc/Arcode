@@ -22,9 +22,10 @@ use crate::host_impl::kv::{KvFiles, KvStore};
 use crate::limits::Limiter;
 use crate::manifest::{EffectiveLimits, Manifest};
 use crate::net::NetworkLog;
-use crate::output::{OutputSender, PluginOutput};
+use crate::output::{OutputSender, PluginOutput, StatusThrottle};
 use crate::plugin_log::PluginLog;
 use crate::ui_tree::PanelTree;
+use crate::wasi_hooks::WaitGate;
 
 /// The open project, as plugins may see it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,6 +125,8 @@ pub struct Shared {
     pub next_panel: AtomicU32,
     /// Times of recent `host.notify` calls (5 per minute).
     pub notify_times: Mutex<VecDeque<Instant>>,
+    /// `host.set-status` coalescing.
+    pub(crate) status: Mutex<StatusThrottle>,
     /// Counters.
     pub stats: InstanceStats,
 }
@@ -147,6 +150,7 @@ impl Shared {
             settings: Mutex::new(settings),
             next_panel: AtomicU32::new(1),
             notify_times: Mutex::new(VecDeque::new()),
+            status: Mutex::new(StatusThrottle::default()),
             stats: InstanceStats::default(),
         }
     }
@@ -194,6 +198,13 @@ impl InstanceCtx {
     pub fn output(&self, output: PluginOutput) {
         self.services.output.send(output);
     }
+
+    /// Sends the status a throttled `set-status` left waiting (call end).
+    pub fn flush_status(&self) {
+        if let Some(status) = lock(&self.shared.status).flush(Instant::now()) {
+            self.output(status);
+        }
+    }
 }
 
 /// The call being executed.
@@ -206,6 +217,11 @@ pub(crate) struct CallState {
     pub origin_doc: Option<DocId>,
     pub task_started: bool,
     pub network_requests: u32,
+    /// Time spent waiting for the user, the UI thread or the network
+    /// (not charged to the budget).
+    pub waited: Duration,
+    /// Set while a host import runs: when it started and `waited` then.
+    pub host_since: Option<(Instant, Duration)>,
 }
 
 impl CallState {
@@ -224,7 +240,27 @@ impl CallState {
             origin_doc,
             task_started: false,
             network_requests: 0,
+            waited: Duration::ZERO,
+            host_since: None,
         }
+    }
+
+    /// Call hook: the guest called into the host.
+    pub fn enter_host(&mut self) {
+        if self.host_since.is_none() {
+            self.host_since = Some((Instant::now(), self.waited));
+        }
+    }
+
+    /// Call hook: the host returns to the guest. Charges the import's time
+    /// minus its waits; traps when the budget is gone or after hard cancel.
+    pub fn leave_host(&mut self, grace: Duration) -> Result<(), crate::budget::Interrupt> {
+        let Some((since, waited)) = self.host_since.take() else {
+            return Ok(());
+        };
+        let waits = self.waited.saturating_sub(waited);
+        let spent = since.elapsed().saturating_sub(waits);
+        self.budget.charge_host(spent, &self.cancel, grace)
     }
 }
 
@@ -235,6 +271,19 @@ pub(crate) struct HostState {
     pub limiter: Limiter,
     pub ctx: Arc<InstanceCtx>,
     pub call: CallState,
+    /// Wakes WASI sleeps on cancel or when the budget runs out.
+    pub gate: WaitGate,
+}
+
+impl HostState {
+    /// Runs `f`, a wait for the user, the UI thread or the network, without
+    /// charging its time to the call's budget.
+    pub fn waiting<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        let started = Instant::now();
+        let result = f(self);
+        self.call.waited = self.call.waited.saturating_add(started.elapsed());
+        result
+    }
 }
 
 impl WasiView for HostState {

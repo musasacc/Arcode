@@ -146,7 +146,7 @@ impl HttpTransport for UreqTransport {
         &self,
         request: Request,
         cancel: &CancelToken,
-        allow_redirect: &mut dyn FnMut(&str, u16) -> bool,
+        allow_redirect: &mut dyn FnMut(&str, &str) -> bool,
     ) -> Result<Response, HttpError> {
         let started = Instant::now();
         let timeout = match request.timeout_ms {
@@ -194,10 +194,13 @@ impl HttpTransport for UreqTransport {
             let url = resolve(&hop.url, location).map_err(HttpError::Protocol)?;
             let next = parse_origin(&url)
                 .map_err(|e| HttpError::Protocol(format!("redirect to an unsupported URL: {e}")))?;
-            if !allow_redirect(&next.host, next.port) {
+            let following = next_hop(&hop, ex.status.as_u16(), url, next == origin);
+            // Consent sees the hop exactly as it would be sent (method after
+            // a 303, the target's scheme).
+            if !allow_redirect(&following.method, &following.url) {
                 return Err(HttpError::Denied);
             }
-            hop = next_hop(&hop, ex.status.as_u16(), url, next == origin);
+            hop = following;
             origin = next;
         }
         Err(HttpError::Protocol(format!(

@@ -147,7 +147,10 @@ fn line_highlight_inside_deleted_text_is_dropped(cx: &mut TestAppContext) {
             cx,
         );
         // Delete lines 1..5 ("b".."e"), which contain the whole highlight.
-        assert!(e.apply_edits(vec![(Point::new(1, 0)..Point::new(5, 0), String::new())], cx));
+        assert!(e.apply_edits(
+            vec![(Point::new(1, 0)..Point::new(5, 0), String::new())],
+            cx
+        ));
     });
     assert_eq!(text(&editor, cx), "a\nf\n");
     let left: Vec<_> = editor.read_with(cx, |e, _| {

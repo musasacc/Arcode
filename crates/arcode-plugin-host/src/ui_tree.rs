@@ -4,7 +4,9 @@
 //! it and `ui.apply-patches` edits it; both run on the plugin thread, are
 //! validated as a whole and applied atomically: on error nothing changes.
 //! Validation rejects dangling ids, nodes with two parents, cycles, wrong
-//! child counts, non-finite split ratios and cap violations (§5 host caps).
+//! child counts, non-finite split ratios and cap violations (§5 host caps:
+//! nodes, depth, and [`MAX_STRING_BYTES`] of text and list elements per
+//! panel).
 //!
 //! After every change, nodes that are no longer reachable from the root are
 //! dropped, which is how `remove` takes "every descendant no longer
@@ -18,11 +20,20 @@ use std::sync::Arc;
 use crate::bindings::NodeId;
 use crate::bindings::ui::{Node, Patch, UiError, View, Widget};
 
+#[path = "ui_tree_check.rs"]
+mod check;
+
+pub use check::widget_bytes;
+use check::{check_strings, too_many, validate};
+
 /// Nodes per panel.
 pub const MAX_NODES: usize = 20_000;
 /// Levels below and including the root.
 pub const MAX_DEPTH: usize = 64;
-/// String bytes per `render` or `apply-patches`.
+/// Bytes of plugin-supplied data ([`widget_bytes`]) per panel. §5 says "per
+/// `render` or `apply-patches`"; the cap applies to the panel's whole tree
+/// after every change (which bounds each call too), so re-sending new nodes
+/// cannot make the host keep more.
 pub const MAX_STRING_BYTES: usize = 8 * 1024 * 1024;
 
 /// An immutable view of a panel, shared with the app.
@@ -153,7 +164,7 @@ impl PanelTree {
                 return Err(invalid(format!("node {id} appears twice")));
             }
         }
-        let mut changes = self.commit(view.root, nodes, HashMap::new())?;
+        let mut changes = self.commit(view.root, nodes, HashSet::new())?;
         changes.full = true;
         Ok((self.snapshot(), changes))
     }
@@ -175,7 +186,7 @@ impl PanelTree {
         }
         let mut root = self.current.root;
         let mut nodes = self.current.nodes.clone();
-        let mut resets: HashMap<NodeId, Option<u64>> = HashMap::new();
+        let mut resets: HashSet<NodeId> = HashSet::new();
         for patch in patches {
             match patch {
                 Patch::Upsert(node) => {
@@ -198,7 +209,7 @@ impl PanelTree {
                     if let Widget::Table(props) = &mut Arc::make_mut(node).widget {
                         props.row_count = count;
                     }
-                    resets.insert(id, count);
+                    resets.insert(id);
                 }
             }
         }
@@ -212,10 +223,11 @@ impl PanelTree {
         &mut self,
         root: NodeId,
         mut nodes: HashMap<NodeId, Arc<Node>>,
-        resets: HashMap<NodeId, Option<u64>>,
+        resets: HashSet<NodeId>,
     ) -> Result<Changes, TreeError> {
         let reachable = validate(root, &nodes)?;
         nodes.retain(|id, _| reachable.contains(id));
+        check_strings(nodes.values().map(|n| &n.widget))?;
         let old = &self.current;
         let mut changes = Changes::default();
         for (id, node) in &nodes {
@@ -241,10 +253,13 @@ impl PanelTree {
                 _ => {}
             }
         }
-        for (id, row_count) in resets {
-            if !nodes.contains_key(&id) {
+        for id in resets {
+            // The final node decides the count, so a `rows-changed` followed
+            // by an `upsert` of the same table agrees with the snapshot.
+            let Some(Widget::Table(props)) = nodes.get(&id).map(|n| &n.widget) else {
                 continue;
-            }
+            };
+            let row_count = props.row_count;
             match changes.tables.iter_mut().find(|t| t.table == id) {
                 Some(t) => t.reset = true,
                 None => changes.tables.push(TableChange {
@@ -270,113 +285,6 @@ impl PanelTree {
             revision: old.revision + 1,
         });
         Ok(changes)
-    }
-}
-
-fn too_many(count: usize) -> TreeError {
-    TreeError::TooLarge(format!("{count} nodes (limit {MAX_NODES})"))
-}
-
-/// Walks the tree from `root`; returns the reachable ids.
-fn validate(
-    root: NodeId,
-    nodes: &HashMap<NodeId, Arc<Node>>,
-) -> Result<HashSet<NodeId>, TreeError> {
-    if !nodes.contains_key(&root) {
-        return Err(invalid(format!("root {root} does not exist")));
-    }
-    let mut seen = HashSet::with_capacity(nodes.len());
-    seen.insert(root);
-    let mut stack = vec![(root, 1usize)];
-    while let Some((id, depth)) = stack.pop() {
-        let Some(node) = nodes.get(&id) else {
-            return Err(invalid(format!("node {id} does not exist")));
-        };
-        if node.id != id {
-            return Err(invalid(format!("node {id} carries id {}", node.id)));
-        }
-        check_children(node)?;
-        if depth >= MAX_DEPTH && !node.children.is_empty() {
-            return Err(invalid(format!("deeper than {MAX_DEPTH} levels")));
-        }
-        for &child in &node.children {
-            if !nodes.contains_key(&child) {
-                return Err(invalid(format!("node {id} refers to missing node {child}")));
-            }
-            if !seen.insert(child) {
-                return Err(invalid(format!(
-                    "node {child} has two parents or forms a cycle"
-                )));
-            }
-            stack.push((child, depth + 1));
-        }
-        if seen.len() > MAX_NODES {
-            return Err(too_many(seen.len()));
-        }
-    }
-    Ok(seen)
-}
-
-/// Child-count and value rules per widget (§7 widget schema).
-fn check_children(node: &Node) -> Result<(), TreeError> {
-    let have = node.children.len();
-    let (want, what) = match &node.widget {
-        Widget::Stack(_) => return Ok(()),
-        Widget::Split(s) => {
-            if !s.ratio.is_finite() {
-                return Err(invalid(format!("split {} has a non-finite ratio", node.id)));
-            }
-            (2, "split")
-        }
-        Widget::Tabs(t) => (t.titles.len(), "tabs (one child per title)"),
-        Widget::Scroll => (1, "scroll"),
-        _ => (0, "a leaf widget"),
-    };
-    if have == want {
-        Ok(())
-    } else {
-        Err(invalid(format!(
-            "node {} is {what} and needs {want} children, has {have}",
-            node.id
-        )))
-    }
-}
-
-fn check_strings<'a>(widgets: impl Iterator<Item = &'a Widget>) -> Result<(), TreeError> {
-    let bytes: usize = widgets.map(widget_bytes).sum();
-    if bytes > MAX_STRING_BYTES {
-        return Err(TreeError::TooLarge(format!(
-            "{bytes} bytes of text (limit {MAX_STRING_BYTES})"
-        )));
-    }
-    Ok(())
-}
-
-/// Bytes of plugin-supplied text in one widget.
-pub fn widget_bytes(w: &Widget) -> usize {
-    fn opt(s: &Option<String>) -> usize {
-        s.as_ref().map_or(0, String::len)
-    }
-    match w {
-        Widget::Stack(_) | Widget::Split(_) | Widget::Scroll | Widget::Divider | Widget::Spacer => {
-            0
-        }
-        Widget::Tabs(t) => t.titles.iter().map(String::len).sum(),
-        Widget::Text(t) => t.text.len(),
-        Widget::Badge(b) => b.text.len(),
-        Widget::Button(b) => b.label.len() + opt(&b.icon),
-        Widget::Input(i) => i.value.len() + i.placeholder.len() + opt(&i.language),
-        Widget::Select(s) => s.options.iter().map(String::len).sum(),
-        Widget::Checkbox(c) => c.label.len(),
-        Widget::KeyValues(kv) => kv.iter().map(|(k, v)| k.len() + v.len()).sum(),
-        Widget::Table(t) => t.columns.iter().map(|c| c.title.len()).sum(),
-        Widget::Tree(items) => items
-            .iter()
-            .map(|i| i.key.len() + i.label.len() + opt(&i.detail) + opt(&i.icon))
-            .sum(),
-        Widget::Code(c) => c.text.len() + opt(&c.language),
-        Widget::Json(j) | Widget::Spinner(j) => j.len(),
-        Widget::EmptyState((a, b)) => a.len() + b.len(),
     }
 }
 

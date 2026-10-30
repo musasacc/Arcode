@@ -1466,3 +1466,121 @@ headless `PluginManager`, registered as *bundled* from
 the WAL snapshot (`wal.db` + `wal.db-wal`); the sidebar; and a 1M-row
 database that the plugin generates itself with writes on, then pages
 (< 1 s per page) and cancels during a `GROUP BY`.
+
+## Appendix B (continued): review fixes and Step 12
+
+> **Added during implementation**, after the security and correctness
+> review (`crates/arcode-plugin-host/tests/review_*.rs`,
+> `plugins/*/…/review*.rs`). Same rule as above: the design text is
+> unchanged; this lists what the code now does differently or decides
+> where the design was silent. It supersedes the "still to do" notes on
+> `plugins.toml`, `install.rs` and Step 12 in the sections above.
+> Numbers are in `docs/SPIKE.md`, "Plugin engine, review fixes and Step 12".
+
+**Budgets and cancellation (§5):**
+- Host imports are charged to the CPU budget through a wasmtime call hook
+  (the `call-hook` feature): each import costs its wall time minus the
+  time it spent waiting for the user, the network or the UI thread
+  (consent prompts, quick picks, `http.send`, `apply-edits`, `open-file`,
+  `open-scratch`). §5 said "time spent in host imports does not count";
+  only *waits* are free now, so looping over an expensive import
+  (`find-files`, `apply-patches` on a big panel, WASI file I/O) can no
+  longer burn host CPU for free.
+- `wasi:clocks/monotonic-clock` `subscribe-*` are replaced (linker
+  shadowing) by pollables that also wake when the current call is
+  cancelled or its budget runs out. A guest sleeping in WASI is therefore
+  stoppable, and the sleep counts against the budget.
+- The hard-cancel grace runs from the later of the cancel and the start of
+  the call: a call cancelled while still queued gets its full grace once it
+  runs instead of being trapped at its first tick.
+
+**Resource caps (§5 host caps):**
+- The 8 MiB UI cap applies to the panel's whole tree after every change
+  (which also bounds each `render`/`apply-patches`), and it counts the
+  in-memory size of every list element (tab title, option, key-value pair,
+  column, tree item) on top of their text.
+- Row pages: 4 MiB counting 32 bytes per cell plus its text
+  (`rows::CELL_BYTES`). The DB viewer cuts text to fit that budget; a table
+  wider than ~650 columns cannot be paged at 200 rows (the Data tab shows
+  the host's error). A per-table page size is the fix if a real database
+  needs it.
+- kv: each entry costs 64 bytes on top of key and value
+  (`KV_ENTRY_BYTES`). Plugin log: each line costs its in-memory size on top
+  of its text, so empty-line floods are bounded.
+- `set-status` is coalesced: at most one `Status` output per 100 ms, the
+  latest one when the call returns. Other outputs are not coalesced yet
+  (`PanelView` floods are bounded by the per-change tree validation cost
+  only; merging `Changes` is the next step if that shows up).
+- Open files: the store's WASI resource table is capped at an eighth of
+  `RLIMIT_NOFILE` (clamped to 256..=4096; 4096 on Windows), and
+  `descriptor.open-at` is replaced so that a nearly full table answers
+  `insufficient-memory` instead of trapping.
+
+**Files and editor access (§3, §4):**
+- `plugin.wasm` must be a regular file (a symlink to one is fine); it is
+  opened non-blocking and read with a bound, so a FIFO or `/dev/zero`
+  cannot hang or exhaust the editor.
+- `.cwasm` cache: the directory must belong to the user; one found open to
+  others is tightened to 0700 **and emptied**. Entries are owner-only files
+  with a trailing seal (sha256 over the entry name, which holds the source
+  hash and engine hash, and the artifact) and are deserialized from the
+  checked bytes (`Component::deserialize`, not `deserialize_file`), so a
+  swapped artifact is recompiled. This costs one sha256 of the artifact per
+  activation (activation stays at 2-11 ms). `create_private_dir` tightens
+  every existing private dir it is given (grants, kv).
+- `editor = "context"`: lens languages no longer widen it, and a language
+  the app has built in never counts as "a language the plugin contributes"
+  (`RuntimeConfig::builtin_languages`, default: common language ids; the
+  app should pass its syntax registry's ids).
+- `editor.open-file` walks the path inside the project with
+  `symlink_metadata` and refuses symlinks and non-regular files.
+
+**HTTP (§4 prompts):**
+- The request method must be an RFC 9110 token of at most 32 characters,
+  checked before any prompt, so a prompt never shows plugin text as the
+  method.
+- `HttpTransport::send`'s `allow_redirect` now receives the hop's method
+  and absolute URL (was `(host, port)`); the host parses scheme, host and
+  port itself, so a redirect prompt shows the hop that would be sent
+  (`GET https://…` after a 303 from `POST http://…`).
+- `Location` resolution removes dot segments (RFC 3986 §5.2.4).
+
+**UI tree and rows (§7):**
+- A `TableChange` takes the row count from the final node, so
+  `rows-changed` followed by an `upsert` of the same table agrees with the
+  snapshot.
+- `RowCache::set_row_count` forgets an end learned from an `at-end` page,
+  drops rows past a new count and refetches the old partial last page.
+
+**Reference plugins:**
+- HTTP client: "Open in editor" re-indents JSON with a streaming
+  re-indenter (validated through `IgnoredAny`, written into an exactly
+  sized buffer) instead of `serde_json::Value`; bodies whose pretty form
+  would exceed 24 MiB open as received. JetBrains `>> file` / `>>! file`
+  response redirects and `< {% … %}` / `< script.js` pre-request scripts
+  are skipped. Multipart bodies use CRLF line breaks (included files are
+  sent byte for byte).
+- DB viewer: views and `WITHOUT ROWID` tables sort with `ORDER BY` (ties
+  keep SQLite's order).
+
+**Step 12:**
+- `install.rs`: validates a folder (manifest, non-reserved id, regular
+  `plugin.toml` and entry ≤ 32 MiB; `README.md`/`LICENSE` copied only if
+  regular and ≤ 1 MiB; nothing else is read), stages the copy next to
+  `<data>/arcode/plugins/<id>/` and swaps it in by rename, then
+  `precompile` fills the `.cwasm` cache. The functions block; the app runs
+  them on a background task and calls `PluginManager::finish_install`.
+- `plugin_state.rs`: `plugins.toml` (`[[plugin]] id, enabled, sha256`).
+  Installed plugins start disabled; enabling approves the current
+  `plugin.wasm` (sha256 stored); every activation checks it, and a
+  mismatch refuses activation and sends `PluginOutput::NeedsApproval`
+  (the app asks, then `set_enabled`). An update with different
+  capabilities is disabled until enabled again; one with the same
+  capabilities stays enabled with the new hash. Bundled plugins are
+  enabled unless disabled (no hash: they ship with the app); dev plugins
+  are session-only. The capability summary shown when enabling is app UI
+  (step 9).
+- `examples/plugin_bench.rs`, `crates/arcode-plugin-api/README.md` (author
+  guide). Packaging: `ARCODE_WASM_PLUGINS=<prefix>/share/arcode/plugins
+  scripts/build-plugins.sh`; wiring that into the release workflow belongs
+  to the app's packaging.

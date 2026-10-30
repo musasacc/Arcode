@@ -27,6 +27,21 @@ fn views_and_without_rowid_tables_use_limit_offset() {
 }
 
 #[test]
+fn sorted_grids_without_rowid_order_by_the_column() {
+    let mut source = table(None);
+    source.sort = Some(Sort {
+        column: "na\"me".into(),
+        ascending: false,
+    });
+    let q = page_query(&source, &Anchors::default(), known(1000), 0, 200);
+    assert_eq!(
+        q.sql,
+        "SELECT * FROM \"big \"\"t\"\"\" ORDER BY \"na\"\"me\" DESC LIMIT ?1 OFFSET ?2"
+    );
+    assert!(!q.leading_rowid);
+}
+
+#[test]
 fn sorted_grids_order_by_the_column_then_rowid() {
     let mut source = table(Some("rowid"));
     source.sort = Some(Sort {

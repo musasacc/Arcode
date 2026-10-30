@@ -32,6 +32,7 @@ pub mod grants;
 pub mod host_impl;
 pub mod imports_check;
 pub mod index;
+pub mod install;
 pub mod instance;
 mod kv_file;
 pub mod limits;
@@ -43,11 +44,13 @@ pub mod net;
 pub mod output;
 pub mod paths;
 pub mod plugin_log;
+pub mod plugin_state;
 pub mod registry;
 pub mod rows;
 pub mod state;
 pub mod ui_tree;
 pub mod wasi;
+mod wasi_hooks;
 
 #[cfg(test)]
 mod registry_tests;

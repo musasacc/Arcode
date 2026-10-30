@@ -386,12 +386,44 @@ fn lazy_full_text_only_built_when_needed() {
     manager.shutdown_all();
 }
 
+/// `open_document_lazy` builds the text once per server for `didOpen` and
+/// again only for a `didSave` that includes it; nothing else keeps a copy.
+fn lazy_open_builds_text_on_demand() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("project.marker"), "").unwrap();
+    let file = dir.path().join("lazy.fk");
+    let languages = HashMap::from([(
+        "mixed".to_string(),
+        vec!["alpha".to_string(), "beta".to_string()],
+    )]);
+    let (manager, rx) = LspManager::new(
+        vec![fake_config("alpha", "utf-16"), fake_config("beta", "utf-8")],
+        languages,
+    );
+    let mut rx = Events::new(rx);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    manager.open_document_lazy(&file, "mixed", 1, move || {
+        counter.fetch_add(1, Ordering::SeqCst);
+        "big".to_string()
+    });
+    rx.wait_diag("alpha: opened v1");
+    rx.wait_diag("beta: opened v1");
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "once per server");
+    manager.save_document(&file);
+    rx.wait_diag("alpha: saved big");
+    rx.wait_diag("beta: saved big");
+    assert_eq!(calls.load(Ordering::SeqCst), 3, "once more for didSave");
+    manager.shutdown_all();
+}
+
 fn main() {
     if std::env::var_os("ARCODE_FAKE_LSP").is_some() {
         fake_lsp::run();
         return;
     }
-    let tests: [(&str, fn()); 4] = [
+    let tests: [(&str, fn()); 5] = [
         (
             "missing_binary_reports_failure",
             missing_binary_reports_failure,
@@ -404,6 +436,10 @@ fn main() {
         (
             "lazy_full_text_only_built_when_needed",
             lazy_full_text_only_built_when_needed,
+        ),
+        (
+            "lazy_open_builds_text_on_demand",
+            lazy_open_builds_text_on_demand,
         ),
     ];
     let filters: Vec<String> = std::env::args()

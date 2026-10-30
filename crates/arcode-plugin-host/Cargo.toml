@@ -14,7 +14,8 @@ serde_json.workspace = true
 toml.workspace = true
 globset.workspace = true
 dirs.workspace = true
-wasmtime.workspace = true
+# `call-hook`: host imports are charged to the CPU budget (budget.rs).
+wasmtime = { workspace = true, features = ["call-hook"] }
 wasmtime-wasi.workspace = true
 sha2.workspace = true
 bytes.workspace = true
@@ -25,7 +26,12 @@ ureq.workspace = true
 # Only for the `AsyncWrite` trait wasmtime-wasi requires on stdout streams.
 tokio.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
 # The guest SDK, natively: property tests feed its diff output to PanelTree.
 arcode-plugin-api.workspace = true
+# examples/plugin_bench.rs (RSS of an instance).
+memory-stats.workspace = true

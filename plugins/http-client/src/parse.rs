@@ -14,8 +14,11 @@
 //! ```
 //!
 //! Comments (`#`, `//`) are recognised before the body only, so a body is
-//! sent verbatim. Response handlers (`> {% ... %}`, `> script.js`) and
-//! `<> previous-response` lines are skipped: there is no JS engine.
+//! sent verbatim. Response handlers (`> {% ... %}`, `> script.js`),
+//! pre-request scripts (`< {% ... %}`, `< script.js` before the request
+//! line), response output redirects (`>> file`, `>>! file`) and
+//! `<> previous-response` lines are skipped: there is no JS engine, and
+//! responses are shown in the panel.
 //! Parsing never fails; anything unrecognised before a request line is
 //! ignored and a block without a request line yields no request.
 
@@ -113,6 +116,7 @@ fn parse_block(
     };
     let mut state = State::Preamble;
     let mut in_handler = false;
+    let mut in_script = false;
     let mut body: Vec<BodyPart> = Vec::new();
     for (i, &line) in lines.iter().enumerate().take(end).skip(start) {
         if line.starts_with("###") {
@@ -121,7 +125,11 @@ fn parse_block(
         let trimmed = line.trim();
         match state {
             State::Preamble => {
-                if trimmed.is_empty() {
+                if in_script {
+                    in_script = !trimmed.contains("%}");
+                } else if trimmed.is_empty() {
+                } else if let Some(script) = pre_request_script(trimmed) {
+                    in_script = script;
                 } else if let Some(c) = comment(trimmed) {
                     directive(c, &mut req);
                 } else if let Some(var) = variable(trimmed) {
@@ -258,11 +266,29 @@ fn header(trimmed: &str) -> Option<(String, String)> {
         .then(|| (name.to_owned(), value.trim().to_owned()))
 }
 
-/// One body line: a file include, a skipped handler line, or text.
+/// A JetBrains pre-request script before the request line: `< {% ... %}`
+/// (true while the script continues on the next lines) or `< script.js`.
+/// Skipped: there is no JS engine.
+fn pre_request_script(trimmed: &str) -> Option<bool> {
+    let rest = trimmed.strip_prefix('<')?.trim_start();
+    if let Some(script) = rest.strip_prefix("{%") {
+        return Some(!script.contains("%}"));
+    }
+    rest.ends_with(".js").then_some(false)
+}
+
+/// One body line: a file include, a skipped handler, response redirect
+/// (`>> file`, `>>! file`) or `<>` line, or text.
 fn body_line(line: &str, body: &mut Vec<BodyPart>, in_handler: &mut bool) {
     if *in_handler {
         *in_handler = !line.contains("%}");
         return;
+    }
+    if let Some(rest) = line.strip_prefix(">>") {
+        let rest = rest.strip_prefix('!').unwrap_or(rest);
+        if rest.starts_with([' ', '\t']) {
+            return;
+        }
     }
     if let Some(rest) = line.strip_prefix("> ") {
         let rest = rest.trim();

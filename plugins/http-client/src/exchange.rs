@@ -70,12 +70,24 @@ pub fn build(
         headers.push((sub(name)?, sub(value)?));
     }
     let url = absolute_url(&url, &headers)?;
+    // Multipart delimiters must follow a CRLF (RFC 2046 §5.1.1), as the
+    // JetBrains client sends them; other bodies keep `\n` line breaks.
+    // Included files are sent byte for byte either way.
+    let multipart = header(&headers, "content-type").is_some_and(|t| {
+        t.trim_start()
+            .to_ascii_lowercase()
+            .starts_with("multipart/")
+    });
+    let eol: &[u8] = if multipart { b"\r\n" } else { b"\n" };
     let mut body = Vec::new();
     for (i, part) in block.body.iter().enumerate() {
         if i > 0 {
-            body.push(b'\n');
+            body.extend_from_slice(eol);
         }
         match part {
+            BodyPart::Text(text) if multipart => {
+                body.extend_from_slice(sub(text)?.replace('\n', "\r\n").as_bytes());
+            }
             BodyPart::Text(text) => body.extend_from_slice(sub(text)?.as_bytes()),
             BodyPart::File(path) => body.extend(include(ctx, &sub(path)?)?),
         }

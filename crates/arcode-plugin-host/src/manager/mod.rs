@@ -23,6 +23,7 @@
 //! [`Pending`]: crate::instance::Pending
 
 mod calls;
+mod enable;
 
 pub use calls::{LensCall, PanelCall, event_is_gesture};
 
@@ -42,6 +43,7 @@ use crate::instance::{InstanceHandle, InstanceSpec};
 use crate::manifest::{PluginId, QualifiedId, UserLimits};
 use crate::output::{OutputSender, PluginOutput};
 use crate::paths::PluginPaths;
+use crate::plugin_state::PluginStates;
 use crate::registry::{RegisteredPlugin, Registry};
 use crate::state::{ProjectContext, Services};
 
@@ -129,7 +131,10 @@ pub struct PluginManager {
     permissions: Permissions,
     instances: Mutex<HashMap<PluginId, InstanceHandle>>,
     user_settings: HashMap<PluginId, serde_json::Map<String, serde_json::Value>>,
+    /// Dev plugins disabled for this session.
     disabled: HashSet<PluginId>,
+    /// `plugins.toml`: enabled state and approved hashes.
+    states: PluginStates,
 }
 
 impl std::fmt::Debug for PluginManager {
@@ -157,6 +162,7 @@ impl PluginManager {
         let registry = Registry::discover(&roots, &config.user_limits);
         let runtime = Arc::new(Runtime::new(config.runtime.clone()));
         let permissions = Permissions::new(grant_store(&config, None), consent.clone());
+        let states = PluginStates::load(config.persist.then(|| config.paths.state_file.clone()));
         let manager = Self {
             config,
             runtime,
@@ -169,6 +175,7 @@ impl PluginManager {
             instances: Mutex::new(HashMap::new()),
             user_settings: HashMap::new(),
             disabled: HashSet::new(),
+            states,
         };
         (manager, rx)
     }
@@ -212,24 +219,6 @@ impl PluginManager {
     /// `settings.plugins.network`: false denies all plugin networking.
     pub fn set_network_enabled(&self, enabled: bool) {
         self.runtime.set_network_enabled(enabled);
-    }
-
-    /// Enables or disables a plugin for the session (the app persists the
-    /// choice in `plugins.toml`). Disabling stops its instance.
-    pub fn set_enabled(&mut self, plugin: &PluginId, enabled: bool) {
-        if enabled {
-            self.disabled.remove(plugin);
-        } else {
-            self.disabled.insert(plugin.clone());
-            if let Some(h) = lock(&self.instances).remove(plugin) {
-                h.shutdown();
-            }
-        }
-    }
-
-    /// False after [`PluginManager::set_enabled`]`(.., false)`.
-    pub fn is_enabled(&self, plugin: &PluginId) -> bool {
-        !self.disabled.contains(plugin)
     }
 
     /// The user's values for a plugin's settings (undeclared keys ignored).
@@ -277,7 +266,7 @@ impl PluginManager {
             .registry
             .get(plugin)
             .ok_or_else(|| ManagerError::UnknownPlugin(plugin.to_string()))?;
-        if self.disabled.contains(plugin) {
+        if !self.is_enabled(plugin) {
             return Err(ManagerError::Disabled(plugin.clone()));
         }
         let mut instances = lock(&self.instances);
@@ -332,6 +321,7 @@ impl PluginManager {
                 permissions: self.permissions.clone(),
                 output: self.output.clone(),
             },
+            approved_sha256: self.approved_sha256(plugin),
         }
     }
 

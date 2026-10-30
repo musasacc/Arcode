@@ -114,6 +114,9 @@ impl FileTree {
     /// Expands the folders containing `path`, selects it and scrolls to it.
     pub fn reveal(&mut self, path: &Path, cx: &mut Context<Self>) {
         let Ok(rel) = path.strip_prefix(&self.root) else {
+            // Outside this project: nothing in the tree matches the file,
+            // so no stale entry should stay selected.
+            self.clear_selection(cx);
             return;
         };
         let mut dir = self.root.clone();

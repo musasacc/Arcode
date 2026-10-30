@@ -64,6 +64,8 @@ sha2 = "0.10"
 bytes = "1"
 # Plugin http import (§1): ureq 3 + rustls (ring, webpki roots); no gzip, no cookies.
 ureq = { version = "3.5", default-features = false, features = ["rustls"] }
+# Plugin host (unix): geteuid, getrlimit, O_NONBLOCK for cache/fd checks.
+libc = "0.2"
 
 [profile.dev]
 # GPUI is unusably slow unoptimized; keep deps fast, our code debuggable.

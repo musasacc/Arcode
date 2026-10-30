@@ -141,7 +141,13 @@ pub fn page_query(
         count = count.min(n.saturating_sub(start));
     }
     let Some(rowid) = source.rowid else {
-        return offset_query(format!("SELECT * FROM {table}"), false, start, count);
+        // Views and WITHOUT ROWID tables: sortable too (ties keep SQLite's
+        // order, which may differ between pages).
+        let order = source.sort.as_ref().map_or_else(String::new, |sort| {
+            let dir = if sort.ascending { "ASC" } else { "DESC" };
+            format!(" ORDER BY {} {dir}", quote_ident(&sort.column))
+        });
+        return offset_query(format!("SELECT * FROM {table}{order}"), false, start, count);
     };
     if let Some(sort) = &source.sort {
         let dir = if sort.ascending { "ASC" } else { "DESC" };

@@ -75,6 +75,19 @@ pub fn parse_origin(url: &str) -> Result<Origin, String> {
     })
 }
 
+/// Longest method the host sends or shows in a prompt.
+pub const MAX_METHOD_LEN: usize = 32;
+
+/// True if `method` is an RFC 9110 `token` of at most [`MAX_METHOD_LEN`]
+/// bytes: the only method text a consent prompt may show.
+pub fn is_method_token(method: &str) -> bool {
+    !method.is_empty()
+        && method.len() <= MAX_METHOD_LEN
+        && method
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+}
+
 /// True if a manifest `network.hosts` pattern admits `host:port`.
 /// Patterns: `*`, `name`, `*.suffix`, `[v6]`, each optionally `:port`.
 pub fn host_allowed(patterns: &[String], host: &str, port: u16) -> bool {
@@ -164,7 +177,14 @@ impl HostState {
             return Err(HttpError::NoUserGesture);
         }
         let origin = parse_origin(&req.url).map_err(HttpError::InvalidRequest)?;
+        // Checked before any prompt: the method appears in host chrome.
         let method = req.method.to_ascii_uppercase();
+        if !is_method_token(&method) {
+            return Err(HttpError::InvalidRequest(
+                "the method must be an HTTP token of at most 32 characters".into(),
+            ));
+        }
+        req.method.clone_from(&method);
         if !self.allow_host(&method, &origin.scheme, &origin.host, origin.port) {
             return Err(HttpError::Denied);
         }
@@ -174,9 +194,18 @@ impl HostState {
         }
         let transport = self.ctx.services.http.clone();
         let cancel = self.call.cancel.clone();
-        let scheme = origin.scheme;
-        let mut allow_redirect =
-            |host: &str, port: u16| self.allow_host(&method, &scheme, host, port);
+        // The redirect prompt describes the hop that would be sent: its own
+        // method (a 303 turns POST into GET) and the target's scheme, host
+        // and port, all parsed here rather than taken from the transport.
+        let mut allow_redirect = |method: &str, url: &str| {
+            let method = method.to_ascii_uppercase();
+            match parse_origin(url) {
+                Ok(o) if is_method_token(&method) => {
+                    self.allow_host(&method, &o.scheme, &o.host, o.port)
+                }
+                _ => false,
+            }
+        };
         transport.send(req, &cancel, &mut allow_redirect)
     }
 }
@@ -201,7 +230,8 @@ impl wit::Host for HostState {
     fn send(&mut self, req: Request) -> wasmtime::Result<Result<Response, HttpError>> {
         let method = super::cap(req.method.to_ascii_uppercase(), 32);
         let (host, port) = parse_origin(&req.url).map_or((String::new(), 0), |o| (o.host, o.port));
-        let result = self.send_checked(req);
+        // Consent prompts and the network are waits, not guest CPU.
+        let result = self.waiting(|s| s.send_checked(req));
         let outcome = match &result {
             Ok(r) => NetworkOutcome::Status(r.status),
             Err(
@@ -244,6 +274,16 @@ mod tests {
             "http://x:99999",
         ] {
             assert!(parse_origin(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn methods_must_be_short_tokens() {
+        for ok in ["GET", "PROPFIND", "M-SEARCH", "X_1"] {
+            assert!(is_method_token(ok), "{ok}");
+        }
+        for bad in ["", "GET X", "GET\nPOST", "GET\"", &"A".repeat(33), "GÉT"] {
+            assert!(!is_method_token(bad), "{bad:?}");
         }
     }
 

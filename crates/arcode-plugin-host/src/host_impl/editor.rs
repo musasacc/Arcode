@@ -3,8 +3,14 @@
 //!
 //! Access (§4): `editor = "none"` sees nothing; `"context"` sees the
 //! document the call is about and documents of languages the plugin
-//! contributes; `"all-open"` sees everything once granted (asked at enable)
-//! and falls back to `"context"` otherwise.
+//! contributes under `contributes.languages` (never a language the app has
+//! built in, see `RuntimeConfig::builtin_languages`; lens languages alone
+//! do not count); `"all-open"` sees everything once granted (asked at
+//! enable) and falls back to `"context"` otherwise.
+//!
+//! `open-file` resolves the path inside the project and refuses symlinks
+//! and anything that is not a regular file there, so a plugin with a write
+//! grant cannot plant `/project/x -> ../secret` and have the app open it.
 //!
 //! [`EditorBridge`]: crate::bridge::EditorBridge
 
@@ -35,16 +41,14 @@ fn info(s: &DocSnapshot) -> DocInfo {
 impl HostState {
     fn may_read(&self, snap: &DocSnapshot) -> bool {
         let m = &self.ctx.manifest;
+        let builtin = &self.ctx.runtime.config().builtin_languages;
         let in_context = || {
             Some(snap.id) == self.call.origin_doc
-                || m.contributes
-                    .languages
-                    .iter()
-                    .any(|l| l.id == snap.language)
-                || m.contributes
-                    .code_lenses
-                    .iter()
-                    .any(|c| c.languages.contains(&snap.language))
+                || (!builtin.contains(&snap.language)
+                    && m.contributes
+                        .languages
+                        .iter()
+                        .any(|l| l.id == snap.language))
         };
         match m.capabilities.editor {
             EditorAccess::None => false,
@@ -104,6 +108,30 @@ fn valid_relative_path(path: &str) -> bool {
             .all(|part| !part.is_empty() && part != "." && part != "..")
 }
 
+/// True if `root/rel` is a regular file reached without following any
+/// symlink (no component may be a link, the file itself included), so the
+/// app opens exactly a file inside the project.
+fn regular_file_inside(root: &std::path::Path, rel: &str) -> bool {
+    let mut at = root.to_path_buf();
+    let parts: Vec<&str> = rel.split('/').collect();
+    for (i, part) in parts.iter().enumerate() {
+        at.push(part);
+        let Ok(meta) = std::fs::symlink_metadata(&at) else {
+            return false;
+        };
+        let last = i + 1 == parts.len();
+        let ok = if last {
+            meta.file_type().is_file()
+        } else {
+            meta.file_type().is_dir()
+        };
+        if !ok {
+            return false;
+        }
+    }
+    true
+}
+
 impl wit::Host for HostState {
     fn current_document(&mut self) -> wasmtime::Result<Option<DocInfo>> {
         let doc = self
@@ -160,14 +188,16 @@ impl wit::Host for HostState {
         if let Err(e) = snap.resolve_edits(&edits) {
             return Ok(Err(e));
         }
-        if !self.may_write() {
-            return Ok(Err(EditorError::Denied));
-        }
-        Ok(self
-            .ctx
-            .services
-            .editor
-            .apply_edits(doc, expected_version, edits))
+        // The prompt and the UI-thread round trip are waits.
+        Ok(self.waiting(|s| {
+            if !s.may_write() {
+                return Err(EditorError::Denied);
+            }
+            s.ctx
+                .services
+                .editor
+                .apply_edits(doc, expected_version, edits)
+        }))
     }
 
     fn open_file(
@@ -181,7 +211,15 @@ impl wit::Host for HostState {
         if !valid_relative_path(&path) {
             return Ok(Err(EditorError::InvalidPath));
         }
-        Ok(self.ctx.services.editor.open_file(&path, at))
+        let inside = self
+            .ctx
+            .project
+            .as_ref()
+            .is_some_and(|p| regular_file_inside(&p.root, &path));
+        if !inside {
+            return Ok(Err(EditorError::InvalidPath));
+        }
+        Ok(self.waiting(|s| s.ctx.services.editor.open_file(&path, at)))
     }
 
     fn open_scratch(
@@ -194,11 +232,7 @@ impl wit::Host for HostState {
             return Ok(Err(EditorError::InvalidRange));
         }
         let title = super::cap(title, 128);
-        Ok(self
-            .ctx
-            .services
-            .editor
-            .open_scratch(&title, &language, &text))
+        Ok(self.waiting(|s| s.ctx.services.editor.open_scratch(&title, &language, &text)))
     }
 }
 

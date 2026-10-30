@@ -10,8 +10,11 @@ use std::sync::{Arc, Mutex};
 use crate::bindings::Level;
 use crate::cancel::lock;
 
-/// Total bytes of text kept per plugin.
+/// Total bytes kept per plugin: text plus [`LINE_OVERHEAD`] per line, so a
+/// flood of empty lines is bounded too.
 pub const LOG_CAP_BYTES: usize = 1024 * 1024;
+/// What one line costs against the cap on top of its text.
+pub const LINE_OVERHEAD: usize = std::mem::size_of::<LogLine>();
 
 /// A partial stdout line longer than this is flushed as its own line.
 const MAX_LINE_BYTES: usize = 16 * 1024;
@@ -98,7 +101,7 @@ impl PluginLog {
         lock(&self.ring).lines.iter().cloned().collect()
     }
 
-    /// Bytes of text currently kept.
+    /// Bytes currently kept (text plus [`LINE_OVERHEAD`] per line).
     pub fn bytes(&self) -> usize {
         lock(&self.ring).bytes
     }
@@ -118,7 +121,7 @@ fn push_line(ring: &mut Ring, source: LogSource, level: Level, text: &str) {
         }
         text.truncate(cut);
     }
-    ring.bytes += text.len();
+    ring.bytes += text.len() + LINE_OVERHEAD;
     ring.lines.push_back(LogLine {
         source,
         level,
@@ -128,7 +131,7 @@ fn push_line(ring: &mut Ring, source: LogSource, level: Level, text: &str) {
         let Some(old) = ring.lines.pop_front() else {
             break;
         };
-        ring.bytes -= old.text.len();
+        ring.bytes -= old.text.len() + LINE_OVERHEAD;
         ring.dropped_lines += 1;
     }
 }
@@ -168,10 +171,13 @@ mod tests {
             log.write_stream(LogSource::Stdout, chunk.as_bytes());
         }
         assert!(log.bytes() <= LOG_CAP_BYTES);
-        assert!(log.bytes() > LOG_CAP_BYTES - 1000);
+        assert!(log.bytes() > LOG_CAP_BYTES - 1000 - LINE_OVERHEAD);
         assert_eq!(log.dropped_lines() as usize + log.lines().len(), 3000);
         // A newline-free flood is split instead of growing without bound.
         log.write_stream(LogSource::Stdout, &vec![b'y'; 5 * MAX_LINE_BYTES]);
         assert!(log.lines().iter().all(|l| l.text.len() <= MAX_LINE_BYTES));
+        // Empty lines are not free.
+        log.write_stream(LogSource::Stdout, &vec![b'\n'; 2 * LOG_CAP_BYTES]);
+        assert!(log.lines().len() * LINE_OVERHEAD <= LOG_CAP_BYTES);
     }
 }
