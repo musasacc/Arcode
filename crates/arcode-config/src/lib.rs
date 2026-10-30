@@ -20,8 +20,8 @@ mod fsutil;
 mod lenient;
 
 pub use config::{
-    Config, EditorSettings, Keymap, LanguageSettings, LspServerSettings, NamedServer,
-    TerminalSettings, ThemeChoice, UiSettings,
+    CompletionSettings, Config, EditorSettings, GitSettings, Keymap, LanguageSettings,
+    LspServerSettings, NamedServer, TerminalSettings, ThemeChoice, UiSettings,
 };
 pub use state::{AppState, ProjectSession, RecentProject, WindowState};
 pub use theme::{

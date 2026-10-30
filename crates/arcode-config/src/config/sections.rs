@@ -4,6 +4,7 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use super::completion::CompletionSettings;
 use crate::lenient::impl_section;
 
 /// The bundled editor font.
@@ -57,6 +58,8 @@ pub struct EditorSettings {
     pub large_file_bytes: u64,
     /// Files with at least this many lines are "large" too.
     pub large_file_lines: usize,
+    /// `[editor.completion]`: completion popup, snippets, signature help.
+    pub completion: CompletionSettings,
 }
 
 impl Default for EditorSettings {
@@ -85,6 +88,7 @@ impl Default for EditorSettings {
             format_on_save: false,
             large_file_bytes: 4 * 1024 * 1024,
             large_file_lines: 50_000,
+            completion: CompletionSettings::default(),
         }
     }
 }
@@ -150,6 +154,7 @@ impl EditorSettings {
             ));
             self.tab_size = defaults.tab_size;
         }
+        self.completion.validate(warnings);
     }
 }
 

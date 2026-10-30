@@ -68,6 +68,12 @@ substring/fuzzy match), save (Ctrl+S), close tab (Ctrl+W), toggle panel
 terminal (Ctrl+`), split right (Ctrl+\), undo/redo, copy/cut/paste,
 select all, Ctrl+D (select next occurrence).
 
+Git: Source Control view (Ctrl+Shift+G), commit from the message box
+(Ctrl+Enter), toggle the blame column (Ctrl+Alt+B), next / previous merge
+conflict (Alt+] / Alt+[). Clicking the branch in the title bar or status
+bar opens the branch picker. The command names are listed in
+`arcode::actions::commands()` for a command palette.
+
 ## Milestone 1 acceptance
 
 1. Open a folder containing a Cargo project. Open `src/main.rs` which has a

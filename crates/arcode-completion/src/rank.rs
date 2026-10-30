@@ -73,7 +73,8 @@ impl Ranker {
     /// priority (LSP > Snippet > BufferWord > Path), shorter label, label,
     /// input order. Within a local source, candidates with a `sort_text`
     /// come first in its order. An empty query keeps every candidate:
-    /// preselected first, then `sort_text` order. Duplicates (same label
+    /// preselected first, then `sort_text` order (server items with equal
+    /// `sort_text` by label). Duplicates (same label
     /// and kind) are dropped, keeping the best-ranked one.
     pub fn rank(
         &mut self,
@@ -174,6 +175,12 @@ fn rank_empty(candidates: &[CompletionCandidate], limit: usize) -> Vec<RankedCan
         cb.preselect
             .cmp(&ca.preselect)
             .then_with(|| source_order(ca, cb))
+            // Server items with equal `sort_text` by label, like VS Code;
+            // local sources keep their own order.
+            .then_with(|| match ca.source.is_lsp() && cb.source.is_lsp() {
+                true => ca.label.cmp(&cb.label),
+                false => Ordering::Equal,
+            })
             .then(a.cmp(&b))
     });
     let mut seen: HashSet<(&str, CandidateKind)> = HashSet::new();

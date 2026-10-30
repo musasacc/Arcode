@@ -276,6 +276,22 @@ fn two_servers_priority_fanout_and_encodings() {
         ]
     );
 
+    // A request addressed to one server by name (completionItem/resolve).
+    let to = |server: &str| {
+        let params = CompletionParams {
+            text_document_position: hover_params(&file).text_document_position_params,
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: None,
+        };
+        block_on(manager.request_to::<Completion>(&file, server, move |_| params))
+    };
+    match to("beta") {
+        Ok(Some(CompletionResponse::Array(items))) => assert_eq!(items[0].label, "beta"),
+        other => panic!("{other:?}"),
+    }
+    assert!(matches!(to("gamma"), Err(LspError::NoServer)));
+
     // Save includes the latest text; close clears diagnostics.
     manager.save_document(&file);
     rx.wait_diag("alpha: saved bye");

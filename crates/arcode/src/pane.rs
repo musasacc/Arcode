@@ -1,16 +1,18 @@
 //! A pane: a strip of editor tabs above the active editor.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use arcode_editor::{Editor, EditorEvent};
-use arcode_ui_kit::{IconName, Tooltip, icon, icon_button, kbd, theme, truncated};
+use arcode_ui_kit::{IconName, icon_button, kbd, theme};
 use gpui::{
-    AnyView, App, Context, Entity, EntityId, EventEmitter, FocusHandle, Focusable, MouseButton,
-    PromptLevel, SharedString, Subscription, Window, div, prelude::*, px,
+    App, Context, Entity, EntityId, EventEmitter, FocusHandle, Focusable, PromptLevel,
+    SharedString, Subscription, Window, div, prelude::*, px,
 };
 
 use crate::actions::{self, CloseTab, SplitRight, shortcut_label};
-use crate::file_icons::file_icon;
+
+mod tab;
 
 /// Height of the tab strip.
 pub const TAB_BAR_HEIGHT: f32 = 34.;
@@ -34,6 +36,8 @@ pub struct Pane {
     /// Whether the pane may be closed (there is more than one).
     closable: bool,
     subscriptions: Vec<(EntityId, Subscription)>,
+    /// Tab titles for editors without a file (e.g. diff tabs).
+    titles: HashMap<EntityId, SharedString>,
     _focus_sub: Option<Subscription>,
 }
 
@@ -58,6 +62,7 @@ impl Pane {
             active: 0,
             closable: false,
             subscriptions: Vec::new(),
+            titles: HashMap::new(),
             _focus_sub: Some(sub),
         }
     }
@@ -85,6 +90,34 @@ impl Pane {
         self.items
             .iter()
             .position(|e| e.read(cx).path().is_some_and(|p| p == path))
+    }
+
+    /// Index of the tab titled `title` by [`Pane::add_titled_editor`].
+    pub fn position_of_title(&self, title: &str) -> Option<usize> {
+        self.items
+            .iter()
+            .position(|e| self.titles.get(&e.entity_id()).is_some_and(|t| t == title))
+    }
+
+    /// The tab title of `editor`.
+    pub fn title_of(&self, editor: &Entity<Editor>, cx: &App) -> SharedString {
+        self.titles
+            .get(&editor.entity_id())
+            .cloned()
+            .unwrap_or_else(|| editor.read(cx).title())
+    }
+
+    /// Adds an editor shown under `title` (an editor without a file, such
+    /// as a diff) and activates it.
+    pub fn add_titled_editor(
+        &mut self,
+        editor: Entity<Editor>,
+        title: SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.titles.insert(editor.entity_id(), title);
+        self.add_editor(editor, window, cx);
     }
 
     /// Adds `editor` after the active tab and activates it.
@@ -170,6 +203,7 @@ impl Pane {
         let editor = self.items.remove(index);
         self.subscriptions
             .retain(|(id, _)| *id != editor.entity_id());
+        self.titles.remove(&editor.entity_id());
         if self.active > index || self.active >= self.items.len() {
             self.active = self.active.saturating_sub(1);
         }
@@ -188,103 +222,6 @@ impl Pane {
         } else {
             self.close(self.active, window, cx);
         }
-    }
-
-    fn render_tab(
-        &self,
-        index: usize,
-        editor: &Entity<Editor>,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
-        let c = theme(cx).colors.clone();
-        let e = editor.read(cx);
-        let title = e.title();
-        let dirty = e.is_dirty();
-        let tooltip: SharedString = e
-            .path()
-            .map(|p| p.display().to_string().into())
-            .unwrap_or_else(|| title.clone());
-        let active = index == self.active;
-        let (icon_name, icon_color) = file_icon(&title, &c);
-        let group = SharedString::from(format!("tab-{}", editor.entity_id()));
-        let close_button = div()
-            .id(("close-tab", index))
-            .absolute()
-            .inset_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded_sm()
-            .hover(|s| s.bg(c.hover))
-            .when(!active, |el| {
-                el.opacity(0.).group_hover(group.clone(), |s| s.opacity(1.))
-            })
-            .when(dirty, |el| {
-                el.opacity(0.).group_hover(group.clone(), |s| s.opacity(1.))
-            })
-            .child(icon(IconName::X).size(px(12.)).color(c.text_muted))
-            .on_click(cx.listener(move |pane, _, window, cx| {
-                cx.stop_propagation();
-                pane.close(index, window, cx);
-            }));
-        let dirty_dot = div()
-            .absolute()
-            .inset_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .group_hover(group.clone(), |s| s.opacity(0.))
-            .child(div().size(px(8.)).rounded_full().bg(c.accent_alt));
-        div()
-            .id(("tab", index))
-            .group(group)
-            .relative()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap_1p5()
-            .h_full()
-            .pl_3()
-            .pr_1p5()
-            .border_r_1()
-            .border_color(c.border)
-            .cursor_pointer()
-            .bg(if active { c.tab_active } else { c.tab_inactive })
-            .text_color(if active { c.text } else { c.text_muted })
-            .when(!active, |el| el.hover(|s| s.bg(c.hover)))
-            .tooltip(move |_, cx| -> AnyView { Tooltip::text(tooltip.clone(), cx) })
-            .child(icon(icon_name).size(px(14.)).color(icon_color))
-            .child(
-                div()
-                    .max_w(px(220.))
-                    .min_w_0()
-                    .overflow_hidden()
-                    .child(truncated(title)),
-            )
-            .child(
-                div()
-                    .relative()
-                    .size(px(18.))
-                    .flex_none()
-                    .when(dirty, |el| el.child(dirty_dot))
-                    .child(close_button),
-            )
-            .when(active, |el| {
-                el.child(
-                    div()
-                        .absolute()
-                        .left_0()
-                        .right_0()
-                        .bottom_0()
-                        .h(px(2.))
-                        .bg(c.accent),
-                )
-            })
-            .on_mouse_down(
-                MouseButton::Middle,
-                cx.listener(move |pane, _, window, cx| pane.close(index, window, cx)),
-            )
-            .on_click(cx.listener(move |pane, _, window, cx| pane.activate(index, window, cx)))
     }
 
     fn render_empty(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {

@@ -112,6 +112,17 @@ fn empty_query_keeps_lsp_order_preselect_first() {
 }
 
 #[test]
+fn empty_query_orders_equal_sort_text_by_label() {
+    let mut cands: Vec<_> = ["zip", "iter", "len"].map(lsp).to_vec();
+    for c in &mut cands {
+        c.sort_text = Some("7fff".into());
+    }
+    cands.push(word("bbb"));
+    cands.push(word("aaa"));
+    assert_eq!(labels("", &cands), ["iter", "len", "zip", "bbb", "aaa"]);
+}
+
+#[test]
 fn duplicates_merged_keep_best() {
     let mut w = word("render");
     w.kind = CandidateKind::Function;

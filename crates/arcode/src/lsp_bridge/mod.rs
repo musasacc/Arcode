@@ -6,11 +6,14 @@
 //! The manager (and with it every server) is created lazily, the first time
 //! a file whose language has servers is opened.
 
+pub mod completion;
+pub mod completion_convert;
 pub mod convert;
 mod events;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -184,6 +187,12 @@ impl LspBridge {
             let rope = editor.read(cx).buffer().text().clone();
             manager.open_document_lazy(&path, &language_id, lsp_version(version), move || {
                 rope.to_string()
+            });
+        }
+        if synced {
+            let provider = completion::LspCompletionProvider::new(cx.entity().downgrade());
+            editor.update(cx, |e, _| {
+                e.set_completion_provider(Some(Rc::new(provider)))
             });
         }
         let events = cx.subscribe(editor, |bridge, editor, event: &EditorEvent, cx| {

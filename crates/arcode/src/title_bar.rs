@@ -23,7 +23,7 @@ pub fn render(
     let name: SharedString = project
         .map(|p| p.name.clone().into())
         .unwrap_or_else(|| "No Project".into());
-    let branch = project.and_then(|p| p.branch());
+    let branch = ws.branch_label(cx);
     let run_command = project.and_then(|p| p.run_command());
     let menu_open = ws.project_menu_open();
 
@@ -71,10 +71,17 @@ pub fn render(
                     .gap_1()
                     .px_1p5()
                     .min_w_0()
+                    .h(px(26.))
+                    .rounded_md()
+                    .cursor_pointer()
+                    .hover(|s| s.bg(c.hover))
                     .text_color(c.text_muted)
                     .child(icon(IconName::GitBranch).size(px(14.)))
                     .child(div().min_w_0().overflow_hidden().child(truncated(branch)))
-                    .tooltip(|_, cx| -> AnyView { Tooltip::text("Current branch", cx) }),
+                    .tooltip(|_, cx| -> AnyView { Tooltip::text("Switch branch", cx) })
+                    .on_click(|_, window, cx| {
+                        window.dispatch_action(Box::new(crate::actions::SwitchBranch), cx)
+                    }),
             )
         });
 

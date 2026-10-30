@@ -15,6 +15,9 @@ use crate::mouse::HoverState;
 impl Render for Editor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_blink(window, cx);
+        if !self.focus_handle.is_focused(window) {
+            self.completion_blurred(cx);
+        }
         let popover = self.hover.clone().map(|h| hover_popover(&h, cx));
         div()
             .id("editor")
@@ -68,6 +71,10 @@ impl Render for Editor {
             .on_action(cx.listener(Self::move_line_down))
             .on_action(cx.listener(Self::duplicate_line))
             .on_action(cx.listener(Self::save_action))
+            .on_action(cx.listener(|e, _: &crate::ShowCompletions, _, cx| e.show_completions(cx)))
+            .on_action(
+                cx.listener(|e, _: &crate::ShowSignatureHelp, _, cx| e.show_signature_help(cx)),
+            )
             .child(EditorElement::new(cx.entity()))
             .children(popover)
     }

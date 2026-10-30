@@ -7,6 +7,7 @@ use gpui::{App, Hsla, IntoElement, Pixels, RenderOnce, SharedString, Styled, Win
 pub enum IconName {
     ArrowRight,
     Bug,
+    Check,
     ChevronDown,
     ChevronRight,
     CircleAlert,
@@ -25,6 +26,8 @@ pub enum IconName {
     FolderOpen,
     GitBranch,
     GitCommit,
+    GitCompare,
+    GitMerge,
     History,
     Info,
     Keyboard,
@@ -51,6 +54,7 @@ pub enum IconName {
     Trash,
     TriangleAlert,
     Type,
+    Undo,
     X,
 }
 
@@ -60,6 +64,7 @@ impl IconName {
         match self {
             Self::ArrowRight => "icons/arrow-right.svg",
             Self::Bug => "icons/bug.svg",
+            Self::Check => "icons/check.svg",
             Self::ChevronDown => "icons/chevron-down.svg",
             Self::ChevronRight => "icons/chevron-right.svg",
             Self::CircleAlert => "icons/circle-alert.svg",
@@ -78,6 +83,8 @@ impl IconName {
             Self::FolderOpen => "icons/folder-open.svg",
             Self::GitBranch => "icons/git-branch.svg",
             Self::GitCommit => "icons/git-commit-horizontal.svg",
+            Self::GitCompare => "icons/git-compare.svg",
+            Self::GitMerge => "icons/git-merge.svg",
             Self::History => "icons/history.svg",
             Self::Info => "icons/info.svg",
             Self::Keyboard => "icons/keyboard.svg",
@@ -104,6 +111,7 @@ impl IconName {
             Self::Trash => "icons/trash-2.svg",
             Self::TriangleAlert => "icons/triangle-alert.svg",
             Self::Type => "icons/type.svg",
+            Self::Undo => "icons/undo-2.svg",
             Self::X => "icons/x.svg",
         }
     }

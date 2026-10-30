@@ -10,6 +10,7 @@ pub mod bottom_panel;
 pub mod file_icons;
 pub mod finder;
 pub mod fuzzy;
+pub mod git;
 pub mod lsp_bridge;
 pub mod pane;
 pub mod path_prompt;

@@ -29,11 +29,17 @@ pub fn client_capabilities() -> ClientCapabilities {
             "completion": {
                 "completionItem": {
                     "snippetSupport": true,
+                    "commitCharactersSupport": true,
                     "documentationFormat": markup,
+                    "deprecatedSupport": true,
+                    "preselectSupport": true,
+                    "insertReplaceSupport": true,
+                    "labelDetailsSupport": true,
                     "resolveSupport": {
                         "properties": ["documentation", "detail", "additionalTextEdits"]
                     }
                 },
+                "completionItemKind": { "valueSet": (1..=25).collect::<Vec<u32>>() },
                 "contextSupport": true
             },
             "definition": { "linkSupport": true },
@@ -57,8 +63,10 @@ pub fn client_capabilities() -> ClientCapabilities {
             "signatureHelp": {
                 "signatureInformation": {
                     "documentationFormat": markup,
-                    "parameterInformation": { "labelOffsetSupport": true }
-                }
+                    "parameterInformation": { "labelOffsetSupport": true },
+                    "activeParameterSupport": true
+                },
+                "contextSupport": true
             },
             "documentSymbol": { "hierarchicalDocumentSymbolSupport": true }
         },
@@ -121,7 +129,17 @@ mod tests {
             .as_ref()
             .unwrap();
         assert_eq!(item.snippet_support, Some(true));
+        assert_eq!(item.insert_replace_support, Some(true));
+        assert_eq!(item.commit_characters_support, Some(true));
         assert!(item.resolve_support.is_some());
+        let completion = td.completion.as_ref().unwrap();
+        assert_eq!(completion.context_support, Some(true));
+        let kinds = completion.completion_item_kind.as_ref().unwrap();
+        assert_eq!(kinds.value_set.as_ref().map(Vec::len), Some(25));
+        let signature = td.signature_help.as_ref().unwrap();
+        assert_eq!(signature.context_support, Some(true));
+        let info = signature.signature_information.as_ref().unwrap();
+        assert_eq!(info.active_parameter_support, Some(true));
         assert!(td.definition.is_some());
         assert!(td.references.is_some());
         assert_eq!(td.rename.as_ref().unwrap().prepare_support, Some(true));

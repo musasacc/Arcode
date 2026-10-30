@@ -23,7 +23,7 @@ that is not drawing lives in small, UI-agnostic crates with their own tests.
 | `arcode-lsp`           | no  | JSON-RPC over stdio, one tokio task per server, server registry, merged diagnostics |
 | `arcode-terminal`      | no  | PTY + VT emulation (alacritty_terminal), grid snapshots, key encoding |
 | `arcode-config`        | no  | TOML config, themes (TOML), fonts, persisted state (recent projects, session) |
-| `arcode-git`           | no  | local git (branch, later diff/blame/stage) via the `git` CLI / `.git` files; never fetches |
+| `arcode-git`           | no  | local git (branch, status, diff, blame, stage/unstage hunks, commit, conflicts) via the `git` CLI / `.git` files; never fetches |
 | `arcode-editor`        | yes | `EditorView`: GPUI element that renders an `arcode-buffer` with highlights, diagnostics, cursor |
 | `arcode-terminal-view` | yes | `TerminalView`: GPUI view rendering an `arcode-terminal` grid and forwarding input |
 | `arcode`               | yes | the app binary: workspace shell (title bar, activity bar, sidebar, panes, panels, status bar), welcome screen, wiring |
@@ -118,6 +118,79 @@ extension_points` shows all of them in one window.
   `text_in_range`, `word_at`, `point_to_lsp` /
   `lsp_to_point`, `point_to_offset` / `offset_to_point` and
   `position_for_point` (window position, e.g. to place custom UI).
+
+## Completion and signature help
+
+`arcode_editor::completion` owns the popup; the editor knows nothing about
+LSP. A `CompletionProvider` (the app's `lsp_bridge::completion`) answers
+completions, `completionItem/resolve` and signature help with plain editor
+types (`CompletionItem` in buffer `Point`s). Local sources are merged in:
+words of every open buffer (only when the provider has no items or there
+is none; each editor keeps an incremental `WordIndex`, built lazily and not
+at all above 2 MB), file names inside string literals that start like a
+path (listed on the background executor) and snippets (built-in plus the
+user's `snippets.toml`, loaded in the background and reloaded when saved in
+an editor). Everything is ranked with `arcode_completion::Ranker`.
+
+- **Never blocking.** Typing schedules a request after
+  `editor.completion.delay_ms` from a task, so the bridge has already
+  queued the keystroke's `didChange`. Each request has a sequence number;
+  a newer one replaces the task (dropping the older one) and answers for
+  anything but the latest are ignored. While a newer list loads, the old
+  one stays shown and is re-filtered locally, so the popup does not
+  flicker. Complete lists are only filtered as you type; incomplete ones
+  are asked again (`TriggerForIncompleteCompletions`).
+- **Session.** A list is anchored at the start of the completed word (or
+  file name, or snippet placeholder for choices). Any cursor move or edit
+  re-filters it; leaving the word closes it. Several cursors or a
+  selection disable it.
+- **Accepting** applies the item's `textEdit` (insert or, with
+  Shift+Enter, replace range, extended by what was typed since the answer)
+  plus `additionalTextEdits` as one undo step; snippets go through the
+  snippet session. Items the server must resolve first get their
+  additional edits applied when the resolve answer arrives, if they lie
+  above the accepted line. `editor.action.triggerParameterHints` and
+  `editor.action.triggerSuggest` commands are run by the editor.
+- **Keys** come through the popover's `on_key`: up/down/page, Enter/Tab,
+  Escape, and commit characters (accept, then type the character).
+- **Popovers flip.** The editor measures each popover and opens it on the
+  other side of its line when it does not fit (completion below, signature
+  help above), and shifts it left to stay inside the window.
+
+## Git
+
+`arcode-git` wraps the `git` CLI with network access disabled; the app
+never fetches, pulls or pushes. In the app (`crates/arcode/src/git/`):
+
+- `GitStore` (one per workspace) finds the repositories of the project:
+  the one containing the root plus repositories in sub-folders up to three
+  levels deep (`discover_repos`). It keeps the status of the active one
+  (the Source Control view follows the active editor's repository) and
+  runs every operation on the background executor (`GitStore::run`).
+  Nothing is created on open: a folder without git shows an
+  "Initialize Repository" button that runs `git init` only when clicked.
+- Watching is event driven (`notify`: inotify, FSEvents,
+  ReadDirectoryChangesW). On Linux each non-ignored folder gets its own
+  watch so `target/` and `node_modules/` cost nothing; elsewhere the root
+  is watched recursively. Changes under a git directory (index, `HEAD`,
+  refs, merge state) re-run status and make editors recompute their
+  gutter and blame; worktree changes re-run status. Events are coalesced
+  for 250 ms. Our own reads never write the index (`GIT_OPTIONAL_LOCKS=0`),
+  so they cannot trigger themselves.
+- `GitEditors` decorates editors through the extension points: change bars
+  (set `"git"`, index against the buffer plus staged hunks mapped into
+  buffer lines by `gutter_hunks`), recomputed 300 ms after the last edit;
+  a popover on click with the old text and Stage / Unstage / Revert hunk
+  (revert is an editor edit, so it is undoable); inline blame of the
+  cursor line after `git.inline_blame_delay_ms` (set `"git-blame"`); the
+  blame column toggled by "Git: Toggle Blame" (inline virtual text at
+  column 0, set `"git-blame-column"`); merge conflict regions (set
+  `"git-conflict"`) with Accept Current | Accept Incoming | Accept Both |
+  Compare lenses, a counter in the status bar and next / previous
+  conflict commands. Blame is cached per buffer version.
+- Diff tabs are read-only editors without a path (so they can never be
+  saved over a file) showing an inline diff (`inline_diff`), with a custom
+  tab title kept by the pane.
 
 ## Large files
 

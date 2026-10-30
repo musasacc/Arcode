@@ -13,6 +13,7 @@ use gpui::{
 };
 
 use crate::api::ScrollAnchor;
+use crate::completion::CompletionState;
 use crate::diagnostics::{EditorDiagnostic, adjust_for_edit};
 use crate::ext::{ExtState, GutterLane};
 use crate::layout::LayoutSnapshot;
@@ -113,6 +114,8 @@ pub struct Editor {
     pub(crate) ext: ExtState,
     /// The active snippet, if any.
     pub(crate) snippet: Option<SnippetSession>,
+    /// Completion list, signature help and their sources.
+    pub(crate) completion: CompletionState,
 }
 
 impl EventEmitter<EditorEvent> for Editor {}
@@ -159,7 +162,9 @@ impl Editor {
             large_file: false,
             ext: ExtState::default(),
             snippet: None,
+            completion: CompletionState::default(),
         };
+        crate::completion::register_editor(cx.entity().downgrade(), cx);
         editor.init_syntax(cx);
         editor
     }
@@ -212,6 +217,12 @@ impl Editor {
     /// Writes the buffer to its path and emits [`EditorEvent::Saved`].
     pub fn save(&mut self, cx: &mut Context<Self>) -> std::io::Result<()> {
         self.buffer.save()?;
+        if self
+            .path()
+            .is_some_and(crate::completion::snippets::is_snippets_file)
+        {
+            crate::completion::reload_user_snippets(cx);
+        }
         cx.emit(EditorEvent::Saved);
         self.check_dirty(cx);
         cx.notify();
@@ -282,6 +293,8 @@ impl Editor {
     pub(crate) fn selections_changed(&mut self, cx: &mut Context<Self>) {
         self.marked = None;
         self.snippet_check_cursor();
+        self.completion_sync(cx);
+        self.signature_refresh(cx);
         self.autoscroll.get_or_insert(Autoscroll::Fit);
         self.reset_blink(cx);
         cx.emit(EditorEvent::SelectionsChanged);
@@ -323,6 +336,9 @@ impl Editor {
             adjust_for_edit(&mut self.diagnostics, e);
             self.ext.adjust_for_edit(e);
         }
+        self.words_after_edits(&edits);
+        self.completion_sync(cx);
+        self.signature_refresh(cx);
         self.hover = None;
         let version = self.buffer.version();
         cx.emit(EditorEvent::Edited { edits, version });

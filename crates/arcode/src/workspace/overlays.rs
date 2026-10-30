@@ -193,6 +193,21 @@ impl Workspace {
                 .child(fade_in("finder-anim", panel, cx)),
             );
         }
+        if let Some(picker) = &self.branch_picker {
+            let panel = div()
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(picker.clone());
+            root = root.child(
+                self.backdrop("branch-backdrop", cx, |ws, window, cx| {
+                    ws.close_branch_picker(window, cx)
+                })
+                .bg(c.background.opacity(0.35))
+                .flex()
+                .justify_center()
+                .pt(px(TITLE_BAR_HEIGHT + 8.))
+                .child(fade_in("branch-anim", panel, cx)),
+            );
+        }
         if let Some(prompt) = &self.path_prompt {
             let panel = div()
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

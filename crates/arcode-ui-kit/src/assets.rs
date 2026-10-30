@@ -15,6 +15,7 @@ macro_rules! embedded {
 static FILES: &[(&str, &[u8])] = embedded![
     "icons/arrow-right.svg",
     "icons/bug.svg",
+    "icons/check.svg",
     "icons/chevron-down.svg",
     "icons/chevron-right.svg",
     "icons/circle-alert.svg",
@@ -33,6 +34,8 @@ static FILES: &[(&str, &[u8])] = embedded![
     "icons/folder.svg",
     "icons/git-branch.svg",
     "icons/git-commit-horizontal.svg",
+    "icons/git-compare.svg",
+    "icons/git-merge.svg",
     "icons/history.svg",
     "icons/info.svg",
     "icons/keyboard.svg",
@@ -59,6 +62,7 @@ static FILES: &[(&str, &[u8])] = embedded![
     "icons/trash-2.svg",
     "icons/triangle-alert.svg",
     "icons/type.svg",
+    "icons/undo-2.svg",
     "icons/x.svg",
 ];
 
