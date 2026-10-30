@@ -1,0 +1,9 @@
+[package]
+name = "arcode-plugin-api"
+description = "Arcode plugin API: WIT definitions and the guest SDK for plugin authors."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
