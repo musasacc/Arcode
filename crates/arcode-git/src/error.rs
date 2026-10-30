@@ -96,14 +96,14 @@ impl std::error::Error for GitError {
 }
 
 impl GitError {
-    /// Maps an error from spawning git in `workdir`. `NotFound` means git is
-    /// missing only when the working directory exists: spawn reports a
-    /// missing `current_dir` with the same kind.
+    /// Maps an error from spawning git in `workdir`. A missing `current_dir`
+    /// is checked first: Unix reports it as `NotFound` (the same kind as a
+    /// missing git binary), Windows as an invalid-directory error.
     pub(crate) fn from_spawn(err: io::Error, workdir: &Path) -> Self {
+        if !workdir.is_dir() {
+            return Self::WorkdirMissing(workdir.to_path_buf());
+        }
         match err.kind() {
-            io::ErrorKind::NotFound if !workdir.is_dir() => {
-                Self::WorkdirMissing(workdir.to_path_buf())
-            }
             io::ErrorKind::NotFound => Self::GitNotFound,
             _ => Self::Io(err),
         }
