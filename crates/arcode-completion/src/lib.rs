@@ -35,7 +35,7 @@ pub use paths::{
 };
 pub use rank::{RankedCandidate, Ranker, merge_duplicates, rank};
 pub use snippet::{
-    ExpandedSnippet, Snippet, SnippetDef, SnippetLibrary, SnippetSession, Tabstop,
-    VariableContext, expand, load_snippets, snippets_for,
+    ExpandedSnippet, Snippet, SnippetDef, SnippetLibrary, SnippetSession, Tabstop, VariableContext,
+    expand, load_snippets, snippets_for,
 };
 pub use words::{MAX_WORD_LEN, MIN_WORD_LEN, WordIndex, word_at, words_in};

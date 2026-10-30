@@ -4,11 +4,12 @@ use std::path::PathBuf;
 
 use gpui::{AppContext, Context, Focusable, PathPromptOptions, PromptLevel, Window};
 
-use super::{Resize, Workspace};
+use super::{FolderCallback, Resize, Workspace};
 use crate::actions::*;
 use crate::app_state;
 use crate::bottom_panel::BottomTab;
 use crate::finder::{Finder, FinderEvent};
+use crate::path_prompt::{PathPrompt, PathPromptEvent};
 use crate::project;
 
 impl Workspace {
@@ -21,7 +22,10 @@ impl Workspace {
                 .upgrade()
                 .map(|ws| {
                     let ws = ws.read(cx);
-                    ws.editors(cx).iter().filter(|e| e.read(cx).is_dirty()).count()
+                    ws.editors(cx)
+                        .iter()
+                        .filter(|e| e.read(cx).is_dirty())
+                        .count()
                 })
                 .unwrap_or(0);
             app_state::record_window(window, cx);
@@ -55,8 +59,12 @@ impl Workspace {
             .on_action(cx.listener(Self::toggle_bottom_panel))
             .on_action(cx.listener(Self::toggle_sidebar))
             .on_action(cx.listener(|ws, _: &SplitRight, window, cx| ws.split_right(window, cx)))
-            .on_action(cx.listener(|ws, _: &OpenFolder, window, cx| ws.prompt_open_folder(window, cx)))
-            .on_action(cx.listener(|ws, _: &NewProject, window, cx| ws.prompt_new_project(window, cx)))
+            .on_action(
+                cx.listener(|ws, _: &OpenFolder, window, cx| ws.prompt_open_folder(window, cx)),
+            )
+            .on_action(
+                cx.listener(|ws, _: &NewProject, window, cx| ws.prompt_new_project(window, cx)),
+            )
             .on_action(cx.listener(|ws, _: &CloseProject, window, cx| ws.close_project(window, cx)))
             .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::run_project))
@@ -77,16 +85,19 @@ impl Workspace {
         let files = self.project_files.clone();
         let loading = self.files_loading || files.is_empty();
         let finder = cx.new(|cx| Finder::new(root, files, loading, cx));
-        let sub = cx.subscribe_in(&finder, window, |ws, _, event: &FinderEvent, window, cx| {
-            match event {
-                FinderEvent::Open(path) => {
-                    let path = path.clone();
-                    ws.finder = None;
-                    ws.open_file(&path, window, cx);
-                }
-                FinderEvent::Dismissed => ws.close_finder(window, cx),
-            }
-        });
+        let sub =
+            cx.subscribe_in(
+                &finder,
+                window,
+                |ws, _, event: &FinderEvent, window, cx| match event {
+                    FinderEvent::Open(path) => {
+                        let path = path.clone();
+                        ws.finder = None;
+                        ws.open_file(&path, window, cx);
+                    }
+                    FinderEvent::Dismissed => ws.close_finder(window, cx),
+                },
+            );
         self._subscriptions.push(sub);
         window.focus(&finder.focus_handle(cx));
         self.finder = Some(finder);
@@ -103,11 +114,21 @@ impl Workspace {
         }
     }
 
-    fn toggle_bottom_panel(&mut self, _: &ToggleBottomPanel, window: &mut Window, cx: &mut Context<Self>) {
+    fn toggle_bottom_panel(
+        &mut self,
+        _: &ToggleBottomPanel,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.bottom_panel_visible = !self.bottom_panel_visible;
         if self.bottom_panel_visible {
-            self.bottom_panel.read(cx).focus(window);
-        } else if self.bottom_panel.focus_handle(cx).contains_focused(window, cx) {
+            self.bottom_panel
+                .update(cx, |panel, cx| panel.focus(window, cx));
+        } else if self
+            .bottom_panel
+            .focus_handle(cx)
+            .contains_focused(window, cx)
+        {
             self.active_pane().read(cx).focus(window, cx);
         }
         cx.notify();
@@ -119,7 +140,11 @@ impl Workspace {
     }
 
     /// Selects an activity; clicking the active one hides the sidebar.
-    pub(super) fn select_activity(&mut self, activity: crate::activity_bar::Activity, cx: &mut Context<Self>) {
+    pub(super) fn select_activity(
+        &mut self,
+        activity: crate::activity_bar::Activity,
+        cx: &mut Context<Self>,
+    ) {
         if self.sidebar_visible && self.activity == activity {
             self.sidebar_visible = false;
         } else {
@@ -143,40 +168,79 @@ impl Workspace {
             multiple: false,
             prompt: Some(prompt.into()),
         });
-        cx.spawn_in(window, async move |this, cx| {
-            let chosen = match paths.await {
-                Ok(Ok(Some(paths))) => paths.into_iter().next(),
-                Ok(Ok(None)) | Err(_) => None,
-                Ok(Err(err)) => {
-                    log::error!("folder picker failed: {err:#}");
-                    this.update(cx, |ws, cx| {
-                        ws.show_toast(format!("Could not open the folder picker: {err}"), cx)
-                    })
-                    .ok();
-                    None
+        cx.spawn_in(window, async move |this, cx| match paths.await {
+            Ok(Ok(Some(paths))) => {
+                if let Some(path) = paths.into_iter().next() {
+                    this.update_in(cx, |ws, window, cx| then(ws, path, window, cx))
+                        .ok();
                 }
-            };
-            if let Some(path) = chosen {
-                this.update_in(cx, |ws, window, cx| then(ws, path, window, cx)).ok();
+            }
+            Ok(Ok(None)) | Err(_) => {}
+            Ok(Err(err)) => {
+                log::warn!("folder picker unavailable, asking for a path: {err:#}");
+                this.update_in(cx, |ws, window, cx| {
+                    ws.show_path_prompt(prompt, Box::new(then), window, cx)
+                })
+                .ok();
             }
         })
         .detach();
         cx.notify();
     }
 
+    /// Shows the in-app folder path dialog (fallback for the system picker).
+    fn show_path_prompt(
+        &mut self,
+        title: &'static str,
+        then: FolderCallback,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let initial = self
+            .project
+            .as_ref()
+            .and_then(|p| p.root.parent().map(|d| d.display().to_string()))
+            .or_else(|| std::env::var("HOME").ok())
+            .unwrap_or_default();
+        let initial = format!("{}/", initial.trim_end_matches('/'));
+        let prompt = cx.new(|cx| PathPrompt::new(title, &initial, cx));
+        let sub = cx.subscribe_in(
+            &prompt,
+            window,
+            |ws, _, event: &PathPromptEvent, window, cx| {
+                ws.path_prompt = None;
+                let then = ws.path_prompt_then.take();
+                if let (PathPromptEvent::Confirmed(path), Some(then)) = (event, then) {
+                    then(ws, path.clone(), window, cx);
+                } else {
+                    ws.active_pane().read(cx).focus(window, cx);
+                }
+                cx.notify();
+            },
+        );
+        self._subscriptions.push(sub);
+        window.focus(&prompt.focus_handle(cx));
+        self.path_prompt = Some(prompt);
+        self.path_prompt_then = Some(then);
+        cx.notify();
+    }
+
     pub(crate) fn prompt_open_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.prompt_folder("Open", window, cx, |ws, path, window, cx| {
+        self.prompt_folder("Open Folder", window, cx, |ws, path, window, cx| {
             ws.open_project(path, window, cx)
         });
     }
 
     pub(crate) fn prompt_new_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.prompt_folder("Create Project Here", window, cx, |ws, parent, window, cx| {
-            match project::create_project_dir(&parent) {
+        self.prompt_folder(
+            "Create Project Here",
+            window,
+            cx,
+            |ws, parent, window, cx| match project::create_project_dir(&parent) {
                 Ok(dir) => ws.open_project(dir, window, cx),
                 Err(err) => ws.show_toast(format!("Cannot create project: {err}"), cx),
-            }
-        });
+            },
+        );
     }
 
     fn open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
@@ -202,8 +266,7 @@ impl Workspace {
         };
         self.bottom_panel_visible = true;
         self.bottom_panel
-            .update(cx, |panel, cx| panel.run_command(command, cx));
-        self.bottom_panel.read(cx).focus(window);
+            .update(cx, |panel, cx| panel.run_command(command, window, cx));
         cx.notify();
     }
 
@@ -211,13 +274,16 @@ impl Workspace {
         self.bottom_panel_visible = true;
         self.bottom_panel.update(cx, |panel, cx| {
             panel.set_active_tab(BottomTab::Terminal, cx);
-            panel.focus(window);
+            panel.focus(window, cx);
         });
         cx.notify();
     }
 
     fn new_terminal(&mut self, _: &NewTerminal, window: &mut Window, cx: &mut Context<Self>) {
-        self.focus_terminal(&FocusTerminal, window, cx);
+        self.bottom_panel_visible = true;
+        self.bottom_panel
+            .update(cx, |panel, cx| panel.new_terminal(window, cx));
+        cx.notify();
     }
 
     /// Starts resizing the sidebar or bottom panel with the mouse.

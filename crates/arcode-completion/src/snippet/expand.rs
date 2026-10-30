@@ -82,7 +82,7 @@ impl Snippet {
         } else {
             tabstops.push(Tabstop {
                 index: 0,
-                ranges: vec![end..end],
+                ranges: std::iter::once(end..end).collect(),
                 choices: None,
             });
         }
@@ -269,7 +269,8 @@ impl<'a> Renderer<'a, '_> {
                 }
                 Node::Choice { index, options } => {
                     if is_def_choice(self.defs.get(index), options) {
-                        self.out.push_str(options.first().map_or("", String::as_str));
+                        self.out
+                            .push_str(options.first().map_or("", String::as_str));
                         self.choices.insert(*index, options.clone());
                     } else {
                         let text = self.raw_text(*index);

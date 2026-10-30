@@ -130,7 +130,12 @@ impl StatusBar {
     }
 
     /// Sets the project-wide diagnostic counts.
-    pub fn set_diagnostic_counts(&mut self, errors: usize, warnings: usize, cx: &mut Context<Self>) {
+    pub fn set_diagnostic_counts(
+        &mut self,
+        errors: usize,
+        warnings: usize,
+        cx: &mut Context<Self>,
+    ) {
         let info = StatusInfo {
             errors,
             warnings,
@@ -150,7 +155,13 @@ pub fn cursor_label(line: usize, column: usize) -> String {
 }
 
 fn item(content: impl IntoElement) -> gpui::Div {
-    div().flex().items_center().gap_1().px_2().h_full().child(content)
+    div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .px_2()
+        .h_full()
+        .child(content)
 }
 
 impl Render for StatusBar {
@@ -160,32 +171,43 @@ impl Render for StatusBar {
         let perf = settings(cx).ui.show_perf_stats;
         let ready = cx.try_global::<Startup>().and_then(|s| s.ready);
         let icon_size = px(12.);
-        let left = div()
-            .flex()
-            .items_center()
-            .h_full()
-            .min_w_0()
-            .when_some(info.branch.clone(), |el, branch| {
-                el.child(
-                    item(icon(IconName::GitBranch).size(icon_size).color(c.text_muted))
+        let left =
+            div()
+                .flex()
+                .items_center()
+                .h_full()
+                .min_w_0()
+                .when_some(info.branch.clone(), |el, branch| {
+                    el.child(
+                        item(
+                            icon(IconName::GitBranch)
+                                .size(icon_size)
+                                .color(c.text_muted),
+                        )
                         .child(branch),
-                )
-            })
-            .child(
-                item(icon(IconName::CircleX).size(icon_size).color(if info.errors > 0 {
-                    c.error
-                } else {
-                    c.text_muted
-                }))
-                .id("status-errors")
-                .child(info.errors.to_string())
+                    )
+                })
                 .child(
-                    icon(IconName::TriangleAlert)
-                        .size(icon_size)
-                        .color(if info.warnings > 0 { c.warning } else { c.text_muted }),
-                )
-                .child(info.warnings.to_string()),
-            );
+                    item(
+                        icon(IconName::CircleX)
+                            .size(icon_size)
+                            .color(if info.errors > 0 {
+                                c.error
+                            } else {
+                                c.text_muted
+                            }),
+                    )
+                    .id("status-errors")
+                    .child(info.errors.to_string())
+                    .child(icon(IconName::TriangleAlert).size(icon_size).color(
+                        if info.warnings > 0 {
+                            c.warning
+                        } else {
+                            c.text_muted
+                        },
+                    ))
+                    .child(info.warnings.to_string()),
+                );
         let right = div()
             .flex()
             .items_center()

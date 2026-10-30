@@ -217,40 +217,49 @@ impl Core {
         self.events.send(DebugEvent::AdapterLog(line));
     }
 
-    /// Ends the generation with [`DebugEvent::AdapterFailed`] (once) and
-    /// kills the adapter.
-    pub(crate) async fn fail(&self, generation: u64, message: String) {
-        self.wait_logs(generation).await;
-        let conn = {
+    /// Ends `generation` once: phase `Ended`, state `Terminated`, then
+    /// `event` (built from the adapter's recent log lines), so the UI sees
+    /// a consistent handle when the event arrives. Returns the connection
+    /// to dispose of; `None` if the generation already ended or is stale.
+    pub(crate) fn end_generation(
+        &self,
+        generation: u64,
+        reason: String,
+        event: impl FnOnce(&VecDeque<String>) -> DebugEvent,
+    ) -> Option<Option<Arc<Connection>>> {
+        let (event, conn) = {
             let mut data = self.lock();
             if data.generation != generation || data.ended {
-                return;
+                return None;
             }
             data.ended = true;
-            let message = with_tail(message, &data.log_tail);
-            log::warn!("debug session failed: {message}");
-            self.events.send(DebugEvent::AdapterFailed(message.clone()));
-            self.phase.send_replace(Phase::Ended(message));
-            data.conn.take()
+            self.phase.send_replace(Phase::Ended(reason));
+            (event(&data.log_tail), data.conn.take())
         };
         self.set_state(generation, SessionState::Terminated);
-        if let Some(conn) = conn {
+        self.events.send(event);
+        Some(conn)
+    }
+
+    /// Ends the generation with [`DebugEvent::AdapterFailed`] (once, after
+    /// waiting briefly for the adapter's last log lines) and kills it.
+    pub(crate) async fn fail(&self, generation: u64, message: String) {
+        self.wait_logs(generation).await;
+        let ended = self.end_generation(generation, message.clone(), |tail| {
+            let message = with_tail(message, tail);
+            log::warn!("debug session failed: {message}");
+            DebugEvent::AdapterFailed(message)
+        });
+        if let Some(Some(conn)) = ended {
             conn.kill("session failed");
         }
     }
 
     /// Synchronous failure report (no log draining, no runtime needed).
     pub(crate) fn fail_now(&self, generation: u64, message: String) {
-        {
-            let mut data = self.lock();
-            if data.generation != generation || data.ended {
-                return;
-            }
-            data.ended = true;
-            self.events.send(DebugEvent::AdapterFailed(message.clone()));
-            self.phase.send_replace(Phase::Ended(message));
-        }
-        self.set_state(generation, SessionState::Terminated);
+        self.end_generation(generation, message.clone(), |_| {
+            DebugEvent::AdapterFailed(message)
+        });
     }
 
     /// The connection of `generation` closed.
@@ -260,16 +269,9 @@ impl Core {
         if starting && !stopping {
             return self.fail(generation, reason).await;
         }
-        {
-            let mut data = self.lock();
-            if data.generation != generation || data.ended {
-                return;
-            }
-            data.ended = true;
-            self.events.send(DebugEvent::AdapterExited(reason.clone()));
-            self.phase.send_replace(Phase::Ended(reason));
-        }
-        self.set_state(generation, SessionState::Terminated);
+        self.end_generation(generation, reason.clone(), |_| {
+            DebugEvent::AdapterExited(reason)
+        });
     }
 
     /// Waits briefly for the adapter's log streams to reach EOF.

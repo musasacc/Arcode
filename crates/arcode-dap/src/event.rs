@@ -122,7 +122,9 @@ struct Responder {
 impl Responder {
     fn answer(&self, result: std::result::Result<RunInTerminalResponseBody, String>) -> Result<()> {
         if self.answered.swap(true, Ordering::SeqCst) {
-            return Err(DapError::Protocol("runInTerminal was already answered".into()));
+            return Err(DapError::Protocol(
+                "runInTerminal was already answered".into(),
+            ));
         }
         let conn = self
             .conn

@@ -1,0 +1,42 @@
+# Fixture manifest: declares everything the echo guest touches.
+[plugin]
+id = "test.echo"
+name = "Echo"
+version = "0.1.0"
+api = "0.1"
+entry = "plugin.wasm"
+description = "Round-trips every WIT type"
+
+[capabilities]
+workspace = "read"
+editor = "context"
+editor-write = true
+network = { hosts = ["127.0.0.1"] }
+
+[[contributes.languages]]
+id = "echo"
+name = "Echo"
+extensions = ["echo"]
+
+[[contributes.commands]]
+id = "echo"
+title = "Echo: Echo"
+
+[[contributes.code-lenses]]
+languages = ["echo"]
+
+[[contributes.openers]]
+id = "echo-file"
+patterns = ["*.echo-view"]
+title = "Echo View"
+
+[[contributes.panels]]
+id = "main"
+title = "Echo"
+location = "bottom"
+icon = "terminal"
+
+[[contributes.settings]]
+key = "greeting"
+type = "string"
+default = "hello"

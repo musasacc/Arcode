@@ -9,5 +9,3 @@ publish = false
 [dependencies]
 arcode-buffer.workspace = true
 
-[dev-dependencies]
-tempfile.workspace = true

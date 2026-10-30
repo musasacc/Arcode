@@ -41,12 +41,22 @@ async fn start(
     streams: Option<(BoxReader, BoxWriter)>,
 ) -> Result<()> {
     let conn = connect(core, generation, streams).await?;
-    let (adapter_id, request, arguments) = {
+    let (adapter_id, request, arguments, configure_first) = {
         let data = core.lock();
         let c = &data.config;
-        (c.adapter.adapter_id.clone(), c.request, c.arguments.clone())
+        let a = &c.adapter;
+        (
+            a.adapter_id.clone(),
+            c.request,
+            c.arguments.clone(),
+            a.configure_before_launch,
+        )
     };
 
+    // Registered before `initialize`: adapters may send `initialized`
+    // right behind the response.
+    let (init_tx, mut init_rx) = oneshot::channel();
+    core.lock().initialized_tx = Some(init_tx);
     let init = serde_json::to_value(InitializeRequestArguments::new(adapter_id))?;
     let body = conn
         .request("initialize", Some(init), Some(INITIALIZE_TIMEOUT))
@@ -65,43 +75,58 @@ async fn start(
     core.events.send(DebugEvent::Capabilities(caps));
     core.set_phase(generation, Phase::Ready(conn.clone()));
 
-    // `launch` is answered by some adapters (debugpy) only after
-    // `configurationDone`, so it is not awaited before configuring.
-    let (init_tx, mut init_rx) = oneshot::channel();
-    core.lock().initialized_tx = Some(init_tx);
-    let launch = conn.request(request.command(), Some(arguments), None);
-    tokio::pin!(launch);
-    let mut launch_result = None;
-    // `launch` also resolves (with an error) if the adapter dies.
-    tokio::select! {
-        r = &mut init_rx => {
-            if r.is_err() {
-                return Err(DapError::SessionEnded("superseded by restart".into()));
+    if configure_first {
+        // Quirk: the adapter acts on `launch` at once (gdb ≤ 15 runs the
+        // program), so configure first and launch last.
+        wait_initialized(core, &mut init_rx).await?;
+        configure(core, generation, &conn).await?;
+        core.set_phase(generation, Phase::Configured(conn.clone()));
+        conn.request(request.command(), Some(arguments), None)
+            .await?;
+    } else {
+        // `launch` is answered by some adapters (debugpy) only after
+        // `configurationDone`, so it is not awaited before configuring.
+        // It also resolves (with an error) if the adapter dies.
+        let launch = conn.request(request.command(), Some(arguments), None);
+        tokio::pin!(launch);
+        let mut launched = false;
+        tokio::select! {
+            r = &mut init_rx => {
+                r.map_err(|_| superseded())?;
+                core.events.send(DebugEvent::Initialized);
+            }
+            r = &mut launch => {
+                r?;
+                launched = true;
+                wait_initialized(core, &mut init_rx).await?;
             }
         }
-        r = &mut launch => launch_result = Some(r),
-    }
-    if let Some(Err(e)) = launch_result {
-        return Err(e);
-    }
-    if launch_result.is_some()
-        && tokio::time::timeout(INITIALIZED_GRACE, &mut init_rx)
-            .await
-            .is_err()
-    {
-        log::warn!("adapter sent no `initialized` event; configuring anyway");
-    }
-
-    configure(core, generation, &conn).await?;
-    core.set_phase(generation, Phase::Configured(conn.clone()));
-    if launch_result.is_none() {
-        launch.await?;
+        configure(core, generation, &conn).await?;
+        core.set_phase(generation, Phase::Configured(conn.clone()));
+        if !launched {
+            launch.await?;
+        }
     }
     core.transition(
         generation,
         |s| *s == SessionState::Initializing,
         SessionState::Running,
     );
+    Ok(())
+}
+
+fn superseded() -> DapError {
+    DapError::SessionEnded("superseded by restart".into())
+}
+
+/// Waits up to [`INITIALIZED_GRACE`] for the `initialized` event; after
+/// that configuration is sent anyway.
+async fn wait_initialized(core: &Core, init_rx: &mut oneshot::Receiver<()>) -> Result<()> {
+    match tokio::time::timeout(INITIALIZED_GRACE, init_rx).await {
+        Ok(Ok(())) => core.events.send(DebugEvent::Initialized),
+        Ok(Err(_)) => return Err(superseded()),
+        Err(_) => log::warn!("adapter sent no `initialized` event; configuring anyway"),
+    }
     Ok(())
 }
 
@@ -141,7 +166,9 @@ async fn connect(
         let mut data = core.lock();
         if data.generation != generation || data.stopping {
             conn.kill("session stopped while starting");
-            return Err(DapError::SessionEnded("session stopped while starting".into()));
+            return Err(DapError::SessionEnded(
+                "session stopped while starting".into(),
+            ));
         }
         data.conn = Some(conn.clone());
         data.logs_done = Some(done_rx);
@@ -156,7 +183,11 @@ async fn connect(
 }
 
 /// Sends breakpoints, exception filters and `configurationDone`.
-pub(crate) async fn configure(core: &Arc<Core>, generation: u64, conn: &Arc<Connection>) -> Result<()> {
+pub(crate) async fn configure(
+    core: &Arc<Core>,
+    generation: u64,
+    conn: &Arc<Connection>,
+) -> Result<()> {
     let (breakpoints, functions, filters, caps) = {
         let data = core.lock();
         let c = &data.config;

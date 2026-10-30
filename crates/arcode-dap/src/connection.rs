@@ -284,8 +284,11 @@ where
     conn.terminate(reason);
 }
 
-async fn write_loop<W>(conn: Arc<Connection>, mut rx: mpsc::UnboundedReceiver<String>, mut writer: W)
-where
+async fn write_loop<W>(
+    conn: Arc<Connection>,
+    mut rx: mpsc::UnboundedReceiver<String>,
+    mut writer: W,
+) where
     W: AsyncWrite + Unpin + Send,
 {
     let closed = conn.closed();

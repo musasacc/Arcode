@@ -199,7 +199,10 @@ mod tests {
         assert_eq!(ctx.resolve("TM_FILENAME_BASE").as_deref(), Some("main"));
         assert_eq!(ctx.resolve("TM_LINE_NUMBER").as_deref(), Some("5"));
         assert_eq!(ctx.resolve("TM_LINE_INDEX").as_deref(), Some("4"));
-        assert!(ctx.resolve("TM_DIRECTORY").is_some_and(|d| d.ends_with('b')));
+        assert!(
+            ctx.resolve("TM_DIRECTORY")
+                .is_some_and(|d| d.ends_with('b'))
+        );
         assert_eq!(ctx.resolve("NOPE"), None);
         assert_eq!(ctx.resolve("CLIPBOARD").as_deref(), Some(""));
     }

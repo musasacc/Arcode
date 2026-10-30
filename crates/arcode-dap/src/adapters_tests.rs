@@ -71,11 +71,27 @@ fn delve_listens_on_a_local_port() {
         panic!("delve should use TCP");
     };
     assert_eq!(cmd.args, ["dap", "--listen=127.0.0.1:{port}"]);
-    assert_eq!(KnownAdapter::Delve.launch_arguments(&options())["mode"], "debug");
+    assert_eq!(
+        KnownAdapter::Delve.launch_arguments(&options())["mode"],
+        "debug"
+    );
+}
+
+#[test]
+fn empty_env_is_omitted() {
+    let opts = LaunchOptions {
+        env: BTreeMap::new(),
+        ..options()
+    };
+    for a in KnownAdapter::ALL {
+        assert!(a.launch_arguments(&opts).get("env").is_none(), "{a:?}");
+    }
 }
 
 #[test]
 fn gdb_uses_its_dap_interpreter() {
+    assert!(KnownAdapter::Gdb.spec().configure_before_launch);
+    assert!(!KnownAdapter::CodeLldb.spec().configure_before_launch);
     let AdapterTransport::Stdio { command, args, .. } = KnownAdapter::Gdb.spec().transport else {
         panic!("gdb should use stdio");
     };

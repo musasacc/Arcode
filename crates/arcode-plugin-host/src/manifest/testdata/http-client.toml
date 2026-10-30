@@ -1,0 +1,55 @@
+[plugin]
+id = "arcode.http-client"
+name = "HTTP Client"
+version = "0.1.0"
+api = "0.1"
+entry = "plugin.wasm"
+description = "Send requests from .http / .rest files"
+
+[capabilities]
+workspace = "read"            # none | read | read-write   -> WASI preopen /project
+editor = "context"            # none | context | all-open
+editor-write = false
+network = { hosts = ["*"] }   # hosts it may *ask* for; gesture-bound, consent per host
+# network = { hosts = [...], background = true }  # never granted by default
+
+[limits]
+memory-mb = 64                # default 64; clamped to settings.plugins.max-memory-mb (256)
+task-seconds = 60             # CPU budget after host.begin-task; max 600
+
+[[contributes.languages]]
+id = "http"
+name = "HTTP Request"
+extensions = ["http", "rest"]
+line-comment = "#"
+
+[[contributes.commands]]
+id = "send"
+title = "HTTP: Send Request at Cursor"
+when = "language == http"     # 0.1 supports only `language == <id>`
+key = "secondary-enter"
+
+[[contributes.commands]]
+id = "select-environment"
+title = "HTTP: Select Environment"
+when = "language == http"
+
+[[contributes.code-lenses]]
+languages = ["http"]
+
+[[contributes.panels]]
+id = "response"
+title = "Response"
+location = "editor-beside"    # sidebar | bottom | editor | editor-beside
+icon = "globe"                # host icon name
+
+[[contributes.settings]]
+key = "timeout-ms"
+type = "integer"              # boolean | integer | string | enum
+default = 30000
+description = "Request timeout"
+
+[[contributes.settings]]
+key = "follow-redirects"
+type = "boolean"
+default = true

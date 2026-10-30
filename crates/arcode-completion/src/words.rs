@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use arcode_buffer::{Edit, Rope};
+use arcode_buffer::{Buffer, Edit};
 
 use crate::candidate::{CandidateKind, CandidateSource, CompletionCandidate};
 
@@ -60,8 +60,8 @@ impl WordIndex {
     }
 
     /// Applies buffer edits (in the order returned by the buffer) and then
-    /// re-indexes the touched lines from `text`, the rope after all edits.
-    pub fn apply_edits(&mut self, edits: &[Edit], text: &Rope) {
+    /// re-indexes the touched lines from `buffer` (its state after them).
+    pub fn apply_edits(&mut self, edits: &[Edit], buffer: &Buffer) {
         for edit in edits {
             let start = edit.start_point.line.min(self.lines.len());
             let end = (edit.old_end_point.line + 1).clamp(start, self.lines.len());
@@ -71,7 +71,7 @@ impl WordIndex {
                 .splice(start..start, std::iter::repeat_n(None, added));
         }
         // Keep the line count in sync with the rope even after odd input.
-        let want = text.len_lines();
+        let want = buffer.line_count();
         if self.lines.len() > want {
             let len = self.lines.len();
             self.remove_lines(want..len);
@@ -79,8 +79,8 @@ impl WordIndex {
         self.lines.resize(want, None);
         for i in 0..self.lines.len() {
             if self.lines[i].is_none() {
-                let line = text.line(i).to_string();
-                let words = self.add_line_words(line.trim_end_matches(['\n', '\r']));
+                let line = buffer.line_text(i);
+                let words = self.add_line_words(&line);
                 self.lines[i] = Some(words);
             }
         }
@@ -125,8 +125,11 @@ impl WordIndex {
         hits.into_iter()
             .enumerate()
             .map(|(i, (word, _))| {
-                let mut c =
-                    CompletionCandidate::new(word, CandidateKind::Word, CandidateSource::BufferWord);
+                let mut c = CompletionCandidate::new(
+                    word,
+                    CandidateKind::Word,
+                    CandidateSource::BufferWord,
+                );
                 c.sort_text = Some(format!("{i:0width$}"));
                 c
             })

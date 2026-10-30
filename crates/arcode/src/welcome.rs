@@ -57,15 +57,19 @@ pub fn render(_ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement 
         .flex()
         .gap_2()
         .child(
-            button("welcome-open", "Open Folder…")
-                .icon(IconName::FolderOpen)
-                .style(ButtonStyle::Primary)
-                .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenFolder), cx)),
+            div().rounded_md().border_1().border_color(c.accent).child(
+                button("welcome-open", "Open Folder…")
+                    .icon(IconName::FolderOpen)
+                    .style(ButtonStyle::Primary)
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenFolder), cx)),
+            ),
         )
         .child(
-            button("welcome-new", "New Project…")
-                .icon(IconName::Plus)
-                .on_click(|_, window, cx| window.dispatch_action(Box::new(NewProject), cx)),
+            div().rounded_md().border_1().border_color(c.border).child(
+                button("welcome-new", "New Project…")
+                    .icon(IconName::Plus)
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(NewProject), cx)),
+            ),
         );
 
     let section_title = |title: &'static str| {
@@ -148,6 +152,7 @@ pub fn render(_ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement 
             .child(kbd(shortcut_label(keys)))
     };
     let hints = div()
+        .w(px(300.))
         .flex()
         .flex_col()
         .gap_2()

@@ -130,50 +130,68 @@ impl KnownAdapter {
             KnownAdapter::Gdb => ("gdb", stdio(&["--interpreter=dap", "--quiet"])),
             KnownAdapter::Debugpy => ("debugpy", stdio(&["-m", "debugpy.adapter"])),
             KnownAdapter::Delve => ("go", tcp(&["dap", "--listen=127.0.0.1:{port}"])),
-            KnownAdapter::JsDebug => ("pwa-node", tcp(&["dapDebugServer.js", "{port}", "127.0.0.1"])),
+            KnownAdapter::JsDebug => (
+                "pwa-node",
+                tcp(&["dapDebugServer.js", "{port}", "127.0.0.1"]),
+            ),
         };
         AdapterSpec {
             name: self.name().into(),
             adapter_id: adapter_id.into(),
             transport,
             install_hint: Some(format!("install the {} language pack", self.pack())),
+            // gdb 15 runs the program on `launch`; later versions accept
+            // this order too.
+            configure_before_launch: self == KnownAdapter::Gdb,
         }
     }
 
-    /// Launch arguments in the adapter's dialect.
+    /// Launch arguments in the adapter's dialect. `env` is only included
+    /// when non-empty (gdb replaces the whole environment with it).
     pub fn launch_arguments(self, options: &LaunchOptions) -> Value {
         let program = options.program.to_string_lossy();
         let cwd = options.cwd.to_string_lossy();
-        let (args, env) = (&options.args, &options.env);
-        match self {
+        let (args, stop) = (&options.args, options.stop_on_entry);
+        let mut value = match self {
             KnownAdapter::CodeLldb => json!({
                 "type": "lldb", "request": "launch", "program": program, "args": args,
-                "cwd": cwd, "env": env, "stopOnEntry": options.stop_on_entry,
-                "terminal": "integrated",
+                "cwd": cwd, "stopOnEntry": stop, "terminal": "integrated",
             }),
             KnownAdapter::LldbDap => json!({
-                "program": program, "args": args, "cwd": cwd, "stopOnEntry": options.stop_on_entry,
-                "env": env.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>(),
+                "program": program, "args": args, "cwd": cwd, "stopOnEntry": stop,
             }),
             KnownAdapter::Gdb => json!({
-                "program": program, "args": args, "cwd": cwd, "env": env,
-                "stopAtBeginningOfMainSubprogram": options.stop_on_entry,
+                "program": program, "args": args, "cwd": cwd,
+                "stopAtBeginningOfMainSubprogram": stop,
             }),
             KnownAdapter::Debugpy => json!({
                 "type": "python", "request": "launch", "program": program, "args": args,
-                "cwd": cwd, "env": env, "console": "integratedTerminal",
-                "stopOnEntry": options.stop_on_entry, "justMyCode": true,
+                "cwd": cwd, "console": "integratedTerminal", "stopOnEntry": stop,
+                "justMyCode": true,
             }),
             KnownAdapter::Delve => json!({
-                "mode": "debug", "program": program, "args": args, "cwd": cwd, "env": env,
-                "stopOnEntry": options.stop_on_entry,
+                "mode": "debug", "program": program, "args": args, "cwd": cwd,
+                "stopOnEntry": stop,
             }),
             KnownAdapter::JsDebug => json!({
                 "type": "pwa-node", "request": "launch", "program": program, "args": args,
-                "cwd": cwd, "env": env, "console": "integratedTerminal",
-                "stopOnEntry": options.stop_on_entry,
+                "cwd": cwd, "console": "integratedTerminal", "stopOnEntry": stop,
             }),
+        };
+        if !options.env.is_empty() {
+            value["env"] = match self {
+                // lldb-dap takes a list of `NAME=value` strings.
+                KnownAdapter::LldbDap => json!(
+                    options
+                        .env
+                        .iter()
+                        .map(|(k, v)| format!("{k}={v}"))
+                        .collect::<Vec<_>>()
+                ),
+                _ => json!(options.env),
+            };
         }
+        value
     }
 
     /// A ready-to-start launch config (no breakpoints yet).

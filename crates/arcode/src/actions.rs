@@ -54,6 +54,9 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-o", OpenFolder, ws),
         KeyBinding::new("secondary-,", OpenSettings, ws),
         KeyBinding::new("secondary-shift-`", NewTerminal, ws),
+        // Linux (and some layouts elsewhere) report shift-` as `~` without
+        // the shift modifier.
+        KeyBinding::new("secondary-~", NewTerminal, ws),
         KeyBinding::new("ctrl-`", FocusTerminal, ws),
         KeyBinding::new("f5", RunProject, ws),
         KeyBinding::new("secondary-w", CloseTab, Some(PANE_CONTEXT)),

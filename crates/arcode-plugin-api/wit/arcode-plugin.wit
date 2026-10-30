@@ -1,0 +1,280 @@
+package arcode:plugin@0.1.0;
+
+interface types {
+  type doc-id = u64;
+  type panel-id = u32;
+  type node-id = u32;
+  /// JSON text; the SDK (de)serializes it with serde.
+  type json = string;
+  /// Zero-based. `column` counts chars, like arcode-buffer.
+  record position { line: u32, column: u32 }
+  record range { start: position, end: position }
+  enum level { trace, debug, info, warn, error }
+}
+
+interface host {
+  use types.{level, json};
+  /// "0.1.0"
+  api-version: func() -> string;
+  /// Goes to the plugin's log in the Plugins view (ring buffer, 1 MiB).
+  log: func(level: level, message: string);
+  /// Toast, plain text. Rate-limited by the host (5 per minute).
+  notify: func(level: level, message: string);
+  /// The plugin's single status-bar item; none clears it. Clicking it runs
+  /// `command` (a contributed command id) as a user gesture.
+  set-status: func(text: option<string>, command: option<string>);
+  /// Host-drawn quick pick. Blocks this plugin until the user picks or
+  /// escapes; the wait does not count against the CPU budget.
+  quick-pick: func(title: string, items: list<string>) -> option<u32>;
+  /// JSON object: manifest defaults merged with the user's values.
+  settings: func() -> json;
+  /// True once the user cancelled the current call. Cheap; poll it in loops.
+  cancelled: func() -> bool;
+  /// Turns the current call into a visible task: "<title>... [Cancel]" in the
+  /// status bar and the CPU budget rises to limits.task-seconds.
+  /// Ignored (returns false) outside a user-gesture call.
+  begin-task: func(title: string) -> bool;
+}
+
+interface kv {
+  enum scope { global, project }
+  variant kv-error { quota-exceeded, invalid-key }
+  /// Keys: 1..=128 bytes, printable ASCII. Quota: 1 MiB per (plugin, scope).
+  get: func(scope: scope, key: string) -> option<list<u8>>;
+  set: func(scope: scope, key: string, value: list<u8>) -> result<_, kv-error>;
+  delete: func(scope: scope, key: string);
+  keys: func(scope: scope, prefix: string) -> list<string>;
+}
+
+/// File *contents* go through WASI: the project is preopened at /project.
+/// This interface only adds what WASI cannot do cheaply.
+interface workspace {
+  variant fs-error { denied, invalid-glob(string), io(string) }
+  /// Display name of the project root, never its absolute path.
+  root-name: func() -> option<string>;
+  /// Project-relative paths matching `glob`, honouring .gitignore,
+  /// answered from the host's file index. limit is capped at 10000.
+  find-files: func(glob: string, limit: u32) -> result<list<string>, fs-error>;
+}
+
+interface editor {
+  use types.{doc-id, position, range};
+  record doc-info {
+    id: doc-id,
+    /// Project-relative path; none for untitled buffers.
+    path: option<string>,
+    language: string,
+    version: u64,
+    line-count: u32,
+  }
+  record text-edit { range: range, text: string }
+  variant editor-error { denied, no-such-document, version-mismatch(u64), invalid-range, invalid-path }
+  /// The document this call is about (lens or command origin), else the focused one.
+  current-document: func() -> option<doc-info>;
+  document-info: func(doc: doc-id) -> result<doc-info, editor-error>;
+  /// Read from a rope snapshot; never waits on the UI thread.
+  text: func(doc: doc-id, range: option<range>) -> result<string, editor-error>;
+  selections: func(doc: doc-id) -> result<list<range>, editor-error>;
+  /// One undo step. Fails if the document moved past expected-version.
+  /// Returns the new version.
+  apply-edits: func(doc: doc-id, expected-version: u64, edits: list<text-edit>) -> result<u64, editor-error>;
+  open-file: func(path: string, at: option<position>) -> result<_, editor-error>;
+  /// Untitled, unsaved buffer (e.g. "open response body in editor").
+  open-scratch: func(title: string, language: string, text: string) -> result<doc-id, editor-error>;
+}
+
+interface http {
+  record request {
+    method: string,
+    url: string,
+    headers: list<tuple<string, string>>,
+    body: list<u8>,
+    timeout-ms: u32,
+    follow-redirects: bool,
+    /// Clamped by the host (default and maximum 50 MiB).
+    max-response-bytes: u64,
+  }
+  record timing { headers-ms: u32, total-ms: u32 }
+  record response {
+    status: u16,
+    reason: string,
+    version: string,
+    final-url: string,
+    remote-addr: option<string>,
+    headers: list<tuple<string, string>>,
+    body: list<u8>,
+    truncated: bool,
+    timing: timing,
+  }
+  variant http-error {
+    denied,
+    no-user-gesture,
+    cancelled,
+    timeout,
+    invalid-request(string),
+    dns(string),
+    connect(string),
+    tls(string),
+    protocol(string),
+    io(string),
+  }
+  /// Blocks this plugin's thread only. Consent is checked per host, again
+  /// on every redirect. Allowed only inside a user-gesture call unless the
+  /// user granted network.background.
+  send: func(req: request) -> result<response, http-error>;
+}
+
+interface ui {
+  use types.{panel-id, node-id};
+
+  enum tone { normal, muted, accent, success, warning, danger }
+  enum axis { horizontal, vertical }
+  enum location { sidebar, bottom, editor, editor-beside }
+
+  record stack-props { axis: axis, gap: u8, padding: u8 }
+  record split-props { axis: axis, ratio: f32 }
+  record tabs-props { titles: list<string>, active: u32 }
+  record text-props { text: string, tone: tone, mono: bool, bold: bool, wrap: bool }
+  record badge-props { text: string, tone: tone }
+  record button-props { label: string, icon: option<string>, primary: bool, enabled: bool }
+  record input-props {
+    value: string,
+    placeholder: string,
+    multiline: bool,
+    /// Highlight with this arcode-syntax language (e.g. "sql").
+    language: option<string>,
+    submit-on-enter: bool,
+    /// Opt in to debounced change events. Off: values ride along with the next event.
+    notify-changes: bool,
+  }
+  record select-props { options: list<string>, selected: option<u32> }
+  record checkbox-props { label: string, checked: bool }
+  record column { title: string, width: option<u32>, numeric: bool, sortable: bool }
+  record table-props {
+    columns: list<column>,
+    /// none = unknown: the host pages until a page reports at-end.
+    row-count: option<u64>,
+    /// Bump to drop every cached page (new query, new sort).
+    generation: u32,
+  }
+  record tree-item {
+    key: string,
+    label: string,
+    detail: option<string>,
+    icon: option<string>,
+    depth: u8,
+    expandable: bool,
+    expanded: bool,
+  }
+  record code-props { text: string, language: option<string>, line-numbers: bool }
+
+  variant widget {
+    stack(stack-props),
+    split(split-props),
+    tabs(tabs-props),
+    scroll,
+    text(text-props),
+    badge(badge-props),
+    button(button-props),
+    input(input-props),
+    select(select-props),
+    checkbox(checkbox-props),
+    key-values(list<tuple<string, string>>),
+    table(table-props),
+    tree(list<tree-item>),
+    code(code-props),
+    /// Raw JSON text; the host parses it off the UI thread and shows a foldable view.
+    json(string),
+    spinner(string),
+    /// (title, hint)
+    empty-state(tuple<string, string>),
+    divider,
+    spacer,
+  }
+
+  /// Flat arena: WIT has no recursive types. Children are ids in the same panel.
+  record node { id: node-id, widget: widget, children: list<node-id>, grow: bool }
+  record view { root: node-id, nodes: list<node> }
+
+  variant patch {
+    /// Insert or replace one node (its children list included).
+    upsert(node),
+    /// Remove a node and every descendant no longer referenced.
+    remove(node-id),
+    set-root(node-id),
+    /// Drop cached pages of a table; optionally set a new row count.
+    rows-changed(tuple<node-id, option<u64>>),
+  }
+
+  variant cell { empty, int(s64), real(f64), text(string), boolean(bool), blob(u64) }
+  record row-page { start: u64, rows: list<list<cell>>, at-end: bool }
+
+  variant event-kind {
+    click,
+    submit,
+    change(string),
+    toggle(bool),
+    select(u32),
+    tab(u32),
+    /// (column, ascending)
+    sort(tuple<u32, bool>),
+    row-activate(u64),
+    tree-toggle(string),
+    tree-activate(string),
+  }
+  record event {
+    node: node-id,
+    kind: event-kind,
+    /// Current text of every input edited since the previous event.
+    values: list<tuple<node-id, string>>,
+  }
+
+  variant ui-error { unknown-contribution, no-such-panel, invalid-tree(string), too-large }
+
+  /// Opens (or focuses) a panel of a manifest-declared contribution. Never waits on the UI.
+  open-panel: func(contribution: string, title: string, location: option<location>) -> result<panel-id, ui-error>;
+  /// Replace the whole view.
+  render: func(panel: panel-id, view: view) -> result<_, ui-error>;
+  /// Validated and applied atomically; on error nothing changes.
+  apply-patches: func(panel: panel-id, patches: list<patch>) -> result<_, ui-error>;
+  set-title: func(panel: panel-id, title: string);
+  close-panel: func(panel: panel-id);
+}
+
+interface guest {
+  use types.{panel-id, node-id, json};
+  use editor.{doc-info};
+  use ui.{event, row-page};
+
+  variant activation {
+    command(string),
+    language(string),
+    opener(string),
+    panel(string),
+    /// Re-created after an idle unload or a crash, with views to restore.
+    restore,
+  }
+  record code-lens { line: u32, title: string, command: string, args: json }
+
+  activate: func(reason: activation) -> result<_, string>;
+  deactivate: func();
+  handle-command: func(command: string, args: json) -> result<_, string>;
+  provide-code-lenses: func(doc: doc-info) -> list<code-lens>;
+  /// A contributed panel or opener was shown in `panel`. args: {"path": ...} for openers.
+  open-view: func(panel: panel-id, contribution: string, args: json) -> result<_, string>;
+  handle-ui-event: func(panel: panel-id, event: event) -> result<_, string>;
+  fetch-rows: func(panel: panel-id, table: node-id, start: u64, count: u32) -> result<row-page, string>;
+  view-closed: func(panel: panel-id);
+}
+
+world plugin {
+  // The host also links a locked-down WASI 0.2 (cli, clocks, random, io,
+  // filesystem with preopens only, sockets present but always denied).
+  import host;
+  import kv;
+  import workspace;
+  import editor;
+  import http;
+  import ui;
+  export guest;
+}

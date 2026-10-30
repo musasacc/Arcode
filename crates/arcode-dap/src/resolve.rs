@@ -31,7 +31,12 @@ pub fn find_executable(command: &str, env: &[(String, String)]) -> Option<PathBu
     } else {
         String::new()
     };
-    search(command, std::env::split_paths(&path), &pathext, is_executable)
+    search(
+        command,
+        std::env::split_paths(&path),
+        &pathext,
+        is_executable,
+    )
 }
 
 /// The platform-neutral search behind [`find_executable`]. `pathext` is a
@@ -51,7 +56,10 @@ pub(crate) fn search(
         .filter(|e| e.starts_with('.') && e.len() > 1)
         .collect();
     let lower = command.to_ascii_lowercase();
-    let try_plain = exts.is_empty() || exts.iter().any(|e| lower.ends_with(&e.to_ascii_lowercase()));
+    let try_plain = exts.is_empty()
+        || exts
+            .iter()
+            .any(|e| lower.ends_with(&e.to_ascii_lowercase()));
     let candidates = |base: PathBuf| {
         let mut list = Vec::new();
         if try_plain {
@@ -118,7 +126,10 @@ mod tests {
     fn windows_finds_shims_in_pathext_and_path_order() {
         let a = setup(&["dlv.bat"]);
         let b = setup(&["dlv.exe", "dlv.cmd"]);
-        assert_eq!(win("dlv", &[a.path(), b.path()]), Some(a.path().join("dlv.bat")));
+        assert_eq!(
+            win("dlv", &[a.path(), b.path()]),
+            Some(a.path().join("dlv.bat"))
+        );
         assert_eq!(win("dlv", &[b.path()]), Some(b.path().join("dlv.exe")));
         assert_eq!(win("dlv.cmd", &[b.path()]), Some(b.path().join("dlv.cmd")));
         assert_eq!(win("missing", &[a.path()]), None);
@@ -129,7 +140,10 @@ mod tests {
         let d = setup(&["codelldb"]);
         let found = search("codelldb", [d.path().to_path_buf()], "", Path::is_file);
         assert_eq!(found, Some(d.path().join("codelldb")));
-        assert_eq!(search("", [d.path().to_path_buf()], "", Path::is_file), None);
+        assert_eq!(
+            search("", [d.path().to_path_buf()], "", Path::is_file),
+            None
+        );
     }
 
     #[test]

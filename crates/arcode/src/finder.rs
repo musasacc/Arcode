@@ -12,7 +12,7 @@ use gpui::{
 };
 
 use crate::file_icons::file_icon;
-use crate::fuzzy::{FileMatch, rank, ranges_within};
+use crate::fuzzy::{FileMatch, ranges_within, rank};
 use crate::text_field::{TextChanged, TextField};
 
 actions!(finder, [SelectPrev, SelectNext, Confirm, Dismiss]);
@@ -65,9 +65,16 @@ impl Focusable for Finder {
 impl Finder {
     /// Creates a finder over `files` (relative paths under `root`).
     /// `loading` shows an indexing hint until [`Finder::set_files`].
-    pub fn new(root: PathBuf, files: Arc<Vec<String>>, loading: bool, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        root: PathBuf,
+        files: Arc<Vec<String>>,
+        loading: bool,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let input = cx.new(|cx| TextField::new("Search files by name", cx));
-        let sub = cx.subscribe(&input, |finder, _, _: &TextChanged, cx| finder.update_matches(cx));
+        let sub = cx.subscribe(&input, |finder, _, _: &TextChanged, cx| {
+            finder.update_matches(cx)
+        });
         let mut finder = Self {
             root,
             input,
@@ -109,18 +116,27 @@ impl Finder {
     fn select(&mut self, ix: usize, cx: &mut Context<Self>) {
         if !self.matches.is_empty() {
             self.selected = ix.min(self.matches.len() - 1);
-            self.scroll.scroll_to_item(self.selected, ScrollStrategy::Top);
+            self.scroll
+                .scroll_to_item(self.selected, ScrollStrategy::Top);
             cx.notify();
         }
     }
 
     fn select_prev(&mut self, _: &SelectPrev, _: &mut Window, cx: &mut Context<Self>) {
-        let ix = if self.selected == 0 { self.matches.len().saturating_sub(1) } else { self.selected - 1 };
+        let ix = if self.selected == 0 {
+            self.matches.len().saturating_sub(1)
+        } else {
+            self.selected - 1
+        };
         self.select(ix, cx);
     }
 
     fn select_next(&mut self, _: &SelectNext, _: &mut Window, cx: &mut Context<Self>) {
-        let ix = if self.selected + 1 >= self.matches.len() { 0 } else { self.selected + 1 };
+        let ix = if self.selected + 1 >= self.matches.len() {
+            0
+        } else {
+            self.selected + 1
+        };
         self.select(ix, cx);
     }
 
@@ -169,8 +185,9 @@ impl Finder {
             .flex()
             .items_center()
             .gap_2()
+            .overflow_hidden()
+            .w_full()
             .h(px(ROW_HEIGHT))
-            .mx_1()
             .px_2()
             .rounded_md()
             .cursor_pointer()
@@ -229,11 +246,13 @@ impl Render for Finder {
                 "finder-results",
                 count,
                 cx.processor(|finder, range: std::ops::Range<usize>, _, cx| {
-                    range.map(|ix| finder.render_row(ix, cx)).collect::<Vec<_>>()
+                    range
+                        .map(|ix| finder.render_row(ix, cx))
+                        .collect::<Vec<_>>()
                 }),
             )
             .track_scroll(self.scroll.clone())
-            .py_1()
+            .p_1()
             .h(list_height)
             .text_sm()
             .into_any_element(),

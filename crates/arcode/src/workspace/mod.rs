@@ -2,9 +2,14 @@
 //! editor panes, the sidebar, the bottom panel and the status bar.
 
 mod actions;
+#[cfg(test)]
+mod lsp_tests;
 mod overlays;
 mod panes;
 mod render;
+mod status;
+#[cfg(test)]
+mod tests;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -21,9 +26,14 @@ use crate::activity_bar::Activity;
 use crate::app_state;
 use crate::bottom_panel::{self, BottomPanel};
 use crate::finder::Finder;
+use crate::lsp_bridge::LspBridge;
 use crate::pane::Pane;
+use crate::path_prompt::PathPrompt;
 use crate::project::{self, Project};
-use crate::sidebar::{self, file_tree::{FileTree, FileTreeEvent}};
+use crate::sidebar::{
+    self,
+    file_tree::{FileTree, FileTreeEvent},
+};
 use crate::status_bar::StatusBar;
 
 /// Upper bound on files indexed for the finder.
@@ -41,6 +51,10 @@ pub enum WorkspaceEvent {
     /// The active editor changed (`None` when no editor is active).
     ActiveEditorChanged(Option<Entity<Editor>>),
 }
+
+/// Continuation run with the folder the user picked.
+type FolderCallback =
+    Box<dyn FnOnce(&mut Workspace, PathBuf, &mut Window, &mut Context<Workspace>)>;
 
 /// What a drag on a divider resizes.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -62,11 +76,14 @@ pub struct Workspace {
     activity: Activity,
     sidebar_visible: bool,
     sidebar_width: Pixels,
+    lsp: Entity<LspBridge>,
     bottom_panel: Entity<BottomPanel>,
     bottom_panel_visible: bool,
     bottom_panel_height: Pixels,
     status_bar: Entity<StatusBar>,
     finder: Option<Entity<Finder>>,
+    path_prompt: Option<Entity<PathPrompt>>,
+    path_prompt_then: Option<FolderCallback>,
     project_menu_open: bool,
     resizing: Option<Resize>,
     toast: Option<SharedString>,
@@ -92,8 +109,11 @@ impl Workspace {
         Self::install_close_guard(window, cx);
         let pane = cx.new(|cx| Pane::new(window, cx));
         let pane_sub = Self::subscribe_pane(&pane, window, cx);
-        let bottom_panel = cx.new(BottomPanel::new);
+        let lsp = cx.new(LspBridge::new);
+        let bottom_panel = cx.new(|cx| BottomPanel::new(lsp.clone(), cx));
         let status_bar = cx.new(StatusBar::new);
+        let mut subscriptions = vec![appearance, pane_sub];
+        subscriptions.extend(Self::subscribe_lsp(&lsp, &bottom_panel, window, cx));
         Self {
             focus_handle: cx.focus_handle(),
             project: None,
@@ -106,17 +126,20 @@ impl Workspace {
             activity: Activity::Files,
             sidebar_visible: true,
             sidebar_width: px(sidebar::DEFAULT_WIDTH),
+            lsp,
             bottom_panel,
             bottom_panel_visible: false,
             bottom_panel_height: px(bottom_panel::DEFAULT_HEIGHT),
             status_bar,
             finder: None,
+            path_prompt: None,
+            path_prompt_then: None,
             project_menu_open: false,
             resizing: None,
             toast: None,
             toast_task: None,
             active_editor_sub: None,
-            _subscriptions: vec![appearance, pane_sub],
+            _subscriptions: subscriptions,
         }
     }
 
@@ -128,6 +151,11 @@ impl Workspace {
     /// The status bar (LSP wiring updates its status and counts).
     pub fn status_bar(&self) -> &Entity<StatusBar> {
         &self.status_bar
+    }
+
+    /// The language server bridge (diagnostics and server status).
+    pub fn lsp(&self) -> &Entity<LspBridge> {
+        &self.lsp
     }
 
     /// The bottom panel.
@@ -197,12 +225,18 @@ impl Workspace {
         app_state::touch_recent(&project.root, cx);
         window.set_window_title(&format!("{} — Arcode", project.name));
         let tree = cx.new(|cx| FileTree::new(project.root.clone(), project.name.clone(), cx));
-        let tree_sub = cx.subscribe_in(&tree, window, |ws, _, event: &FileTreeEvent, window, cx| {
-            let FileTreeEvent::OpenFile(path) = event;
-            ws.open_file(path, window, cx);
-        });
+        let tree_sub =
+            cx.subscribe_in(&tree, window, |ws, _, event: &FileTreeEvent, window, cx| {
+                let FileTreeEvent::OpenFile(path) = event;
+                ws.open_file(path, window, cx);
+            });
         self._subscriptions.push(tree_sub);
         self.file_tree = Some(tree);
+        let root = Some(project.root.clone());
+        self.lsp
+            .update(cx, |lsp, cx| lsp.set_project_root(root.clone(), cx));
+        self.bottom_panel
+            .update(cx, |panel, cx| panel.set_project_root(root, cx));
         self.project = Some(project);
         self.project_files = Arc::default();
         self.reset_panes(window, cx);
@@ -212,6 +246,7 @@ impl Workspace {
         self.finder = None;
         self.rescan_files(cx);
         self.refresh_status(cx);
+        self.active_pane().read(cx).focus(window, cx);
         cx.emit(WorkspaceEvent::ProjectChanged);
         cx.notify();
     }
@@ -226,6 +261,9 @@ impl Workspace {
             ws.finder = None;
             ws.project_menu_open = false;
             ws.reset_panes(window, cx);
+            ws.lsp.update(cx, |lsp, cx| lsp.set_project_root(None, cx));
+            ws.bottom_panel
+                .update(cx, |panel, cx| panel.set_project_root(None, cx));
             window.set_window_title("Arcode");
             window.focus(&ws.focus_handle);
             ws.refresh_status(cx);
@@ -242,7 +280,11 @@ impl Workspace {
         cx: &mut Context<Self>,
         then: impl FnOnce(&mut Self, &mut Window, &mut Context<Self>) + 'static,
     ) {
-        let dirty = self.editors(cx).iter().filter(|e| e.read(cx).is_dirty()).count();
+        let dirty = self
+            .editors(cx)
+            .iter()
+            .filter(|e| e.read(cx).is_dirty())
+            .count();
         if dirty == 0 {
             then(self, window, cx);
             return;
@@ -257,7 +299,8 @@ impl Workspace {
         );
         cx.spawn_in(window, async move |this, cx| {
             if answer.await.ok() == Some(0) {
-                this.update_in(cx, |ws, window, cx| then(ws, window, cx)).ok();
+                this.update_in(cx, |ws, window, cx| then(ws, window, cx))
+                    .ok();
             }
         })
         .detach();
@@ -269,9 +312,10 @@ impl Workspace {
             return;
         };
         self.files_loading = true;
-        let scan = cx.background_spawn(async move {
-            Arc::new(project::list_files(&root, MAX_INDEXED_FILES))
-        });
+        let scan =
+            cx.background_spawn(
+                async move { Arc::new(project::list_files(&root, MAX_INDEXED_FILES)) },
+            );
         self.files_task = Some(cx.spawn(async move |this, cx| {
             let files = scan.await;
             this.update(cx, |ws, cx| {
@@ -307,50 +351,17 @@ impl Workspace {
         self.active_pane()
             .clone()
             .update(cx, |pane, cx| pane.add_editor(editor.clone(), window, cx));
+        if arcode_config::paths::config_file().as_deref() == Some(path.as_path()) {
+            let sub = cx.subscribe(&editor, |_, _, event: &EditorEvent, cx| {
+                if *event == EditorEvent::Saved {
+                    crate::app::reload_settings(cx);
+                }
+            });
+            self._subscriptions.push(sub);
+        }
+        self.lsp
+            .update(cx, |lsp, cx| lsp.register_editor(&editor, cx));
         cx.emit(WorkspaceEvent::EditorOpened(editor));
         cx.notify();
-    }
-
-    /// Re-subscribes to the active editor and refreshes the status bar.
-    fn active_editor_changed(&mut self, cx: &mut Context<Self>) {
-        let editor = self.active_editor(cx);
-        self.active_editor_sub = editor.as_ref().map(|editor| {
-            cx.subscribe(editor, |ws, _, event: &EditorEvent, cx| {
-                if matches!(event, EditorEvent::SelectionsChanged | EditorEvent::Edited { .. }) {
-                    ws.refresh_status(cx);
-                }
-            })
-        });
-        if let (Some(editor), Some(tree)) = (&editor, &self.file_tree)
-            && let Some(path) = editor.read(cx).path().map(Path::to_path_buf)
-        {
-            tree.update(cx, |tree, cx| tree.reveal(&path, cx));
-        }
-        self.refresh_status(cx);
-        cx.emit(WorkspaceEvent::ActiveEditorChanged(editor));
-        cx.notify();
-    }
-
-    /// Pushes branch, language and cursor position to the status bar.
-    pub fn refresh_status(&mut self, cx: &mut Context<Self>) {
-        let branch = self
-            .project
-            .as_ref()
-            .and_then(Project::branch)
-            .map(SharedString::from);
-        let (language, cursor) = match self.active_editor(cx) {
-            Some(editor) => {
-                let e = editor.read(cx);
-                let pos = e.cursor_position();
-                (
-                    Some(SharedString::new_static(e.language().name)),
-                    Some((pos.line, pos.column)),
-                )
-            }
-            None => (None, None),
-        };
-        self.status_bar.update(cx, |bar, cx| {
-            bar.set_editor_info(branch, language, cursor, cx)
-        });
     }
 }

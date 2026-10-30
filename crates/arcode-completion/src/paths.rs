@@ -102,7 +102,11 @@ pub fn path_completions(base_dir: &Path, typed: &str) -> Vec<CompletionCandidate
         .into_iter()
         .enumerate()
         .map(|(i, (is_dir, name))| {
-            let label = if is_dir { format!("{name}{sep}") } else { name.clone() };
+            let label = if is_dir {
+                format!("{name}{sep}")
+            } else {
+                name.clone()
+            };
             let kind = if is_dir {
                 CandidateKind::Folder
             } else {

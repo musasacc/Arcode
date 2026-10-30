@@ -1,0 +1,44 @@
+[plugin]
+id = "arcode.db-viewer"
+name = "Database Viewer"
+version = "0.1.0"
+api = "0.1"
+entry = "plugin.wasm"
+description = "Browse and query SQLite databases in the project"
+
+[capabilities]
+workspace = "read"            # 0.1 is read-only by design (see §12)
+editor = "none"
+
+[limits]
+memory-mb = 128
+task-seconds = 300            # long queries, cancellable
+
+[[contributes.openers]]       # opening a matching file shows the plugin view, not the binary notice
+id = "sqlite"
+patterns = ["*.sqlite", "*.sqlite3", "*.db"]
+title = "SQLite Database"
+
+[[contributes.panels]]
+id = "databases"
+title = "Databases"
+location = "sidebar"          # adds an activity-bar entry
+icon = "database"
+
+[[contributes.commands]]
+id = "refresh"
+title = "DB: Refresh Schema"
+
+[[contributes.commands]]
+id = "new-query"
+title = "DB: New Query"
+
+[[contributes.settings]]
+key = "page-size"
+type = "integer"
+default = 200
+
+[[contributes.settings]]
+key = "max-result-rows"
+type = "integer"
+default = 100000

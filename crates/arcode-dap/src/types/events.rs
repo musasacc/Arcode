@@ -191,7 +191,10 @@ mod tests {
             process_id: Some(42),
             shell_process_id: None,
         };
-        assert_eq!(serde_json::to_value(resp).unwrap(), json!({"processId": 42}));
+        assert_eq!(
+            serde_json::to_value(resp).unwrap(),
+            json!({"processId": 42})
+        );
     }
 
     #[test]

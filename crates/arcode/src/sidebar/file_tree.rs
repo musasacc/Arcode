@@ -131,8 +131,12 @@ impl FileTree {
         let mut rows = Vec::new();
         // Depth-first walk; children are pushed in reverse to keep order.
         let root = self.root.clone();
-        let mut pending: Vec<(DirEntry, usize)> =
-            self.entries(&root).iter().rev().map(|e| (e.clone(), 0)).collect();
+        let mut pending: Vec<(DirEntry, usize)> = self
+            .entries(&root)
+            .iter()
+            .rev()
+            .map(|e| (e.clone(), 0))
+            .collect();
         while let Some((entry, depth)) = pending.pop() {
             let expanded = entry.is_dir && self.expanded.contains(&entry.path);
             if expanded {
@@ -202,7 +206,9 @@ impl FileTree {
     }
 
     fn collapse(&mut self, _: &Collapse, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(ix) = self.selected_index() else { return };
+        let Some(ix) = self.selected_index() else {
+            return;
+        };
         let row = &self.rows[ix];
         if row.is_dir && row.expanded {
             self.click(ix, cx);
@@ -227,16 +233,26 @@ impl FileTree {
         let selected = self.selected.as_ref() == Some(&row.path);
         let focused = selected && focused;
         let (icon_name, icon_color) = if row.is_dir {
-            let name = if row.expanded { IconName::FolderOpen } else { IconName::Folder };
+            let name = if row.expanded {
+                IconName::FolderOpen
+            } else {
+                IconName::Folder
+            };
             (name, c.accent)
         } else {
             file_icon(&row.name, &c)
         };
-        let chevron = if row.expanded { IconName::ChevronDown } else { IconName::ChevronRight };
+        let chevron = if row.expanded {
+            IconName::ChevronDown
+        } else {
+            IconName::ChevronRight
+        };
         let indent = px(LEFT_PAD + row.depth as f32 * INDENT);
         div()
             .id(ix)
             .relative()
+            .w_full()
+            .overflow_hidden()
             .flex()
             .items_center()
             .gap_1()
@@ -247,7 +263,9 @@ impl FileTree {
             .text_color(if selected { c.text } else { c.text_muted })
             .when(selected, |el| el.bg(c.selection))
             .when(focused, |el| el.border_1().border_color(c.border_focused))
-            .when(!selected, |el| el.hover(|s| s.bg(c.hover).text_color(c.text)))
+            .when(!selected, |el| {
+                el.hover(|s| s.bg(c.hover).text_color(c.text))
+            })
             .children((0..row.depth).map(|d| {
                 div()
                     .absolute()
@@ -264,7 +282,7 @@ impl FileTree {
                     .when(row.is_dir, |el| el.child(icon(chevron).size(px(14.)))),
             )
             .child(icon(icon_name).size(px(14.)).color(icon_color))
-            .child(div().truncate().child(row.name.clone()))
+            .child(div().flex_1().min_w_0().truncate().child(row.name.clone()))
             .on_click(cx.listener(move |tree, _, window, cx| {
                 window.focus(&tree.focus_handle);
                 tree.click(ix, cx);
@@ -318,6 +336,14 @@ impl Render for FileTree {
         .track_scroll(self.scroll.clone())
         .flex_1()
         .text_sm();
+        let empty = self.rows.is_empty().then(|| {
+            div()
+                .px_3()
+                .py_2()
+                .text_sm()
+                .text_color(c.text_disabled)
+                .child("This folder is empty.")
+        });
         div()
             .key_context(CONTEXT)
             .track_focus(&self.focus_handle)
@@ -330,6 +356,7 @@ impl Render for FileTree {
             .flex()
             .flex_col()
             .child(header)
+            .children(empty)
             .child(list)
     }
 }

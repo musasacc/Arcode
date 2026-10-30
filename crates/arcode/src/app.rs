@@ -12,7 +12,9 @@ use gpui::{
 
 use crate::status_bar::Startup;
 use crate::workspace::Workspace;
-use crate::{actions, app_state, finder, project, sidebar, text_field, theme_sync};
+use crate::{
+    actions, app_state, finder, path_prompt, project, prompt, sidebar, text_field, theme_sync,
+};
 
 /// What to open at startup, from the command line.
 #[derive(Debug, Default, PartialEq)]
@@ -60,7 +62,15 @@ fn window_options(cx: &App) -> WindowOptions {
                 WindowBounds::Windowed(bounds)
             }
         }
-        None => WindowBounds::Windowed(Bounds::centered(None, size(px(1280.), px(800.)), cx)),
+        None => {
+            let screen = cx
+                .primary_display()
+                .map(|d| d.bounds().size)
+                .unwrap_or(size(px(1440.), px(900.)));
+            let width = px(1280.).min(screen.width * 0.9);
+            let height = px(820.).min(screen.height * 0.85);
+            WindowBounds::Windowed(Bounds::centered(None, size(width, height), cx))
+        }
     };
     WindowOptions {
         window_bounds: Some(window_bounds),
@@ -105,8 +115,10 @@ pub fn run() {
             arcode_editor::init(cx);
             arcode_terminal_view::init(cx);
             actions::bind_keys(cx);
+            prompt::init(cx);
             text_field::bind_keys(cx);
             finder::bind_keys(cx);
+            path_prompt::bind_keys(cx);
             sidebar::file_tree::bind_keys(cx);
 
             cx.on_action(|_: &actions::Quit, cx| quit(cx));
@@ -144,6 +156,18 @@ pub fn run() {
             }
             cx.activate(true);
         });
+}
+
+/// Re-reads the configuration file and applies it (theme, fonts, …) to
+/// every window.
+pub fn reload_settings(cx: &mut App) {
+    let (config, warnings) = Config::load();
+    for warning in &warnings {
+        log::warn!("config: {warning}");
+    }
+    arcode_ui_kit::set_settings(config, cx);
+    theme_sync::apply(cx.window_appearance(), cx);
+    log::info!("settings reloaded");
 }
 
 /// Remembers every window's placement, then quits.

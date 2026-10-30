@@ -49,7 +49,13 @@ fn menu_item(
         .cursor_pointer()
         .hover(|s| s.bg(c.hover))
         .child(icon(icon_name).size(px(14.)).color(c.text_muted))
-        .child(div().flex_none().whitespace_nowrap().child(label.into()))
+        .child(
+            div()
+                .flex_none()
+                .whitespace_nowrap()
+                .when(detail.is_none(), |el| el.flex_1())
+                .child(label.into()),
+        )
         .when_some(detail, |el, detail| {
             el.child(
                 div()
@@ -113,9 +119,15 @@ impl Workspace {
         let shortcut = |keys: &str| -> SharedString { shortcut_label(keys).into() };
         menu = menu
             .child(
-                menu_item("open-folder", IconName::FolderOpen, "Open Folder…", None, cx)
-                    .child(kbd(shortcut("secondary-o")))
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenFolder), cx)),
+                menu_item(
+                    "open-folder",
+                    IconName::FolderOpen,
+                    "Open Folder…",
+                    None,
+                    cx,
+                )
+                .child(kbd(shortcut("secondary-o")))
+                .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenFolder), cx)),
             )
             .child(
                 menu_item("new-project", IconName::Plus, "New Project…", None, cx)
@@ -130,20 +142,24 @@ impl Workspace {
         menu
     }
 
-    fn backdrop(&self, id: &'static str, cx: &mut Context<Self>, on_close: fn(&mut Self, &mut Window, &mut Context<Self>)) -> Stateful<Div> {
-        div()
-            .id(id)
-            .absolute()
-            .inset_0()
-            .occlude()
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |ws, _, window, cx| on_close(ws, window, cx)),
-            )
+    fn backdrop(
+        &self,
+        id: &'static str,
+        cx: &mut Context<Self>,
+        on_close: fn(&mut Self, &mut Window, &mut Context<Self>),
+    ) -> Stateful<Div> {
+        div().id(id).absolute().inset_0().occlude().on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |ws, _, window, cx| on_close(ws, window, cx)),
+        )
     }
 
     /// Adds the visible overlays as the last children of `root`.
-    pub(super) fn render_overlays(&self, root: Stateful<Div>, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(super) fn render_overlays(
+        &self,
+        root: Stateful<Div>,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
         let c = theme(cx).colors.clone();
         let mut root = root;
         if self.project_menu_open {
@@ -167,12 +183,32 @@ impl Workspace {
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(finder.clone());
             root = root.child(
-                self.backdrop("finder-backdrop", cx, |ws, window, cx| ws.close_finder(window, cx))
-                    .bg(c.background.opacity(0.35))
-                    .flex()
-                    .justify_center()
-                    .pt(px(TITLE_BAR_HEIGHT + 8.))
-                    .child(fade_in("finder-anim", panel, cx)),
+                self.backdrop("finder-backdrop", cx, |ws, window, cx| {
+                    ws.close_finder(window, cx)
+                })
+                .bg(c.background.opacity(0.35))
+                .flex()
+                .justify_center()
+                .pt(px(TITLE_BAR_HEIGHT + 8.))
+                .child(fade_in("finder-anim", panel, cx)),
+            );
+        }
+        if let Some(prompt) = &self.path_prompt {
+            let panel = div()
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(prompt.clone());
+            root = root.child(
+                self.backdrop("path-backdrop", cx, |ws, window, cx| {
+                    ws.path_prompt = None;
+                    ws.path_prompt_then = None;
+                    ws.active_pane().read(cx).focus(window, cx);
+                    cx.notify();
+                })
+                .bg(c.background.opacity(0.35))
+                .flex()
+                .justify_center()
+                .pt(px(TITLE_BAR_HEIGHT + 8.))
+                .child(fade_in("path-anim", panel, cx)),
             );
         }
         if let Some(toast) = &self.toast {
@@ -190,7 +226,7 @@ impl Workspace {
                 .shadow_md()
                 .text_sm()
                 .child(icon(IconName::Info).size(px(14.)).color(c.info))
-                .child(toast.clone());
+                .child(div().flex_1().min_w_0().child(toast.clone()));
             root = root.child(
                 div()
                     .absolute()

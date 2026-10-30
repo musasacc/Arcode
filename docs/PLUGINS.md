@@ -965,3 +965,93 @@ Three proposals were scored from 1 to 10.
 **Dropped from A:** the async `http.start` callback split and the duplicate file API.
 
 **Dropped from B:** hyper with a custom timing connector, markdown, blobs, secrets, SVG icons and the large widget set.
+
+---
+
+## Appendix B: implementation notes and deviations (recorded during Steps 0-2)
+
+> **Added during implementation.** Everything above is the accepted design;
+> this appendix only records what the code does differently and why, so the
+> design text stays readable. Numbers are in `docs/SPIKE.md`, "Plugin engine".
+
+**Engine and WASI (Step 0 findings, affect Step 3+):**
+- `wasmtime-wasi` 50's `p2` feature turns on `wasmtime/async` (and pulls
+  tokio). We still use only the sync API (`add_to_linker_sync`); the feature
+  list in §2 is the minimum *we* request.
+- `Config::parallel_compilation` exists only with the `parallel-compilation`
+  feature and `Config::wasm_threads` only with `threads`. With the §2 feature
+  set compilation is already serial and threads are unavailable, so those two
+  calls are dropped rather than set to `false`.
+- `wasmtime-wasi` 50 replaced `DirPerms`/`FilePerms` with
+  `FsPerms::{ReadOnly, ReadWrite}` for `preopened_dir`. §4 "static grants"
+  maps onto that.
+- rustc 1.97's `wasm32-wasip2` guests import WASI `@0.2.9`; the host links
+  WASI by semver. `Linker::define_unknown_imports_as_traps` looks names up
+  exactly and would shadow those semver-matched WASI imports with traps, so
+  host code must not use it on plugin components.
+- Every plugin component imports `arcode:plugin/types`, `arcode:plugin/editor`
+  and `arcode:plugin/ui`, even if it calls none of their functions, because
+  the guest exports `use` their types (`doc-info`, `event`, `row-page`).
+  Unused interfaces (`http`, `kv`, `workspace`) are pruned by the component
+  linker. So the §4 import check works for `http`, but the presence of
+  `editor`/`ui` must not be read as a capability use (editor access stays a
+  dynamic check).
+
+**SQLite toolchain (Step 0, §10, §16 risk 1):**
+- `rusqlite` 0.41.1 / `libsqlite3-sys` 0.39.1 `bundled` builds for
+  `wasm32-wasip2` with clang 18 directly; fallbacks A (p1 + adapter) and B
+  (`SQLITE_OS_OTHER` + Rust VFS) were not needed.
+- Ubuntu's `wasi-libc` has no `/usr/share/wasi-sysroot`; headers live in
+  `/usr/include/wasm32-wasi`. clang 18 accepts `--target=wasm32-wasip2` but
+  then silently falls back to the host's glibc headers, so the pinned flags
+  are `-nostdlibinc -isystem <wasi include>` (not `--sysroot`). Only headers
+  are used; rustc links its own self-contained wasi-libc.
+- `libsqlite3-sys` already sets `SQLITE_THREADSAFE=0` (plus the
+  `_WASI_EMULATED_*` defines) for `wasm32-wasi*`; the other §10 flags go in
+  through `LIBSQLITE3_FLAGS`. All of this lives in `scripts/build-plugins.sh`.
+
+**API crate (Step 1):**
+- `wit-bindgen` is pinned `=0.63.0` with default features off
+  (`macros`, `realloc`): no async runtime in guests.
+- The package is `arcode-plugin-api`, its library name is `arcode_plugin`
+  (as in the §8 example).
+- Imports are reached through SDK modules (`host`, `kv`, `workspace`,
+  `editor`, `http`, `ui::Panel`). In wasm they are the generated bindings; on
+  native targets the same functions are the `testing` fakes, so plugin code
+  is identical in both. wit-bindgen generates `Display` (Debug-based) for the
+  error variants; the SDK does not override it.
+- `Plugin` methods: `activate`, `deactivate`, `command`, `code_lenses`,
+  `open_view`, `ui_event`, `fetch_rows`, `view_closed`, all with defaults.
+  The default `command`/`open_view` return an "unknown …" error rather than
+  `Ok`, so a missing handler is visible.
+- UI keys: an element's key is its explicit `.key(..)` or its sibling index;
+  ids are allocated per key *path*, are never reused after removal, and
+  duplicate explicit sibling keys are an error. Patch order is upserts,
+  removes (top-most removed nodes only), then `set-root`.
+- Fixture output layout: `target/test-plugins/<fixture>/{plugin.toml,plugin.wasm}`
+  (override with `ARCODE_TEST_PLUGINS`). `echo` has one command, `echo`,
+  whose JSON args select an operation (`{"op": "kv", ...}`) and reports
+  results as JSON lines through `host.log`; it declares
+  `network = { hosts = ["127.0.0.1"] }` because it imports `http`.
+
+**Manifest and registry (Step 2) decisions the design left open:**
+- `[[contributes.settings]]` requires `default` (it must match `type`);
+  `type = "enum"` takes `options = [...]` and the default must be one of them.
+- Language ids are global (shared with arcode-syntax and `when` clauses), not
+  namespaced; commands, panels, openers and setting keys are namespaced as
+  `<plugin-id>/<id>`.
+- The lens activation event is named `LensLanguage` (only
+  `contributes.code-lenses` languages activate a plugin, not
+  `contributes.languages`).
+- Opener patterns without `/` match the file name; with `/` they match the
+  project-relative path and `*` does not cross directories.
+- Bundled and installed plugins must sit in a folder named after their id,
+  and their `plugin.toml` must be a regular file (no symlink); dev folders
+  are exempt. `plugin.toml` is capped at 256 KiB.
+- User-visible strings (name, titles, descriptions, options) are capped
+  (64/128/512 chars) and may not contain control characters; `entry` must be
+  a plain `*.wasm` file name; `network.hosts` entries are `*`, a host name,
+  `*.suffix`, an IP literal (`[v6]`), optionally with `:port`, and the list
+  must not be empty.
+- Limits clamp to `1..=user max`; the user max is itself clamped to the hard
+  caps (512 MiB, 600 s).

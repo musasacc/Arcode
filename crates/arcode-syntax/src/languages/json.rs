@@ -1,7 +1,5 @@
 //! JSON, via `tree-sitter-json`.
 
-use std::sync::OnceLock;
-
 use crate::Language;
 
 fn grammar() -> Option<tree_sitter::Language> {
@@ -9,14 +7,8 @@ fn grammar() -> Option<tree_sitter::Language> {
 }
 
 /// The JSON language.
-pub(crate) static JSON: Language = Language {
-    name: "JSON",
-    id: "json",
-    extensions: &["json"],
-    file_names: &["flake.lock"],
-    line_comment: None,
-    block_comment: None,
-    ts_language: grammar,
-    highlights_query: include_str!("../../queries/json/highlights.scm"),
-    query: OnceLock::new(),
-};
+pub(crate) static JSON: Language = Language::new("JSON", "json")
+    .with_extensions(&["json"])
+    .with_file_names(&["flake.lock"])
+    .with_grammar(grammar)
+    .with_highlights(include_str!("../../queries/json/highlights.scm"));

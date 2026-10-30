@@ -1,7 +1,11 @@
 //! Shared helpers for integration tests.
 #![allow(dead_code)]
 
-use arcode_syntax::{HighlightSpan, InputEditData, Syntax, language_by_id, point_for_byte};
+use std::collections::BTreeSet;
+
+use arcode_syntax::{
+    HighlightSpan, InputEditData, OutlineKind, Syntax, language_by_id, point_for_byte,
+};
 use ropey::Rope;
 
 /// Parses `src` as language `id` and returns the rope and syntax.
@@ -85,4 +89,50 @@ pub fn apply_edit(text: &mut Rope, range: std::ops::Range<usize>, insert: &str) 
         old_end_position,
         new_end_position: point_for_byte(text, new_end_byte),
     }
+}
+
+/// Highlights `src` as `id` and checks `(line, needle, capture)` triples.
+/// Also returns every capture name used.
+pub fn check(id: &str, src: &str, expected: &[(usize, &str, &str)]) -> BTreeSet<&'static str> {
+    let (text, syntax) = parse(id, src);
+    let lines = highlight_all(&syntax, &text);
+    let mut failures = Vec::new();
+    for &(line, needle, name) in expected {
+        let got = name_of(&text, &lines, line, needle);
+        if got != Some(name) {
+            failures.push(format!(
+                "{id} line {line} {needle:?}: expected {name}, got {got:?}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+    lines.iter().flatten().map(|span| span.name).collect()
+}
+
+pub fn assert_has(names: &BTreeSet<&str>, wanted: &[&str]) {
+    for want in wanted {
+        assert!(
+            names
+                .iter()
+                .any(|n| n == want || n.starts_with(&format!("{want}."))),
+            "missing {want} in {names:?}"
+        );
+    }
+}
+
+pub const BASICS: &[&str] = &["keyword", "function", "string", "comment"];
+
+/// `(depth, kind, name)` for every outline symbol of `src` as `id`.
+pub fn outline(id: &str, src: &str) -> Vec<(usize, OutlineKind, String)> {
+    let (text, syntax) = parse(id, src);
+    syntax
+        .symbols(&text)
+        .into_iter()
+        .map(|item| (item.depth, item.kind, item.name))
+        .collect()
+}
+
+/// Shorthand for an expected outline entry.
+pub fn o(depth: usize, kind: OutlineKind, name: &str) -> (usize, OutlineKind, String) {
+    (depth, kind, name.to_string())
 }
