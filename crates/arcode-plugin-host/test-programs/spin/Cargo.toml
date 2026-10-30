@@ -1,0 +1,14 @@
+[package]
+name = "spin"
+description = "Fixture: Spins forever in handle-command and provide-code-lenses (CPU budget)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+arcode-plugin.workspace = true
+serde_json.workspace = true

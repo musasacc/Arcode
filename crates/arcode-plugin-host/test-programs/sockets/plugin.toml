@@ -1,0 +1,12 @@
+# Fixture manifest (docs/PLUGINS.md §14): Tries raw TCP/UDP sockets and name lookup through WASI.
+[plugin]
+id = "test.sockets"
+name = "Sockets"
+version = "0.1.0"
+api = "0.1"
+entry = "plugin.wasm"
+description = "Tries raw TCP/UDP sockets and name lookup through WASI."
+
+[[contributes.commands]]
+id = "run"
+title = "Sockets: Run"

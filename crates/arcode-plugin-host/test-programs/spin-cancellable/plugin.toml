@@ -1,0 +1,12 @@
+# Fixture manifest (docs/PLUGINS.md §14): Loops until host.cancelled() turns true.
+[plugin]
+id = "test.spin-cancellable"
+name = "Spin Cancellable"
+version = "0.1.0"
+api = "0.1"
+entry = "plugin.wasm"
+description = "Loops until host.cancelled() turns true."
+
+[[contributes.commands]]
+id = "run"
+title = "Spin Cancellable: Run"

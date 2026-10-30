@@ -3,7 +3,18 @@
 # root workspace so a plain `cargo test` never builds wasm.
 [workspace]
 resolver = "2"
-members = ["echo"]
+members = [
+    "alloc-bomb",
+    "crash",
+    "echo",
+    "fs-escape",
+    "sockets",
+    "spin",
+    "spin-cancellable",
+    "stdout-flood",
+    "undeclared-import",
+    "wasi-http",
+]
 
 [workspace.package]
 version = "0.0.0"
@@ -14,6 +25,7 @@ publish = false
 [workspace.dependencies]
 arcode-plugin = { package = "arcode-plugin-api", path = "../../arcode-plugin-api" }
 serde_json = "1"
+wit-bindgen = { version = "=0.63.0", default-features = false, features = ["macros", "realloc"] }
 
 [profile.release]
 opt-level = "s"

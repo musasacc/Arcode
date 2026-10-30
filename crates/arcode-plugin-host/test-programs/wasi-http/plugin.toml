@@ -1,0 +1,16 @@
+# Fixture manifest (docs/PLUGINS.md §14): the component imports wasi:http.
+# It declares network, so the only reason to refuse it is the import itself.
+[plugin]
+id = "test.wasi-http"
+name = "WASI HTTP"
+version = "0.1.0"
+api = "0.1"
+entry = "plugin.wasm"
+description = "Imports wasi:http"
+
+[capabilities]
+network = { hosts = ["*"] }
+
+[[contributes.commands]]
+id = "run"
+title = "WASI HTTP: Run"

@@ -11,6 +11,8 @@ wasmtime::component::bindgen!({
     // Every import may trap (e.g. a host bug or a poisoned store); the
     // functions return `wasmtime::Result<T>`.
     imports: { default: trappable },
+    // Plain-data comparisons in tests and in the app's diffing.
+    additional_derives: [PartialEq],
 });
 
 /// The generated world type (`world plugin`), renamed so it does not clash

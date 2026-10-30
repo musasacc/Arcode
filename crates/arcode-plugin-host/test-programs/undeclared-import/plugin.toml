@@ -1,0 +1,12 @@
+# Fixture manifest (docs/PLUGINS.md §14): Imports arcode:plugin/http without declaring network.
+[plugin]
+id = "test.undeclared-import"
+name = "Undeclared Import"
+version = "0.1.0"
+api = "0.1"
+entry = "plugin.wasm"
+description = "Imports arcode:plugin/http without declaring network."
+
+[[contributes.commands]]
+id = "run"
+title = "Undeclared Import: Run"

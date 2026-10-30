@@ -1,0 +1,15 @@
+# Fixture manifest (docs/PLUGINS.md §14): Spins forever in handle-command and provide-code-lenses (CPU budget).
+[plugin]
+id = "test.spin"
+name = "Spin"
+version = "0.1.0"
+api = "0.1"
+entry = "plugin.wasm"
+description = "Spins forever in handle-command and provide-code-lenses (CPU budget)."
+
+[[contributes.commands]]
+id = "run"
+title = "Spin: Run"
+
+[[contributes.code-lenses]]
+languages = ["spin"]

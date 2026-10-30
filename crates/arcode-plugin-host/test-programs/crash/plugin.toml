@@ -1,0 +1,12 @@
+# Fixture manifest (docs/PLUGINS.md §14): Panics on command (trap).
+[plugin]
+id = "test.crash"
+name = "Crash"
+version = "0.1.0"
+api = "0.1"
+entry = "plugin.wasm"
+description = "Panics on command (trap)."
+
+[[contributes.commands]]
+id = "run"
+title = "Crash: Run"

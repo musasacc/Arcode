@@ -1,0 +1,12 @@
+# Fixture manifest (docs/PLUGINS.md §14): Writes megabytes to stdout and stderr.
+[plugin]
+id = "test.stdout-flood"
+name = "Stdout Flood"
+version = "0.1.0"
+api = "0.1"
+entry = "plugin.wasm"
+description = "Writes megabytes to stdout and stderr."
+
+[[contributes.commands]]
+id = "run"
+title = "Stdout Flood: Run"

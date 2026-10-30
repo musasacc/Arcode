@@ -20,6 +20,8 @@ sha2.workspace = true
 bytes.workspace = true
 ropey.workspace = true
 async-channel.workspace = true
+# Only for the `AsyncWrite` trait wasmtime-wasi requires on stdout streams.
+tokio.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
