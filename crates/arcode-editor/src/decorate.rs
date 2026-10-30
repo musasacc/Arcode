@@ -31,7 +31,11 @@ pub(crate) fn text_decorations(
 
     if layout.style.highlight_current_line {
         let mut lines: Vec<usize> = Vec::new();
-        for s in editor.selections.iter().filter(|s| s.is_empty() && in_view(s.head)) {
+        for s in editor
+            .selections
+            .iter()
+            .filter(|s| s.is_empty() && in_view(s.head))
+        {
             let line = buffer.char_to_line(s.head);
             if !lines.contains(&line) && visible.contains(&line) {
                 lines.push(line);
@@ -48,22 +52,36 @@ pub(crate) fn text_decorations(
         if s.is_empty() || s.end() < vis_start || s.start() > vis_end {
             continue;
         }
-        let quads = range_rects(editor, layout, buffer.char_to_point(s.start()), buffer.char_to_point(s.end()), true);
+        let quads = range_rects(
+            editor,
+            layout,
+            buffer.char_to_point(s.start()),
+            buffer.char_to_point(s.end()),
+            true,
+        );
         for b in quads {
-            d.selections.push(fill(b, colors.selection).corner_radii(px(3.)));
+            d.selections
+                .push(fill(b, colors.selection).corner_radii(px(3.)));
         }
     }
 
     if let Some(marked) = &editor.marked {
         for r in marked.iter().filter(|r| in_view(r.start)) {
-            let rects = range_rects(editor, layout, buffer.char_to_point(r.start), buffer.char_to_point(r.end), false);
+            let rects = range_rects(
+                editor,
+                layout,
+                buffer.char_to_point(r.start),
+                buffer.char_to_point(r.end),
+                false,
+            );
             for b in rects {
                 let style = UnderlineStyle {
                     thickness: px(1.),
                     color: Some(colors.text),
                     wavy: false,
                 };
-                d.underlines.push((point(b.left(), b.bottom() - px(2.)), b.size.width, style));
+                d.underlines
+                    .push((point(b.left(), b.bottom() - px(2.)), b.size.width, style));
             }
         }
     }
@@ -79,7 +97,8 @@ pub(crate) fn text_decorations(
             }
             let x = layout.text_left() + layout.x_for(p.line, p.column);
             let origin = point(x - px(1.), layout.line_top(p.line));
-            d.cursors.push(fill(Bounds::new(origin, size(px(2.), lh)), colors.cursor));
+            d.cursors
+                .push(fill(Bounds::new(origin, size(px(2.), lh)), colors.cursor));
         }
     }
 }
@@ -121,7 +140,12 @@ fn range_rects(
     out
 }
 
-fn bracket_pair(editor: &Editor, layout: &LayoutSnapshot, colors: &ThemeColors, d: &mut Decorations) {
+fn bracket_pair(
+    editor: &Editor,
+    layout: &LayoutSnapshot,
+    colors: &ThemeColors,
+    d: &mut Decorations,
+) {
     let (Some(syntax), true) = (&editor.syntax, editor.selections.primary().is_empty()) else {
         return;
     };
@@ -144,8 +168,12 @@ fn bracket_pair(editor: &Editor, layout: &LayoutSnapshot, colors: &ThemeColors, 
             let x0 = layout.x_for(p.line, p.column);
             let x1 = layout.x_for(p.line, p.column + 1);
             let origin = point(layout.text_left() + x0, layout.line_top(p.line) + px(1.));
-            let bounds = Bounds::new(origin, size((x1 - x0).max(px(2.)), layout.line_height - px(2.)));
-            d.brackets.push(outline(bounds, color, gpui::BorderStyle::Solid).corner_radii(px(2.)));
+            let bounds = Bounds::new(
+                origin,
+                size((x1 - x0).max(px(2.)), layout.line_height - px(2.)),
+            );
+            d.brackets
+                .push(outline(bounds, color, gpui::BorderStyle::Solid).corner_radii(px(2.)));
         }
         return;
     }
@@ -179,7 +207,11 @@ fn diagnostic_underlines(
             };
             let len = editor.buffer.line_len(line);
             let a = if line == s.line { s.column.min(len) } else { 0 };
-            let b = if line == e.line { e.column.min(len) } else { len };
+            let b = if line == e.line {
+                e.column.min(len)
+            } else {
+                len
+            };
             let (x0, width) = if s == e || (a == b && s.line == e.line) {
                 let x0 = layout.x_for(line, a);
                 let w = if a < len {
@@ -195,7 +227,8 @@ fn diagnostic_underlines(
                 (x0, layout.x_for(line, b) - x0)
             };
             let top = layout.line_top(line);
-            let baseline = top + (layout.line_height - (v.shaped.ascent + v.shaped.descent)) * 0.5
+            let baseline = top
+                + (layout.line_height - (v.shaped.ascent + v.shaped.descent)) * 0.5
                 + v.shaped.ascent;
             let origin = point(layout.text_left() + x0, baseline + px(1.5));
             d.underlines.push((origin, width.max(px(2.)), style));

@@ -1,7 +1,7 @@
 //! Standalone editor window.
 //!
 //! ```text
-//! cargo run -p arcode-editor --example editor -- [FILE] [--lines N] [--fake-diagnostics]
+//! cargo run -p arcode-editor --example editor -- [FILE] [--lines N] [--fake-diagnostics] [--blink]
 //! ```
 //!
 //! Without FILE a Rust snippet is generated (`--lines N` makes it N lines
@@ -23,11 +23,13 @@ fn generated(lines: usize) -> String {
     let mut text = String::from(
         "//! Generated sample.\nuse std::collections::HashMap;\n\nfn main() {\n    let mut map: HashMap<String, u32> = HashMap::new();\n    map.insert(\"answer\".to_string(), 42);\n\tprintln!(\"{:?}\", map);\n    let unused = undefined_value + 1;\n}\n",
     );
+    let mut count = text.lines().count();
     let mut i = 0;
-    while text.lines().count() < lines.max(10) && i < lines {
+    while count < lines {
         text.push_str(&format!(
             "\n/// Function number {i}.\npub fn function_{i}(x: u64) -> u64 {{\n    let value = x.wrapping_mul({i}) ^ 0x9e37_79b9; // àé 漢字\n    if value % 2 == 0 {{ return value + {i}; }}\n    value\n}}\n"
         ));
+        count += 7;
         i += 1;
     }
     text
@@ -59,7 +61,12 @@ fn fake_diagnostics() -> Vec<EditorDiagnostic> {
             DiagnosticSeverity::Info,
             "variable does not need to be mutable (multi-line demo)",
         ),
-        d((3, 11), (3, 11), DiagnosticSeverity::Hint, "zero-width hint at end of line"),
+        d(
+            (3, 11),
+            (3, 11),
+            DiagnosticSeverity::Hint,
+            "zero-width hint at end of line",
+        ),
     ]
 }
 
@@ -72,8 +79,9 @@ fn main() {
             .map(|i| args.remove(i))
             .is_some()
     };
-    let fake = take_flag("--fake-diagnostics")
-        || std::env::var_os("ARCODE_FAKE_DIAGNOSTICS").is_some();
+    let fake =
+        take_flag("--fake-diagnostics") || std::env::var_os("ARCODE_FAKE_DIAGNOSTICS").is_some();
+    let blink = take_flag("--blink");
     let lines = args
         .iter()
         .position(|a| a == "--lines")
@@ -99,7 +107,9 @@ fn main() {
         .with_assets(arcode_ui_kit::Assets)
         .run(move |cx: &mut App| {
             arcode_ui_kit::load_fonts(cx);
-            arcode_ui_kit::set_settings(Config::default(), cx);
+            let mut config = Config::default();
+            config.editor.cursor_blink = blink;
+            arcode_ui_kit::set_settings(config, cx);
             let registry = ThemeRegistry::builtin();
             let theme = registry
                 .get("Arcode Dark")

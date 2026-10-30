@@ -54,8 +54,8 @@ impl Buffer {
     /// Converts a char index (clamped) to a [`Point`].
     pub fn char_to_point(&self, char_idx: usize) -> Point {
         let char_idx = self.clamp_char(char_idx);
-        let line = self.rope.char_to_line(char_idx);
-        Point::new(line, char_idx - self.rope.line_to_char(line))
+        let line = self.char_to_line(char_idx);
+        Point::new(line, char_idx - self.line_start(line))
     }
 
     /// Converts a [`Point`] to a char index. Lines past the end clamp to the
@@ -81,9 +81,9 @@ impl Buffer {
     /// Converts a char index (clamped) to a tree-sitter point (byte column).
     pub fn char_to_ts_point(&self, char_idx: usize) -> TsPoint {
         let char_idx = self.clamp_char(char_idx);
-        let line = self.rope.char_to_line(char_idx);
+        let line = self.char_to_line(char_idx);
         let byte = self.rope.char_to_byte(char_idx);
-        TsPoint::new(line, byte - self.rope.line_to_byte(line))
+        TsPoint::new(line, byte - self.rope.char_to_byte(self.line_start(line)))
     }
 
     /// Converts a tree-sitter point to a char index (clamped like
@@ -92,7 +92,7 @@ impl Buffer {
         if point.row >= self.line_count() {
             return self.len_chars();
         }
-        let line_start = self.rope.line_to_byte(point.row);
+        let line_start = self.rope.char_to_byte(self.line_start(point.row));
         let line_end = self.char_to_byte(self.line_end(point.row));
         self.rope
             .byte_to_char((line_start + point.column).min(line_end))
@@ -101,8 +101,8 @@ impl Buffer {
     /// Converts a char index (clamped) to an LSP `(line, character)` pair.
     pub fn to_lsp_position(&self, char_idx: usize, encoding: PositionEncoding) -> (u32, u32) {
         let char_idx = self.clamp_char(char_idx);
-        let line = self.rope.char_to_line(char_idx);
-        let line_start = self.rope.line_to_char(line);
+        let line = self.char_to_line(char_idx);
+        let line_start = self.line_start(line);
         let character = self.units_between(line_start, char_idx, encoding);
         (to_u32(line), to_u32(character))
     }
@@ -229,6 +229,28 @@ mod tests {
         assert_eq!(b.from_lsp_position(0, 6, Utf8), 2);
         assert_eq!(b.from_lsp_position(0, 2, Utf32), 2);
         assert_eq!(b.from_lsp_position(0, 9, Utf32), 3);
+    }
+
+    #[test]
+    fn unicode_breaks_are_not_rows_for_ts_and_lsp() {
+        // FF, VT, NEL, U+2028, U+2029: only `\n` starts a row.
+        let b = Buffer::new("a\u{c}\u{b}\u{85}\u{2028}\u{2029}b\nc");
+        let c = b.len_chars() - 1;
+        assert_eq!(b.char_to_point(c), Point::new(1, 0));
+        assert_eq!(b.char_to_ts_point(c), TsPoint::new(1, 0));
+        assert_eq!(
+            b.char_to_ts_point(c - 1),
+            TsPoint::new(0, 1 + 1 + 1 + 2 + 3 + 3 + 1)
+        );
+        assert_eq!(b.ts_point_to_char(TsPoint::new(1, 0)), c);
+        assert_eq!(b.ts_point_to_char(TsPoint::new(0, 99)), c - 1);
+        for enc in [Utf8, Utf16, Utf32] {
+            assert_eq!(b.to_lsp_position(c, enc), (1, 0));
+            assert_eq!(b.from_lsp_position(1, 0, enc), c);
+            assert_eq!(b.from_lsp_position(0, 99, enc), c - 1);
+        }
+        assert_eq!(b.to_lsp_position(6, Utf16), (0, 6));
+        assert_eq!(b.to_lsp_position(6, Utf8), (0, 11));
     }
 
     #[test]

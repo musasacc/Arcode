@@ -43,7 +43,8 @@ pub struct Config {
     pub ui: UiSettings,
     /// `[terminal]`
     pub terminal: TerminalSettings,
-    /// `[language.<id>]`, keyed by language id (e.g. `rust`).
+    /// `[language.<id>]`, keyed by language id (e.g. `rust`). Ids read from
+    /// TOML are lowercased.
     #[serde(rename = "language")]
     pub languages: BTreeMap<String, LanguageSettings>,
     /// `[lsp.<name>]`, keyed by server name.
@@ -135,12 +136,15 @@ impl Config {
 
     /// Settings for a language id (exact match, then case-insensitive).
     pub fn language(&self, language_id: &str) -> Option<&LanguageSettings> {
-        self.languages.get(language_id).or_else(|| {
-            self.languages
-                .iter()
-                .find(|(id, _)| id.eq_ignore_ascii_case(language_id))
-                .map(|(_, settings)| settings)
-        })
+        find_key_ignore_case(&self.languages, language_id).and_then(|id| self.languages.get(&id))
+    }
+
+    /// The `[lsp.<name>]` settings for a server name (exact match, then
+    /// case-insensitive).
+    pub fn lsp_server(&self, name: &str) -> Option<&LspServerSettings> {
+        self.lsp
+            .get(name)
+            .or_else(|| find_key_ignore_case(&self.lsp, name).and_then(|key| self.lsp.get(&key)))
     }
 
     /// Tab size for a language: `[language.<id>].tab_size` or `editor.tab_size`.
@@ -169,8 +173,7 @@ impl Config {
             .map(|name| NamedServer {
                 name: name.clone(),
                 settings: self
-                    .lsp
-                    .get(name)
+                    .lsp_server(name)
                     .cloned()
                     .unwrap_or_else(|| LspServerSettings::new(name.clone())),
             })
@@ -206,25 +209,60 @@ impl Config {
         self.terminal.validate(warnings);
     }
 
+    /// Merges `[language.<id>]` tables. Ids are case-insensitive and stored
+    /// lowercase, so `[language.Rust]` overrides the built-in `rust`.
     fn apply_languages(&mut self, value: &Value, warnings: &mut Vec<String>) {
+        let mut seen = BTreeMap::new();
         for_each_entry(value, "language", warnings, |id, entry, warnings| {
             let path = format!("language.{id}");
-            let settings = self.languages.entry(id.to_owned()).or_default();
+            let key = id.to_lowercase();
+            warn_same_entry(&mut seen, &key, &path, warnings);
+            let settings = self.languages.entry(key).or_default();
             apply_table(settings, entry, &path, warnings);
             settings.validate(&path, warnings);
         });
     }
 
+    /// Merges `[lsp.<name>]` tables into the existing entry whose name
+    /// matches case-insensitively (keeping its spelling), else adds the name
+    /// verbatim (it is also the default command, so its case matters).
     fn apply_servers(&mut self, value: &Value, warnings: &mut Vec<String>) {
+        let mut seen = BTreeMap::new();
         for_each_entry(value, "lsp", warnings, |name, entry, warnings| {
             let path = format!("lsp.{name}");
+            let key = find_key_ignore_case(&self.lsp, name).unwrap_or_else(|| name.to_owned());
+            warn_same_entry(&mut seen, &key, &path, warnings);
             let settings = self
                 .lsp
-                .entry(name.to_owned())
+                .entry(key)
                 .or_insert_with(|| LspServerSettings::new(name));
             apply_table(settings, entry, &path, warnings);
             settings.validate(name, &path, warnings);
         });
+    }
+}
+
+/// The key of `map` equal to `name` ignoring case (exact match preferred).
+fn find_key_ignore_case<V>(map: &BTreeMap<String, V>, name: &str) -> Option<String> {
+    if map.contains_key(name) {
+        return Some(name.to_owned());
+    }
+    let lower = name.to_lowercase();
+    map.keys().find(|k| k.to_lowercase() == lower).cloned()
+}
+
+/// Warns when two tables of one file (e.g. `language.Rust` and
+/// `language.rust`) merge into the same entry.
+fn warn_same_entry(
+    seen: &mut BTreeMap<String, String>,
+    key: &str,
+    path: &str,
+    warnings: &mut Vec<String>,
+) {
+    if let Some(first) = seen.insert(key.to_owned(), path.to_owned()) {
+        warnings.push(format!(
+            "`{path}` and `{first}` name the same entry (names are case-insensitive); merged"
+        ));
     }
 }
 

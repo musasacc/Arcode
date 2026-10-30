@@ -3,6 +3,7 @@
 mod actor;
 mod config;
 mod requests;
+mod text;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -15,6 +16,7 @@ use tokio::sync::oneshot;
 
 use actor::{Command, ServerSlot};
 pub use config::{ServerConfig, find_root};
+use text::LazyText;
 
 use crate::client::LspClient;
 use crate::event::{EventReceiver, EventSink, PositionEncoding};
@@ -26,7 +28,8 @@ const SHUTDOWN_ALL_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct OpenDoc {
     uri: Uri,
-    text: Arc<str>,
+    /// Latest full text, for `didSave` with `includeText`.
+    text: Arc<LazyText>,
     servers: Vec<Arc<ServerSlot>>,
 }
 
@@ -146,11 +149,15 @@ impl LspManager {
             });
             servers.push(slot);
         }
+        let text = LazyText::ready(text);
         state.documents.insert(path, OpenDoc { uri, text, servers });
     }
 
     /// Reports edits. Ranges are UTF-16 (the LSP default); servers that
     /// negotiated another encoding receive `full_text` instead.
+    ///
+    /// Prefer [`LspManager::change_document_lazy`] for large documents: it
+    /// only builds the full text if some server needs it.
     pub fn change_document(
         &self,
         path: &Path,
@@ -171,7 +178,38 @@ impl LspManager {
         encoding: PositionEncoding,
         full_text: impl Into<Arc<str>>,
     ) {
-        let full_text: Arc<str> = full_text.into();
+        let text = LazyText::ready(full_text.into());
+        self.send_change(path, version, changes, encoding, text);
+    }
+
+    /// Like [`LspManager::change_document_encoded`], but `full_text` is only
+    /// called (at most once, on a runtime thread, possibly later) if a server
+    /// needs the whole document: full sync, a different position encoding,
+    /// an empty `changes` list, or a later `didSave` with text. Servers that
+    /// sync incrementally never trigger it, so typing costs no O(n) copy.
+    ///
+    /// `full_text` must capture a snapshot of the text at `version` (e.g. a
+    /// cloned rope), not a reference to the live buffer.
+    pub fn change_document_lazy(
+        &self,
+        path: &Path,
+        version: i32,
+        changes: Vec<TextChange>,
+        encoding: PositionEncoding,
+        full_text: impl FnOnce() -> String + Send + 'static,
+    ) {
+        let text = LazyText::deferred(full_text);
+        self.send_change(path, version, changes, encoding, text);
+    }
+
+    fn send_change(
+        &self,
+        path: &Path,
+        version: i32,
+        changes: Vec<TextChange>,
+        encoding: PositionEncoding,
+        full_text: Arc<LazyText>,
+    ) {
         let mut state = self.lock();
         let Some(doc) = state.documents.get_mut(&absolute(path)) else {
             return;

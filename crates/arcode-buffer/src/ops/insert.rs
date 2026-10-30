@@ -2,9 +2,9 @@
 
 use std::ops::Range;
 
-use super::{OpsConfig, commit, indent_lines, prepare, set_from};
+use super::{OpsConfig, clamp_stale, commit, indent_lines, prepare, set_from};
 use crate::buffer::Buffer;
-use crate::changes::{Assoc, map_pos};
+use crate::changes::{Assoc, ChangeMap};
 use crate::edit::Edit;
 use crate::history::UndoGroup;
 use crate::line_ending::normalize;
@@ -44,16 +44,18 @@ fn insert_per_selection(
     selections: &mut SelectionSet,
     texts: Vec<String>,
 ) -> Vec<Edit> {
+    clamp_stale(buffer, selections);
     let typing = selections.iter().all(Selection::is_empty)
         && texts.iter().all(|t| !t.contains('\n') && !t.is_empty());
     let lens: Vec<usize> = texts.iter().map(|t| t.chars().count()).collect();
     let raw: Vec<(Range<usize>, String)> =
         selections.iter().map(Selection::range).zip(texts).collect();
     let changes = prepare(buffer, raw);
+    let map = ChangeMap::new(&changes);
     let after: Vec<Selection> = selections
         .iter()
         .zip(lens)
-        .map(|(s, len)| Selection::cursor(map_pos(s.start(), &changes, Assoc::Before) + len))
+        .map(|(s, len)| Selection::cursor(map.map(s.start(), Assoc::Before) + len))
         .collect();
     let after = set_from(after, selections.primary_index(), selections);
     let group = if typing {
@@ -143,6 +145,7 @@ pub fn type_text(
     if c == '\n' || c == '\r' {
         return newline_and_indent(buffer, selections, cfg);
     }
+    clamp_stale(buffer, selections);
     let plans: Vec<Typed> = selections
         .iter()
         .map(|s| plan_typed(buffer, s, c, cfg))
@@ -159,22 +162,23 @@ pub fn type_text(
         }
     }
     let changes = prepare(buffer, raw);
+    let map = ChangeMap::new(&changes);
     let after: Vec<Selection> = plans
         .iter()
         .map(|p| match p {
             Typed::Insert { range, cursor, .. } => {
-                Selection::cursor(map_pos(range.start, &changes, Assoc::Before) + cursor)
+                Selection::cursor(map.map(range.start, Assoc::Before) + cursor)
             }
             Typed::Surround { sel, .. } => {
-                let start = map_pos(sel.start(), &changes, Assoc::After);
-                let end = map_pos(sel.end(), &changes, Assoc::Before);
+                let start = map.map(sel.start(), Assoc::After);
+                let end = map.map(sel.end(), Assoc::Before);
                 if sel.is_reversed() {
                     Selection::new(end, start)
                 } else {
                     Selection::new(start, end)
                 }
             }
-            Typed::Skip { pos } => Selection::cursor(map_pos(pos + 1, &changes, Assoc::Before)),
+            Typed::Skip { pos } => Selection::cursor(map.map(pos + 1, Assoc::Before)),
         })
         .collect();
     let typing = selections.iter().all(Selection::is_empty);
@@ -200,6 +204,7 @@ pub fn newline_and_indent(
     selections: &mut SelectionSet,
     cfg: &OpsConfig,
 ) -> Vec<Edit> {
+    clamp_stale(buffer, selections);
     let unit = cfg.indent.text();
     let mut raw = Vec::new();
     let mut offsets = Vec::new();
@@ -232,9 +237,10 @@ pub fn newline_and_indent(
         offsets.push((start, cursor));
     }
     let changes = prepare(buffer, raw);
+    let map = ChangeMap::new(&changes);
     let after: Vec<Selection> = offsets
         .into_iter()
-        .map(|(start, cursor)| Selection::cursor(map_pos(start, &changes, Assoc::Before) + cursor))
+        .map(|(start, cursor)| Selection::cursor(map.map(start, Assoc::Before) + cursor))
         .collect();
     let after = set_from(after, selections.primary_index(), selections);
     buffer.break_undo_group();
@@ -249,6 +255,7 @@ pub fn insert_tab(
     selections: &mut SelectionSet,
     cfg: &OpsConfig,
 ) -> Vec<Edit> {
+    clamp_stale(buffer, selections);
     let multi_line = selections
         .iter()
         .any(|s| buffer.char_to_line(s.start()) != buffer.char_to_line(s.end()));

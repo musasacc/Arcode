@@ -183,3 +183,36 @@ fn broken_gitdir_file_yields_none() {
     write(&sub.join(".git"), "not a gitdir line\n");
     assert_eq!(find_repo(&sub), None);
 }
+
+/// `<symlink>/..` names the parent of the link's target, as the OS (and
+/// git) resolve it, for input paths and for `commondir`.
+#[cfg(unix)]
+#[test]
+fn dot_dot_after_symlink_follows_the_link() {
+    let tmp = tempfile::tempdir().unwrap();
+    let proj = tmp.path().join("proj");
+    git_dir(&proj, "ref: refs/heads/main\n");
+    fs::create_dir_all(proj.join("sub/deep")).unwrap();
+    let link = tmp.path().join("link");
+    std::os::unix::fs::symlink(proj.join("sub/deep"), &link).unwrap();
+
+    // Lexically `link/../file` would be `tmp/file`, outside any repo.
+    let repo = find_repo(&link.join("../file")).expect("physical parent");
+    assert_eq!(repo.workdir, proj);
+
+    // A worktree git dir reached through a symlink, with relative commondir.
+    let wt_git = proj.join(".git/worktrees/wt");
+    write(&wt_git.join("HEAD"), &format!("{SHA}\n"));
+    write(&wt_git.join("commondir"), "../..\n");
+    let wt_link = tmp.path().join("wt-gitdir");
+    std::os::unix::fs::symlink(&wt_git, &wt_link).unwrap();
+    let wt = tmp.path().join("wt");
+    write(
+        &wt.join(".git"),
+        &format!("gitdir: {}\n", wt_link.display()),
+    );
+    let repo = find_repo(&wt).unwrap();
+    assert_eq!(repo.git_dir, wt_link);
+    assert_eq!(repo.common_dir, proj.join(".git"));
+    assert_eq!(repo.branch_display(), "detached@0123456");
+}

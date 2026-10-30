@@ -329,12 +329,69 @@ fn one_instance_per_root() {
     drop(manager);
 }
 
+fn lazy_full_text_only_built_when_needed() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("project.marker"), "").unwrap();
+    let (solo, mixed) = (dir.path().join("solo.fk"), dir.path().join("mixed.fk"));
+    let languages = HashMap::from([
+        ("solo".to_string(), vec!["alpha".to_string()]),
+        (
+            "mixed".to_string(),
+            vec!["alpha".to_string(), "beta".to_string()],
+        ),
+    ]);
+    let (manager, rx) = LspManager::new(
+        vec![fake_config("alpha", "utf-16"), fake_config("beta", "utf-8")],
+        languages,
+    );
+    let mut rx = Events::new(rx);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counted = |text: &'static str| {
+        let calls = calls.clone();
+        move || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            text.to_string()
+        }
+    };
+    let change = || {
+        vec![TextChange {
+            range: Some(Range::new(Position::new(0, 0), Position::new(0, 1))),
+            text: "y".into(),
+        }]
+    };
+
+    // Only an incremental UTF-16 server: the full text is never built,
+    // not even while the change waits for initialization.
+    manager.open_document(&solo, "solo", 1, "x".to_string());
+    manager.change_document_lazy(&solo, 2, change(), PositionEncoding::Utf16, counted("y"));
+    rx.wait_diag("alpha: changed v2 incremental");
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    // didSave with includeText needs it: built once, then.
+    manager.save_document(&solo);
+    rx.wait_diag("alpha: saved y");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    // A UTF-8 server needs full text for UTF-16 ranges: built exactly once
+    // and shared with every server that needs it.
+    calls.store(0, Ordering::SeqCst);
+    manager.open_document(&mixed, "mixed", 1, "x".to_string());
+    manager.change_document_lazy(&mixed, 2, change(), PositionEncoding::Utf16, counted("y"));
+    rx.wait_diag("alpha: changed v2 incremental");
+    rx.wait_diag("beta: changed v2 full");
+    manager.save_document(&mixed);
+    rx.wait_diag("alpha: saved y");
+    rx.wait_diag("beta: saved y");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    manager.shutdown_all();
+}
+
 fn main() {
     if std::env::var_os("ARCODE_FAKE_LSP").is_some() {
         fake_lsp::run();
         return;
     }
-    let tests: [(&str, fn()); 3] = [
+    let tests: [(&str, fn()); 4] = [
         (
             "missing_binary_reports_failure",
             missing_binary_reports_failure,
@@ -344,6 +401,10 @@ fn main() {
             two_servers_priority_fanout_and_encodings,
         ),
         ("one_instance_per_root", one_instance_per_root),
+        (
+            "lazy_full_text_only_built_when_needed",
+            lazy_full_text_only_built_when_needed,
+        ),
     ];
     let filters: Vec<String> = std::env::args()
         .skip(1)

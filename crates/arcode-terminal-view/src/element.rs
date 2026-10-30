@@ -3,10 +3,11 @@
 use arcode_terminal::{Cell, CursorShape, Rgb, Snapshot};
 use arcode_ui_kit::{settings, theme};
 use gpui::{
-    App, BorderStyle, Bounds, ContentMask, Element, ElementId, ElementInputHandler, Entity, Font,
-    FontFallbacks, FontFeatures, FontStyle, FontWeight, GlobalElementId, Hsla, InspectorElementId,
-    IntoElement, LayoutId, PaintQuad, Pixels, Point, ShapedLine, SharedString, StrikethroughStyle,
-    Style, TextRun, UnderlineStyle, Window, fill, font, outline, point, px, relative, size,
+    App, BorderStyle, Bounds, ContentMask, DispatchPhase, Element, ElementId, ElementInputHandler,
+    Entity, Font, FontFallbacks, FontFeatures, FontStyle, FontWeight, GlobalElementId, Hsla,
+    InspectorElementId, IntoElement, LayoutId, MouseMoveEvent, PaintQuad, Pixels, Point,
+    ShapedLine, SharedString, StrikethroughStyle, Style, TextRun, UnderlineStyle, Window, fill,
+    font, outline, point, px, relative, size,
 };
 
 use crate::colors::rgb_to_hsla;
@@ -180,12 +181,23 @@ impl Element for TerminalElement {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let focus_handle = self.view.read(cx).focus_handle.clone();
+        let view = self.view.read(cx);
+        let focus_handle = view.focus_handle.clone();
+        let dragging = view.drag.is_some();
         window.handle_input(
             &focus_handle,
             ElementInputHandler::new(bounds, self.view.clone()),
             cx,
         );
+        if dragging {
+            // Keep extending the selection when the pointer leaves the grid.
+            let view = self.view.clone();
+            window.on_mouse_event(move |e: &MouseMoveEvent, phase, window, cx| {
+                if phase == DispatchPhase::Bubble && e.dragging() {
+                    view.update(cx, |view, cx| view.on_mouse_move(e, window, cx));
+                }
+            });
+        }
         let line_height = frame.line_height;
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
             for quad in frame.under.drain(..) {

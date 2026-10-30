@@ -137,3 +137,41 @@ fn sessions_by_path() {
     assert_eq!(session.open_files.len(), 2);
     assert!(state.session(Path::new("/work/other")).is_none());
 }
+
+#[test]
+fn persistable_borrows_when_all_paths_are_unicode() {
+    let state = sample();
+    assert!(matches!(state.persistable(), Cow::Borrowed(_)));
+}
+
+#[cfg(unix)]
+#[test]
+fn non_unicode_paths_are_left_out_of_the_file() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let bad = Path::new(OsStr::from_bytes(b"/work/bad\xff"));
+    let mut state = sample();
+    state.touch_recent_at(bad, 300);
+    state.open_projects.push(bad.to_path_buf());
+    let session = state.session_mut(Path::new("/work/arcode"));
+    session.open_files.push(bad.join("file.rs"));
+    session.active_file = Some(bad.join("file.rs"));
+    state.session_mut(bad).open_files.push("/work/ok.rs".into());
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.toml");
+    state.save_to(&path).unwrap();
+    // The in-memory state is untouched.
+    assert_eq!(state.recent_projects[0].path, bad);
+
+    let loaded = AppState::load_from(&path).unwrap();
+    let mut expected = sample();
+    expected.session_mut(Path::new("/work/arcode")).active_file = None;
+    // The session of the odd project is keyed by its lossy name and kept.
+    expected
+        .session_mut(bad)
+        .open_files
+        .push("/work/ok.rs".into());
+    assert_eq!(loaded, expected);
+}

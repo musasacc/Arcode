@@ -21,7 +21,7 @@ pub use lines::{
 pub use select::{select_all, select_line, select_next_occurrence, selected_text, word_range_at};
 
 use crate::buffer::Buffer;
-use crate::changes::{Assoc, Change, map_pos, normalize_changes};
+use crate::changes::{Assoc, Change, ChangeMap, normalize_changes};
 use crate::edit::Edit;
 use crate::history::UndoGroup;
 use crate::selection::{Selection, SelectionSet};
@@ -122,6 +122,16 @@ impl Default for OpsConfig {
     }
 }
 
+/// Clamps selections that lie past the end of `buffer` (e.g. a stale set
+/// after the file was reloaded or shrunk), so commands never index out of
+/// bounds.
+pub(crate) fn clamp_stale(buffer: &Buffer, selections: &mut SelectionSet) {
+    let len = buffer.len_chars();
+    if selections.iter().any(|s| s.anchor > len || s.head > len) {
+        selections.clamp(len);
+    }
+}
+
 /// Raw changes in pre-edit coordinates, normalized for `buffer`.
 pub(crate) fn prepare(buffer: &Buffer, raw: Vec<(Range<usize>, String)>) -> Vec<Change> {
     normalize_changes(raw, buffer.len_chars())
@@ -129,12 +139,12 @@ pub(crate) fn prepare(buffer: &Buffer, raw: Vec<(Range<usize>, String)>) -> Vec<
 
 /// Maps a selection through `changes`: cursors follow inserted text, a
 /// non-empty selection grows to include text inserted at its edges.
-pub(crate) fn map_selection(sel: &Selection, changes: &[Change]) -> Selection {
+pub(crate) fn map_selection(sel: &Selection, map: &ChangeMap<'_>) -> Selection {
     if sel.is_empty() {
-        return Selection::cursor(map_pos(sel.head, changes, Assoc::After));
+        return Selection::cursor(map.map(sel.head, Assoc::After));
     }
-    let start = map_pos(sel.start(), changes, Assoc::Before);
-    let end = map_pos(sel.end(), changes, Assoc::After);
+    let start = map.map(sel.start(), Assoc::Before);
+    let end = map.map(sel.end(), Assoc::After);
     if sel.is_reversed() {
         Selection::new(end, start)
     } else {

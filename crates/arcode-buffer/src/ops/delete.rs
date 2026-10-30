@@ -2,9 +2,9 @@
 
 use std::ops::Range;
 
-use super::{OpsConfig, commit, prepare, set_from};
+use super::{OpsConfig, clamp_stale, commit, prepare, set_from};
 use crate::buffer::Buffer;
-use crate::changes::{Assoc, map_pos};
+use crate::changes::{Assoc, ChangeMap};
 use crate::edit::Edit;
 use crate::history::UndoGroup;
 use crate::movement::{self, display_column};
@@ -18,6 +18,7 @@ fn delete_with(
     selections: &mut SelectionSet,
     f: impl Fn(&Buffer, usize) -> Range<usize>,
 ) -> Vec<Edit> {
+    clamp_stale(buffer, selections);
     let ranges: Vec<Range<usize>> = selections
         .iter()
         .map(|s| {
@@ -30,9 +31,10 @@ fn delete_with(
         .collect();
     let raw = ranges.iter().map(|r| (r.clone(), String::new())).collect();
     let changes = prepare(buffer, raw);
+    let map = ChangeMap::new(&changes);
     let after: Vec<Selection> = ranges
         .iter()
-        .map(|r| Selection::cursor(map_pos(r.start, &changes, Assoc::Before)))
+        .map(|r| Selection::cursor(map.map(r.start, Assoc::Before)))
         .collect();
     let after = set_from(after, selections.primary_index(), selections);
     buffer.break_undo_group();
@@ -47,6 +49,7 @@ pub fn backspace(buffer: &mut Buffer, selections: &mut SelectionSet, cfg: &OpsCo
 }
 
 fn backspace_range(buffer: &Buffer, pos: usize, cfg: &OpsConfig) -> Range<usize> {
+    let pos = buffer.clamp_char(pos);
     if pos == 0 {
         return 0..0;
     }

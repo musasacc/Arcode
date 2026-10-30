@@ -75,6 +75,10 @@ pub struct Editor {
     pub(crate) blink_task: Option<Task<()>>,
     /// Text of the last whole-line copy, so pasting it inserts lines.
     pub(crate) line_clipboard: Option<String>,
+    /// Background syntax job (large buffers), if running.
+    pub(crate) syntax_task: Option<Task<()>>,
+    /// Edits made while the tree was being reparsed in the background.
+    pub(crate) pending_syntax_edits: Vec<InputEditData>,
 }
 
 impl EventEmitter<EditorEvent> for Editor {}
@@ -82,18 +86,6 @@ impl EventEmitter<EditorEvent> for Editor {}
 impl Focusable for Editor {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
-    }
-}
-
-/// Converts a buffer edit to tree-sitter's input edit.
-pub(crate) fn input_edit(e: &Edit) -> InputEditData {
-    InputEditData {
-        start_byte: e.start_byte,
-        old_end_byte: e.old_end_byte,
-        new_end_byte: e.new_end_byte,
-        start_position: (e.start_position.row, e.start_position.column),
-        old_end_position: (e.old_end_position.row, e.old_end_position.column),
-        new_end_position: (e.new_end_position.row, e.new_end_position.column),
     }
 }
 
@@ -106,12 +98,11 @@ impl Editor {
             .path()
             .map(arcode_syntax::language_for_path)
             .unwrap_or_else(arcode_syntax::plain_text);
-        let syntax = Syntax::new(language, buffer.text());
         let was_dirty = buffer.is_dirty();
-        Editor {
+        let mut editor = Editor {
             buffer,
             language,
-            syntax,
+            syntax: None,
             selections: SelectionSet::single(0),
             diagnostics: Vec::new(),
             focus_handle: cx.focus_handle(),
@@ -129,7 +120,11 @@ impl Editor {
             blink_epoch: 0,
             blink_task: None,
             line_clipboard: None,
-        }
+            syntax_task: None,
+            pending_syntax_edits: Vec::new(),
+        };
+        editor.init_syntax(cx);
+        editor
     }
 
     /// Opens `path` in a new editor.
@@ -282,16 +277,10 @@ impl Editor {
         if edits.is_empty() {
             return;
         }
-        if let Some(syntax) = self.syntax.as_mut() {
-            for e in &edits {
-                syntax.edit(&input_edit(e));
-            }
-            syntax.reparse(self.buffer.text());
-        }
+        self.sync_syntax(&edits, cx);
         for e in &edits {
             adjust_for_edit(&mut self.diagnostics, e);
         }
-        self.highlights = None;
         self.hover = None;
         let version = self.buffer.version();
         cx.emit(EditorEvent::Edited { edits, version });

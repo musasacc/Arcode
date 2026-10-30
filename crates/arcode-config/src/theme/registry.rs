@@ -1,11 +1,9 @@
 //! Built-in and user themes, and resolution of the configured choice.
 
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::OnceLock;
 
-use super::{Appearance, Theme, ThemeError, parse};
+use super::{Appearance, Theme, ThemeError, loader};
 use crate::config::ThemeChoice;
 
 /// Names of the built-in themes, in display order.
@@ -34,7 +32,7 @@ fn builtin_themes() -> &'static [Theme] {
 }
 
 /// The built-in theme a user theme inherits from by default.
-fn builtin_base(appearance: Appearance) -> &'static Theme {
+pub(super) fn builtin_base(appearance: Appearance) -> &'static Theme {
     let name = match appearance {
         Appearance::Dark => BUILTIN_THEME_NAMES[0],
         Appearance::Light => BUILTIN_THEME_NAMES[1],
@@ -66,70 +64,29 @@ impl ThemeRegistry {
     /// Built-ins plus every `*.toml` theme in `user_themes_dir` (if given).
     /// A missing directory is not an error; broken theme files are skipped
     /// with a warning. A user theme may replace a built-in by using its name.
+    ///
+    /// Files are read in path order (a later file defining the same name
+    /// wins). `extends` may name any built-in or user theme regardless of
+    /// file order; cycles produce a warning and fall back to the built-in.
     pub fn load(user_themes_dir: Option<&Path>) -> (Self, Vec<String>) {
         let mut registry = Self::builtin();
-        let mut warnings = Vec::new();
-        let Some(dir) = user_themes_dir else {
-            return (registry, warnings);
+        let warnings = match user_themes_dir {
+            Some(dir) => loader::load_dir(&mut registry, dir),
+            None => Vec::new(),
         };
-        let files = match theme_files(dir) {
-            Ok(files) => files,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => return (registry, warnings),
-            Err(err) => {
-                warnings.push(format!("cannot read themes in {}: {err}", dir.display()));
-                return (registry, warnings);
-            }
-        };
-        let mut user_names: Vec<String> = Vec::new();
-        for path in files {
-            let shown = path.display().to_string();
-            let source = match fs::read_to_string(&path) {
-                Ok(source) => source,
-                Err(err) => {
-                    warnings.push(format!("{shown}: cannot read: {err}"));
-                    continue;
-                }
-            };
-            let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned());
-            match registry.add_user_theme(&source, stem.as_deref()) {
-                Ok((name, theme_warnings)) => {
-                    warnings.extend(theme_warnings.into_iter().map(|w| format!("{shown}: {w}")));
-                    if user_names.contains(&name) {
-                        warnings.push(format!("{shown}: replaces earlier theme \"{name}\""));
-                    }
-                    user_names.push(name);
-                }
-                Err(err) => warnings.push(format!("{shown}: {err}; skipped")),
-            }
-        }
         (registry, warnings)
     }
 
     /// Parses a user theme and adds it (replacing a theme of the same name).
-    /// It inherits from `extends` if given, else from the built-in theme of
-    /// its appearance. Returns the theme name and any warnings.
+    /// It inherits from `extends` (a theme already in the registry) if
+    /// given, else from the built-in theme of its appearance. Returns the
+    /// theme name and any warnings.
     pub fn add_user_theme(
         &mut self,
         source: &str,
         fallback_name: Option<&str>,
     ) -> Result<(String, Vec<String>), ThemeError> {
-        let table = parse::parse_table(source)?;
-        let mut warnings = Vec::new();
-        let appearance = table
-            .get("appearance")
-            .and_then(|v| v.as_str())
-            .and_then(Appearance::parse);
-        let extends = table.get("extends").and_then(|v| v.as_str());
-        let base = match extends.map(|name| (name, self.get(name))) {
-            Some((_, Some(base))) => base.clone(),
-            Some((name, None)) => {
-                warnings.push(format!("`extends`: unknown theme \"{name}\""));
-                builtin_base(appearance.unwrap_or_default()).clone()
-            }
-            None => builtin_base(appearance.unwrap_or_default()).clone(),
-        };
-        let (theme, theme_warnings) = Theme::from_table(&table, Some(&base), fallback_name)?;
-        warnings.extend(theme_warnings);
+        let (theme, warnings) = loader::user_theme(self, source, fallback_name)?;
         let name = theme.name.clone();
         self.insert(theme);
         Ok((name, warnings))
@@ -201,20 +158,4 @@ impl ThemeRegistry {
         };
         self.get(name).unwrap_or_else(|| self.fallback(appearance))
     }
-}
-
-/// `*.toml` files in `dir`, sorted by path for deterministic loading.
-fn theme_files(dir: &Path) -> io::Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    for entry in fs::read_dir(dir)? {
-        let path = entry?.path();
-        let is_toml = path
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("toml"));
-        if is_toml && path.is_file() {
-            files.push(path);
-        }
-    }
-    files.sort();
-    Ok(files)
 }

@@ -68,7 +68,8 @@ fn gutter(
                 top + (layout.line_height - dot) * 0.5,
             );
             d.gutter_markers.push(
-                fill(Bounds::new(origin, size(dot, dot)), sev.color(colors)).corner_radii(dot * 0.5),
+                fill(Bounds::new(origin, size(dot, dot)), sev.color(colors))
+                    .corner_radii(dot * 0.5),
             );
         }
         if !layout.style.show_line_numbers {
@@ -105,7 +106,10 @@ fn scrollbar(
         }
         last_y = Some((y, diag.severity));
         d.scrollbar.push(fill(
-            Bounds::new(point(bar.track.left() + px(2.), y), size(bar.track.size.width - px(4.), px(2.))),
+            Bounds::new(
+                point(bar.track.left() + px(2.), y),
+                size(bar.track.size.width - px(4.), px(2.)),
+            ),
             diag.severity.color(colors),
         ));
     }

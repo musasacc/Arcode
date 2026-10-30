@@ -1,7 +1,6 @@
 //! Reader and writer tasks: route responses to pending requests, answer
 //! server-to-client requests and turn notifications into events.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use lsp_types::{
@@ -15,7 +14,7 @@ use tokio::sync::mpsc;
 
 use super::shared::Shared;
 use crate::error::{INVALID_PARAMS, METHOD_NOT_FOUND};
-use crate::event::{LspEvent, ServerStatus};
+use crate::event::LspEvent;
 use crate::rpc::{self, Incoming};
 use crate::transport;
 use crate::uri::{path_to_uri, uri_to_path};
@@ -225,9 +224,10 @@ fn handle_notification(
 }
 
 /// Tracks active work-done progress tokens to derive `Busy`/`Running`.
+/// The oldest active token's title is the one shown.
 #[derive(Default)]
 struct ProgressTracker {
-    titles: HashMap<String, String>,
+    active: Vec<(String, String)>,
 }
 
 impl ProgressTracker {
@@ -237,38 +237,35 @@ impl ProgressTracker {
             NumberOrString::String(s) => s,
         };
         let ProgressParamsValue::WorkDone(work) = params.value;
-        let was_idle = self.titles.is_empty();
         let (title, message, percentage, done) = match work {
             WorkDoneProgress::Begin(b) => {
-                self.titles.insert(token.clone(), b.title.clone());
+                self.active.retain(|(t, _)| *t != token);
+                self.active.push((token.clone(), b.title.clone()));
                 (Some(b.title), b.message, b.percentage, false)
             }
-            WorkDoneProgress::Report(r) => (
-                self.titles.get(&token).cloned(),
-                r.message,
-                r.percentage,
-                false,
-            ),
-            WorkDoneProgress::End(e) => (self.titles.remove(&token), e.message, None, true),
+            WorkDoneProgress::Report(r) => (self.title(&token), r.message, r.percentage, false),
+            WorkDoneProgress::End(e) => {
+                let title = self.title(&token);
+                self.active.retain(|(t, _)| *t != token);
+                (title, e.message, None, true)
+            }
         };
         shared.events.send(LspEvent::Progress {
             server: shared.name.clone(),
             token,
-            title: title.clone(),
+            title,
             message,
             percentage,
             done,
         });
-        if was_idle && !done {
-            if let Some(title) = title {
-                shared.emit_status(ServerStatus::Busy(title));
-            }
-        } else if done && !was_idle {
-            match self.titles.values().next() {
-                None => shared.emit_status(ServerStatus::Running),
-                Some(other) => shared.emit_status(ServerStatus::Busy(other.clone())),
-            }
-        }
+        shared.set_busy(self.active.first().map(|(_, title)| title.clone()));
+    }
+
+    fn title(&self, token: &str) -> Option<String> {
+        self.active
+            .iter()
+            .find(|(t, _)| t == token)
+            .map(|(_, title)| title.clone())
     }
 }
 

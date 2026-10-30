@@ -23,7 +23,9 @@ pub struct Repo {
 ///
 /// Walks up from `path` looking for a `.git` directory, or a `.git` file of
 /// the form `gitdir: <path>` (linked worktrees, submodules); relative gitdir
-/// paths are resolved against the directory holding the `.git` file. Only
+/// paths are resolved against the directory holding the `.git` file, with
+/// `..` following symlinks like git and the OS do (so a checkout opened
+/// through a symlink still finds its git dir). Only
 /// the filesystem is read; no process is spawned.
 ///
 /// Returns `None` if no repository is found, or if the nearest `.git` file
@@ -126,13 +128,11 @@ impl Repo {
     }
 
     /// Returns `path` relative to the working tree, or `None` when it lies
-    /// outside it. Relative inputs are returned normalized as-is.
+    /// outside it. Relative inputs are taken relative to [`Repo::workdir`].
+    /// `.` and `..` are resolved like the OS does (following a symlink
+    /// before `..` on Unix).
     pub fn relative_path(&self, path: &Path) -> Option<PathBuf> {
-        if path.is_relative() {
-            let rel = paths::normalize(path);
-            return paths::to_git_path(&rel).map(|_| rel);
-        }
-        let abs = paths::normalize(path);
+        let abs = paths::resolve(&self.workdir, path);
         let rel = abs.strip_prefix(&self.workdir).ok()?;
         paths::to_git_path(rel).map(|_| rel.to_path_buf())
     }

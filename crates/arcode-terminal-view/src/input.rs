@@ -74,7 +74,7 @@ pub fn classify_key(
 /// Adds a wheel delta (pixels, positive = towards older content) to
 /// `remainder` and returns the whole lines to scroll, keeping the fraction.
 pub fn wheel_lines(remainder: &mut f32, delta_px: f32, line_height: f32) -> i32 {
-    if !(line_height > 0.) || !delta_px.is_finite() {
+    if line_height.is_nan() || line_height <= 0. || !delta_px.is_finite() {
         return 0;
     }
     let total = *remainder + delta_px / line_height;

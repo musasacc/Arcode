@@ -1,0 +1,19 @@
+[package]
+name = "arcode-search"
+description = "Project-wide search (ripgrep libraries) and TODO/FIXME scanning."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+ignore = "0.4"
+grep-searcher = "0.1"
+grep-regex = "0.1"
+grep-matcher = "0.1"
+globset = "0.4"
+log.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

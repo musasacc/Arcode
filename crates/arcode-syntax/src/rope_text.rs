@@ -73,12 +73,32 @@ pub(crate) fn line_content_range(text: &Rope, line: usize) -> Option<Range<usize
 
 /// Converts a byte offset into a tree-sitter style `(row, byte column)`.
 ///
-/// Rows follow the rope's line breaks, which match tree-sitter's (`'\n'`)
-/// for LF and CRLF text. Offsets past the end are clamped.
+/// Like tree-sitter, only `'\n'` starts a new row: a lone `'\r'`, U+2028
+/// and the other Unicode breaks that ropey treats as line ends do not
+/// (CRLF counts once, at its `'\n'`). The column is the byte distance from
+/// the last `'\n'`. Offsets past the end are clamped.
+///
+/// Cost is linear in `byte` (a vectorized newline count over the rope's
+/// chunks), so callers that already track rows, such as the buffer's edit
+/// conversion, should prefer their own positions.
 pub fn point_for_byte(text: &Rope, byte: usize) -> (usize, usize) {
     let byte = byte.min(text.len_bytes());
-    let row = text.byte_to_line(byte);
-    (row, byte - text.line_to_byte(row))
+    let mut row = 0;
+    let mut row_start = 0;
+    let mut chunk_start = 0;
+    for chunk in text.chunks() {
+        if chunk_start >= byte {
+            break;
+        }
+        let bytes = chunk.as_bytes();
+        let bytes = bytes.get(..byte - chunk_start).unwrap_or(bytes);
+        row += memchr::memchr_iter(b'\n', bytes).count();
+        if let Some(last) = memchr::memrchr(b'\n', bytes) {
+            row_start = chunk_start + last + 1;
+        }
+        chunk_start += chunk.len();
+    }
+    (row, byte - row_start)
 }
 
 #[cfg(test)]
@@ -130,5 +150,29 @@ mod tests {
         assert_eq!(point_for_byte(&rope, 3), (1, 0));
         assert_eq!(point_for_byte(&rope, 6), (1, 3));
         assert_eq!(point_for_byte(&rope, 99), (1, 3));
+    }
+
+    #[test]
+    fn points_count_only_line_feeds() {
+        let rope = Rope::from_str("a\r\nb\rc\u{2028}d\u{85}e\x0Bf\n");
+        assert_eq!(point_for_byte(&rope, 2), (0, 2));
+        assert_eq!(point_for_byte(&rope, 3), (1, 0));
+        // 'c' after a lone CR stays on row 1.
+        assert_eq!(point_for_byte(&rope, 5), (1, 2));
+        let f = "a\r\nb\rc\u{2028}d\u{85}e\x0B".len();
+        assert_eq!(point_for_byte(&rope, f), (1, f - 3));
+        assert_eq!(point_for_byte(&rope, f + 2), (2, 0));
+    }
+
+    #[test]
+    fn points_across_chunks() {
+        let text: String = (0..20_000).map(|i| format!("line {i}\n")).collect();
+        let rope = Rope::from_str(&text);
+        for row in [0, 1, 999, 12_345, 19_999] {
+            let start = rope.line_to_byte(row);
+            assert_eq!(point_for_byte(&rope, start), (row, 0));
+            assert_eq!(point_for_byte(&rope, start + 3), (row, 3));
+        }
+        assert_eq!(point_for_byte(&rope, text.len()), (20_000, 0));
     }
 }

@@ -23,6 +23,7 @@ mod mouse;
 mod paint;
 mod render;
 mod style;
+mod syntax_sync;
 
 pub use actions::*;
 pub use diagnostics::{DiagnosticSeverity, EditorDiagnostic};

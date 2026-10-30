@@ -17,6 +17,6 @@ mod myers;
 mod paths;
 mod repo;
 
-pub use diff::{ChangeKind, LineChange, line_diff};
+pub use diff::{ChangeKind, LineChange, line_diff, split_lines};
 pub use head::Head;
 pub use repo::{Repo, find_repo};

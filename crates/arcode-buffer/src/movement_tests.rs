@@ -170,3 +170,35 @@ fn selection_helpers() {
     move_left(&buf, &mut sels, true);
     assert_eq!(sels.len(), 2);
 }
+
+#[test]
+fn word_moves_keep_grapheme_clusters() {
+    // "café" with a combining accent, then a word after a space.
+    let buf = b("cafe\u{301} x");
+    assert_eq!(word_right(&buf, 0), 5);
+    assert_eq!(word_left(&buf, 5), 0);
+    assert_eq!(word_right(&buf, 5), 7);
+    assert_eq!(word_left(&buf, 7), 6);
+    // A combining mark on punctuation stays with it; on a space too.
+    let buf = b("a.\u{301}b \u{301}c");
+    assert_eq!(word_right(&buf, 1), 3);
+    assert_eq!(word_left(&buf, 3), 1);
+    assert_eq!(word_right(&buf, 4), 7);
+    assert_eq!(word_left(&buf, 7), 6);
+    // Flags and emoji form punctuation runs of whole clusters.
+    let buf = b("x🇩🇪🇩🇪 y");
+    assert_eq!(word_right(&buf, 1), 5);
+    assert_eq!(word_left(&buf, 5), 1);
+    assert_eq!(word_left(&buf, 3), 1);
+}
+
+#[test]
+fn vertical_moves_with_huge_counts_saturate() {
+    let buf = b("ab\ncd\nef");
+    for n in [usize::MAX, 1 << 63, usize::MAX - 1] {
+        assert_eq!(page_down(&buf, 1, None, n, 4), (7, 1));
+        assert_eq!(page_up(&buf, 7, None, n, 4), (1, 1));
+    }
+    assert_eq!(page_down(&buf, 1, None, 0, 4), (4, 1)); // at least one line
+    assert_eq!(page_up(&buf, 4, None, 0, 4), (1, 1));
+}

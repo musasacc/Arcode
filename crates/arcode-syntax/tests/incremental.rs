@@ -200,3 +200,43 @@ fn stale_tree_never_panics() {
     syntax.reparse(&text);
     assert_matches_fresh(&syntax, &text);
 }
+
+/// Edits on text with breaks tree-sitter does not count as rows (lone CR,
+/// U+2028) keep every node position equal to a fresh parse, even before
+/// the reparse.
+#[test]
+fn edit_points_follow_tree_sitter_rows() {
+    let src = "fn a() {}\rfn b() {}\u{2028}fn c() {\n    1\r}\n";
+    let (mut text, mut syntax) = parse("rust", src);
+    let at = byte_of(&text, "fn b");
+    let edit = apply_edit(&mut text, at..at, "fn x() {}\n");
+    syntax.edit(&edit);
+    syntax.reparse(&text);
+    let fresh = Syntax::new(syntax.language(), &text).expect("parse");
+    let mut ours = syntax.tree().walk();
+    let mut theirs = fresh.tree().walk();
+    loop {
+        let (a, b) = (ours.node(), theirs.node());
+        assert_eq!(a.kind(), b.kind());
+        assert_eq!(a.byte_range(), b.byte_range());
+        assert_eq!(a.start_position(), b.start_position(), "{}", a.kind());
+        assert_eq!(a.end_position(), b.end_position(), "{}", a.kind());
+        let (stepped, _) = (ours.goto_first_child(), theirs.goto_first_child());
+        if stepped {
+            continue;
+        }
+        let mut done = false;
+        while !ours.goto_next_sibling() {
+            theirs.goto_parent();
+            if !ours.goto_parent() {
+                done = true;
+                break;
+            }
+        }
+        if done {
+            break;
+        }
+        theirs.goto_next_sibling();
+    }
+    assert_matches_fresh(&syntax, &text);
+}

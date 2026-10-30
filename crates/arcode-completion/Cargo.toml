@@ -1,0 +1,17 @@
+[package]
+name = "arcode-completion"
+description = "Completion ranking, buffer-word index, path completion and snippets."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+arcode-buffer.workspace = true
+nucleo-matcher = "0.3"
+serde.workspace = true
+toml.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

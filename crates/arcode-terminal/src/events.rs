@@ -8,6 +8,7 @@ use alacritty_terminal::event_loop::{EventLoopSender, Msg};
 use async_channel::Sender;
 
 use crate::color::Palette;
+use crate::replies::{Reply, ReplySender};
 
 /// Something the UI should react to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,7 +50,10 @@ struct Coalesce {
 /// State shared between the [`EventProxy`] (PTY thread) and the
 /// [`crate::Terminal`] handle.
 pub(crate) struct Shared {
+    /// The child runs and the terminal was not shut down.
     pub(crate) alive: AtomicBool,
+    /// The I/O loop reaped the child (its pid must not be signalled).
+    pub(crate) child_reaped: AtomicBool,
     pub(crate) loop_sender: OnceLock<EventLoopSender>,
     pub(crate) palette: Mutex<Palette>,
     pub(crate) window_size: Mutex<WindowSize>,
@@ -60,6 +64,7 @@ impl Shared {
     pub(crate) fn new(window_size: WindowSize) -> Self {
         Self {
             alive: AtomicBool::new(true),
+            child_reaped: AtomicBool::new(false),
             loop_sender: OnceLock::new(),
             palette: Mutex::new(Palette::default()),
             window_size: Mutex::new(window_size),
@@ -86,11 +91,27 @@ impl Shared {
 pub(crate) struct EventProxy {
     tx: Sender<TerminalEvent>,
     shared: Arc<Shared>,
+    replies: ReplySender,
 }
 
 impl EventProxy {
-    pub(crate) fn new(tx: Sender<TerminalEvent>, shared: Arc<Shared>) -> Self {
-        Self { tx, shared }
+    pub(crate) fn new(
+        tx: Sender<TerminalEvent>,
+        shared: Arc<Shared>,
+        replies: ReplySender,
+    ) -> Self {
+        Self {
+            tx,
+            shared,
+            replies,
+        }
+    }
+
+    /// Queues a reply to the program; dropped once the responder is gone.
+    fn reply(&self, reply: Reply) {
+        if self.replies.send(reply).is_err() {
+            log::debug!("terminal: dropping a reply, the responder is gone");
+        }
     }
 
     /// Queues an event for the UI. Returns whether it was queued.
@@ -136,20 +157,20 @@ impl EventListener for EventProxy {
             }
             Event::ChildExit(status) => {
                 self.shared.alive.store(false, Ordering::SeqCst);
+                self.shared.child_reaped.store(true, Ordering::SeqCst);
                 self.push(TerminalEvent::ChildExit(status.code()));
             }
             Event::ClipboardStore(_, text) => {
                 self.push(TerminalEvent::ClipboardStore(text));
             }
-            Event::PtyWrite(text) => self.shared.write_pty(text.into_bytes()),
+            Event::PtyWrite(text) => self.reply(Reply::Bytes(text.into_bytes())),
             Event::TextAreaSizeRequest(format) => {
                 let size = *lock(&self.shared.window_size);
-                self.shared.write_pty(format(size).into_bytes());
+                self.reply(Reply::Bytes(format(size).into_bytes()));
             }
-            Event::ColorRequest(index, format) => {
-                let rgb = lock(&self.shared.palette).table(index);
-                self.shared.write_pty(format(rgb.into()).into_bytes());
-            }
+            // Answered with the runtime color (OSC 4/10/11/12 overrides)
+            // or the palette by the responder thread, in order.
+            Event::ColorRequest(index, format) => self.reply(Reply::Color(index, format)),
             // OSC 52 paste is disabled by the terminal config; cursor shape
             // and blinking changes are picked up by the next snapshot.
             Event::ClipboardLoad(..) | Event::MouseCursorDirty | Event::CursorBlinkingChange => {}
@@ -160,14 +181,28 @@ impl EventListener for EventProxy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::color::Rgb;
     use std::process::ExitStatus;
+
+    type Parts = (
+        EventProxy,
+        async_channel::Receiver<TerminalEvent>,
+        Arc<Shared>,
+        std::sync::mpsc::Receiver<Reply>,
+    );
 
     fn proxy() -> (
         EventProxy,
         async_channel::Receiver<TerminalEvent>,
         Arc<Shared>,
     ) {
+        let (p, rx, shared, _) = proxy_with_replies();
+        (p, rx, shared)
+    }
+
+    fn proxy_with_replies() -> Parts {
         let (tx, rx) = async_channel::unbounded();
+        let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         let size = WindowSize {
             num_lines: 24,
             num_cols: 80,
@@ -175,7 +210,8 @@ mod tests {
             cell_height: 16,
         };
         let shared = Arc::new(Shared::new(size));
-        (EventProxy::new(tx, shared.clone()), rx, shared)
+        let proxy = EventProxy::new(tx, shared.clone(), reply_tx);
+        (proxy, rx, shared, reply_rx)
     }
 
     fn drain(rx: &async_channel::Receiver<TerminalEvent>) -> Vec<TerminalEvent> {
@@ -228,9 +264,11 @@ mod tests {
         p.send_event(Event::MouseCursorDirty);
         p.send_event(Event::PtyWrite("ignored without loop".into()));
         assert!(shared.alive.load(Ordering::SeqCst));
+        assert!(!shared.child_reaped.load(Ordering::SeqCst));
         p.send_event(Event::ChildExit(exit_status(3)));
         p.send_event(Event::Exit);
         assert!(!shared.alive.load(Ordering::SeqCst));
+        assert!(shared.child_reaped.load(Ordering::SeqCst));
         assert_eq!(
             drain(&rx),
             vec![
@@ -242,6 +280,25 @@ mod tests {
                 TerminalEvent::Exit,
             ]
         );
+    }
+
+    #[test]
+    fn queries_become_ordered_replies() {
+        let (p, rx, _, replies) = proxy_with_replies();
+        p.send_event(Event::PtyWrite("\x1b[1;1R".into()));
+        p.send_event(Event::ColorRequest(
+            257,
+            Arc::new(|c| format!("{},{},{}", c.r, c.g, c.b)),
+        ));
+        p.send_event(Event::TextAreaSizeRequest(Arc::new(|ws| {
+            format!("{}x{}", ws.num_cols, ws.num_lines)
+        })));
+        let got: Vec<_> = replies.try_iter().collect();
+        assert_eq!(got.len(), 3);
+        assert!(matches!(&got[0], Reply::Bytes(b) if b == b"\x1b[1;1R"));
+        assert!(matches!(&got[1], Reply::Color(257, f) if f(Rgb::new(1, 2, 3).into()) == "1,2,3"));
+        assert!(matches!(&got[2], Reply::Bytes(b) if b == b"80x24"));
+        assert!(rx.try_recv().is_err(), "replies are not UI events");
     }
 
     #[test]

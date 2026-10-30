@@ -10,6 +10,7 @@ use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
 
 use super::config::ServerConfig;
+use super::text::LazyText;
 use crate::client::LspClient;
 use crate::event::{EventSink, PositionEncoding};
 use crate::sync::TextChange;
@@ -27,11 +28,12 @@ pub(crate) enum Command {
         version: i32,
         changes: Vec<TextChange>,
         encoding: PositionEncoding,
-        full_text: Arc<str>,
+        /// Only built if this server needs the whole text.
+        full_text: Arc<LazyText>,
     },
     Save {
         uri: Uri,
-        text: Arc<str>,
+        text: Arc<LazyText>,
     },
     Close {
         uri: Uri,
@@ -87,7 +89,12 @@ async fn run(
     mut rx: mpsc::UnboundedReceiver<Command>,
     slot: Arc<OnceLock<LspClient>>,
 ) {
-    let client = match LspClient::start(config.spec(), root, events).await {
+    // The slot is filled before `Running` is emitted, so a UI reacting to
+    // that event can route requests to this server right away.
+    let started = LspClient::start_then(config.spec(), root, events, |client| {
+        let _ = slot.set(client.clone());
+    });
+    let client = match started.await {
         Ok(client) => client,
         Err(e) => {
             log::warn!("[{}] failed to start: {e}", config.name);
@@ -100,7 +107,6 @@ async fn run(
             return;
         }
     };
-    let _ = slot.set(client.clone());
     while let Some(cmd) = rx.recv().await {
         if let Command::Shutdown(ack) = cmd {
             if let Err(e) = client.shutdown().await {
@@ -132,18 +138,19 @@ fn apply(client: &LspClient, cmd: Command) -> crate::Result<()> {
         } => {
             if changes.is_empty() || encoding != client.position_encoding() {
                 // Ranges would be misinterpreted; send the whole text instead.
-                match client
-                    .document_sync()
-                    .did_change_full(uri, version, full_text.to_string())
-                {
+                match client.document_sync().did_change_full(
+                    uri,
+                    version,
+                    full_text.get().to_string(),
+                ) {
                     Some(p) => client.notify::<lsp_types::notification::DidChangeTextDocument>(p),
                     None => Ok(()),
                 }
             } else {
-                client.did_change(uri, version, changes, || full_text.to_string())
+                client.did_change(uri, version, changes, || full_text.get().to_string())
             }
         }
-        Command::Save { uri, text } => client.did_save(uri, || text.to_string()),
+        Command::Save { uri, text } => client.did_save(uri, || text.get().to_string()),
         Command::Close { uri } => client.did_close(uri),
         Command::Run(f) => {
             f(client);

@@ -2,6 +2,7 @@
 
 mod dispatch;
 mod process;
+mod resolve;
 mod shared;
 
 use std::future::Future;
@@ -89,9 +90,22 @@ impl std::fmt::Debug for LspClient {
 
 impl LspClient {
     /// Spawns the server process in `root` and performs `initialize` /
-    /// `initialized`. Emits `Starting`, then `Running` or `Failed`; stderr
-    /// lines become `Log` events.
+    /// `initialized`. Emits `Starting`, then `Running` (or `Busy` if the
+    /// server already reports progress) or `Failed`; stderr lines become
+    /// `Log` events.
     pub async fn start(spec: ServerSpec, root: PathBuf, events: EventSink) -> Result<LspClient> {
+        Self::start_then(spec, root, events, |_| {}).await
+    }
+
+    /// Like [`LspClient::start`], but runs `before_running` with the
+    /// initialized client before `Running` is reported, so whoever reacts
+    /// to that event can already see the client.
+    pub(crate) async fn start_then(
+        spec: ServerSpec,
+        root: PathBuf,
+        events: EventSink,
+        before_running: impl FnOnce(&LspClient) + Send,
+    ) -> Result<LspClient> {
         let (shared, rx) = Shared::new(
             spec.name.clone(),
             root.clone(),
@@ -116,7 +130,7 @@ impl LspClient {
             BufReader::new(spawned.stdout),
         ));
         tokio::spawn(dispatch::write_loop(shared.clone(), rx, spawned.stdin));
-        Self::initialize(shared, Some(kill_tx)).await
+        Self::initialize(shared, Some(kill_tx), before_running).await
     }
 
     /// Connects over an arbitrary byte stream (e.g. `tokio::io::duplex` in
@@ -137,12 +151,13 @@ impl LspClient {
         shared.emit_status(ServerStatus::Starting);
         tokio::spawn(dispatch::read_loop(shared.clone(), BufReader::new(reader)));
         tokio::spawn(dispatch::write_loop(shared.clone(), rx, writer));
-        Self::initialize(shared, None).await
+        Self::initialize(shared, None, |_| {}).await
     }
 
     async fn initialize(
         shared: Arc<Shared>,
         kill: Option<oneshot::Sender<()>>,
+        before_running: impl FnOnce(&LspClient) + Send,
     ) -> Result<LspClient> {
         let lifetime = Arc::new(Lifetime {
             shared: shared.clone(),
@@ -170,8 +185,7 @@ impl LspClient {
         };
         let encoding = PositionEncoding::from_kind(result.capabilities.position_encoding.as_ref());
         let sync = DocumentSync::from_capabilities(&result.capabilities);
-        shared.emit_status(ServerStatus::Running);
-        Ok(LspClient {
+        let client = LspClient {
             lifetime,
             negotiated: Arc::new(Negotiated {
                 capabilities: result.capabilities,
@@ -179,7 +193,14 @@ impl LspClient {
                 server_info: result.server_info,
                 sync,
             }),
-        })
+        };
+        before_running(&client);
+        if !shared.mark_ready() {
+            // Died right after answering `initialize`; `Failed` was reported.
+            client.lifetime.kill();
+            return Err(shared.stopped_error());
+        }
+        Ok(client)
     }
 
     fn shared(&self) -> &Arc<Shared> {

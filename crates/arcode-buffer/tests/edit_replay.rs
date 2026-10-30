@@ -218,3 +218,37 @@ fn out_of_range_and_overlapping_are_sanitized() {
     assert_eq!(b.to_string(), "axyZ");
     replay("abcdef", &edits, "axyZ");
 }
+
+/// FF, VT, NEL, U+2028 and U+2029 are not line breaks for tree-sitter or
+/// LSP, whatever ropey's `unicode_lines` feature says.
+#[test]
+fn unicode_line_breaks_are_plain_chars_in_edits() {
+    let before = "a\u{c}b\nc\u{2028}d\u{85}\ne\u{b}f\u{2029}g";
+    let mut b = Buffer::new(before);
+    let edits = b.edit(vec![
+        (0..1, "\u{c}x".into()),
+        (6..8, "\u{2029}\n\u{b}".into()),
+        (13..13, "\u{2028}".into()),
+    ]);
+    let after = b.to_string();
+    replay(before, &edits, &after);
+    for e in &edits {
+        assert!(e.start_position.row <= 2);
+    }
+    // Records are in application order; the last one is in final coordinates.
+    let last = edits.last().expect("edits");
+    assert_eq!(
+        b.char_to_ts_point(last.new_end_char()),
+        last.new_end_position
+    );
+    let undo = b.undo().expect("undo");
+    replay(&after, &undo.edits, before);
+    let redo = b.redo().expect("redo");
+    replay(before, &redo.edits, &after);
+    for i in 0..=b.len_chars() {
+        let p = b.char_to_point(i);
+        let byte = char_to_byte(&after, i);
+        assert_eq!(p.line, after[..byte].matches('\n').count(), "char {i}");
+        assert_eq!(b.char_to_ts_point(i), ts_point_of(&after, byte));
+    }
+}

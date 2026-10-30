@@ -1,7 +1,7 @@
 //! Pure cursor-movement functions on `(&Buffer, char position)`.
 //!
-//! Horizontal moves step over whole grapheme clusters (e.g. `e` + combining
-//! accent, flag emoji). Display columns count one per char, except tabs,
+//! Horizontal and word moves step over whole grapheme clusters (e.g. `e` +
+//! combining accent, flag emoji). Display columns count one per char, except tabs,
 //! which advance to the next multiple of `tab_width`.
 
 use crate::buffer::Buffer;
@@ -123,41 +123,53 @@ fn snap_to_grapheme(buffer: &Buffer, pos: usize) -> usize {
     prev_grapheme_boundary(buffer.text(), pos + 1)
 }
 
+/// Direction of a vertical move.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Dir {
+    Up,
+    Down,
+}
+
 fn vertical(
     buffer: &Buffer,
     pos: usize,
     goal: Option<usize>,
-    delta: isize,
+    dir: Dir,
+    lines: usize,
     tw: usize,
 ) -> (usize, usize) {
     let pos = buffer.clamp_char(pos);
     let goal = goal.unwrap_or_else(|| display_column(buffer, pos, tw));
-    let line = buffer.char_to_line(pos) as isize;
-    let last = buffer.line_count() as isize - 1;
-    let target = (line + delta).clamp(0, last);
+    let line = buffer.char_to_line(pos);
+    let last = buffer.line_count().saturating_sub(1);
+    let target = match dir {
+        Dir::Up => line.saturating_sub(lines),
+        Dir::Down => line.saturating_add(lines).min(last),
+    };
     if target == line {
         // Cannot move further: go to the buffer edge in that direction.
-        let edge = if delta < 0 { 0 } else { buffer.len_chars() };
+        let edge = match dir {
+            Dir::Up => 0,
+            Dir::Down => buffer.len_chars(),
+        };
         return (edge, goal);
     }
-    (
-        char_for_display_column(buffer, target as usize, goal, tw),
-        goal,
-    )
+    (char_for_display_column(buffer, target, goal, tw), goal)
 }
 
 /// One line up, keeping `goal` (or the current display column). Returns
 /// `(new position, goal column)`. On the first line moves to the start.
 pub fn up(buffer: &Buffer, pos: usize, goal: Option<usize>, tab_width: usize) -> (usize, usize) {
-    vertical(buffer, pos, goal, -1, tab_width)
+    vertical(buffer, pos, goal, Dir::Up, 1, tab_width)
 }
 
 /// One line down; on the last line moves to the end. See [`up`].
 pub fn down(buffer: &Buffer, pos: usize, goal: Option<usize>, tab_width: usize) -> (usize, usize) {
-    vertical(buffer, pos, goal, 1, tab_width)
+    vertical(buffer, pos, goal, Dir::Down, 1, tab_width)
 }
 
-/// `lines` lines up (clamped to the first line). See [`up`].
+/// `lines` lines up (at least one; clamped to the first line, any count
+/// such as `usize::MAX` is fine). See [`up`].
 pub fn page_up(
     buffer: &Buffer,
     pos: usize,
@@ -165,10 +177,11 @@ pub fn page_up(
     lines: usize,
     tab_width: usize,
 ) -> (usize, usize) {
-    vertical(buffer, pos, goal, -(lines.max(1) as isize), tab_width)
+    vertical(buffer, pos, goal, Dir::Up, lines.max(1), tab_width)
 }
 
-/// `lines` lines down (clamped to the last line). See [`up`].
+/// `lines` lines down (at least one; clamped to the last line). See
+/// [`page_up`].
 pub fn page_down(
     buffer: &Buffer,
     pos: usize,
@@ -176,7 +189,7 @@ pub fn page_down(
     lines: usize,
     tab_width: usize,
 ) -> (usize, usize) {
-    vertical(buffer, pos, goal, lines.max(1) as isize, tab_width)
+    vertical(buffer, pos, goal, Dir::Down, lines.max(1), tab_width)
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -186,28 +199,31 @@ enum Class {
     Punct,
 }
 
-fn class(c: char) -> Class {
-    if c.is_whitespace() {
+/// Class of the grapheme cluster starting at `pos` (by its base char, so
+/// `e` + U+0301 is a word char).
+fn class_at(buffer: &Buffer, pos: usize) -> Option<Class> {
+    let c = buffer.char_at(pos)?;
+    Some(if c.is_whitespace() {
         Class::Space
     } else if is_word_char(c) {
         Class::Word
     } else {
         Class::Punct
-    }
+    })
 }
 
 /// Next word end: skips whitespace, then a run of word chars or a run of
-/// punctuation (VS Code style).
+/// punctuation (VS Code style). Works on grapheme clusters, so it never
+/// stops inside one.
 pub fn word_right(buffer: &Buffer, pos: usize) -> usize {
+    let rope = buffer.text();
     let mut pos = buffer.clamp_char(pos);
-    let mut chars = buffer.text().chars_at(pos).peekable();
-    while chars.next_if(|&c| class(c) == Class::Space).is_some() {
-        pos += 1;
+    while class_at(buffer, pos) == Some(Class::Space) {
+        pos = next_grapheme_boundary(rope, pos);
     }
-    if let Some(&c) = chars.peek() {
-        let run = class(c);
-        while chars.next_if(|&c| class(c) == run).is_some() {
-            pos += 1;
+    if let Some(run) = class_at(buffer, pos) {
+        while class_at(buffer, pos) == Some(run) {
+            pos = next_grapheme_boundary(rope, pos);
         }
     }
     pos
@@ -215,24 +231,23 @@ pub fn word_right(buffer: &Buffer, pos: usize) -> usize {
 
 /// Previous word start: mirror of [`word_right`].
 pub fn word_left(buffer: &Buffer, pos: usize) -> usize {
+    let rope = buffer.text();
     let mut pos = buffer.clamp_char(pos);
-    let mut chars = buffer.text().chars_at(pos);
-    let mut pending = chars.prev();
-    while let Some(c) = pending {
-        if class(c) != Class::Space {
-            break;
-        }
-        pos -= 1;
-        pending = chars.prev();
+    let prev_class = |pos: usize| {
+        (pos > 0).then(|| {
+            let prev = prev_grapheme_boundary(rope, pos);
+            (prev, class_at(buffer, prev))
+        })
+    };
+    while let Some((prev, Some(Class::Space))) = prev_class(pos) {
+        pos = prev;
     }
-    if let Some(c) = pending {
-        let run = class(c);
-        while let Some(c) = pending {
-            if class(c) != run {
+    if let Some((_, Some(run))) = prev_class(pos) {
+        while let Some((prev, class)) = prev_class(pos) {
+            if class != Some(run) {
                 break;
             }
-            pos -= 1;
-            pending = chars.prev();
+            pos = prev;
         }
     }
     pos

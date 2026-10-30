@@ -1,11 +1,11 @@
 //! The [`Terminal`] handle: a PTY child plus its emulated screen.
 
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 use alacritty_terminal::event::OnResize;
-use alacritty_terminal::event_loop::{EventLoop, EventLoopSender, Msg, Notifier, State};
+use alacritty_terminal::event_loop::{EventLoop, EventLoopSender, Msg, Notifier};
 use alacritty_terminal::grid::Scroll;
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::{Config, Term, TermMode};
@@ -17,20 +17,22 @@ use crate::color::Palette;
 use crate::events::{EventProxy, Shared, TerminalEvent, lock};
 use crate::input::{encode_command, encode_paste};
 use crate::options::TerminalOptions;
-use crate::selection::{self, Anchor, GridPoint, SelectionKind};
+use crate::reaper::spawn_io_thread;
+use crate::replies::spawn_responder;
+use crate::selection::{self, GridPoint, SelectionKind};
 use crate::size::window_size;
 use crate::snapshot::{self, Snapshot};
 
-type PtyThread = JoinHandle<(EventLoop<tty::Pty, EventProxy>, State)>;
-
 /// A running terminal: the child process on a PTY, the VT state, and the
-/// I/O thread connecting them. The child is terminated on drop.
+/// I/O thread connecting them. The child is terminated on drop (see
+/// [`Terminal::shutdown`]); dropping never blocks.
 pub struct Terminal {
     term: Arc<FairMutex<Term<EventProxy>>>,
     shared: Arc<Shared>,
     sender: EventLoopSender,
-    thread: Option<PtyThread>,
-    anchor: Mutex<Option<Anchor>>,
+    /// Runs the event loop and closes the PTY afterwards; finishes once
+    /// the child is gone.
+    thread: Option<JoinHandle<()>>,
     child_pid: Option<u32>,
 }
 
@@ -48,13 +50,16 @@ impl Terminal {
         let (ws, size) = window_size(opts.cols, opts.rows, opts.cell_width, opts.cell_height);
         let (tx, rx) = async_channel::unbounded();
         let shared = Arc::new(Shared::new(ws));
-        let proxy = EventProxy::new(tx, shared.clone());
+        let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+        let proxy = EventProxy::new(tx, shared.clone(), reply_tx);
 
         let config = Config {
             scrolling_history: opts.scrollback,
             ..Config::default()
         };
         let term = Arc::new(FairMutex::new(Term::new(config, &size, proxy.clone())));
+        spawn_responder(reply_rx, Arc::downgrade(&term), shared.clone())
+            .context("failed to start the terminal reply thread")?;
 
         let program = opts.program();
         let pty_options = pty_options(&opts, program.clone());
@@ -67,14 +72,14 @@ impl Terminal {
         let sender = event_loop.channel();
         // Set before the loop runs so terminal replies can be written.
         let _ = shared.loop_sender.set(sender.clone());
-        let thread = event_loop.spawn();
+        let thread = spawn_io_thread(event_loop, shared.clone(), child_pid)
+            .context("failed to start the terminal I/O thread")?;
 
         let terminal = Terminal {
             term,
             shared,
             sender,
             thread: Some(thread),
-            anchor: Mutex::new(None),
             child_pid,
         };
         Ok((terminal, rx))
@@ -147,15 +152,20 @@ impl Terminal {
         self.child_pid
     }
 
-    /// Stops the I/O thread, which hangs up and terminates the child.
-    /// Does not block; safe to call more than once.
+    /// Stops the I/O thread and terminates the child: it is hung up
+    /// (`SIGHUP` on Unix, the pseudo console is closed on Windows) and, on
+    /// Unix, killed with `SIGKILL` if it is still running after
+    /// [`crate::KILL_GRACE`]. All of that happens on the I/O thread; this
+    /// call does not block and is safe to call more than once. No events
+    /// follow, and [`Terminal::is_alive`] returns `false` from now on.
     pub fn shutdown(&self) {
         self.shared.alive.store(false, Ordering::SeqCst);
         let _ = self.sender.send(Msg::Shutdown);
     }
 
     /// Copies the visible screen with colors resolved against `palette`.
-    /// The palette is also used to answer color queries from programs.
+    /// Color queries from programs (OSC 4/10/11/12 `?`) report colors the
+    /// program set at runtime, else this (most recent) palette.
     pub fn snapshot(&self, palette: &Palette) -> Snapshot {
         *lock(&self.shared.palette) = *palette;
         snapshot::build(&self.term.lock(), palette)
@@ -179,16 +189,16 @@ impl Terminal {
 
     /// Starts a selection of the given kind at `point`.
     pub fn selection_start_with(&self, point: GridPoint, kind: SelectionKind) {
-        let anchor = selection::start(&mut self.term.lock(), point, kind);
-        *lock(&self.anchor) = Some(anchor);
+        selection::start(&mut self.term.lock(), point, kind);
     }
 
-    /// Extends the selection to `point`; both ends are inclusive. Does
-    /// nothing without a started selection.
+    /// Extends the selection to `point` (snapshot coordinates at the time
+    /// of the call); both ends are inclusive. The start stays on the same
+    /// text even if output scrolled since [`Terminal::selection_start`].
+    /// Does nothing without a selection (none started, cleared, or
+    /// discarded by the terminal because its text was erased).
     pub fn selection_update(&self, point: GridPoint) {
-        if let Some(anchor) = *lock(&self.anchor) {
-            selection::update(&mut self.term.lock(), anchor, point);
-        }
+        selection::update(&mut self.term.lock(), point);
     }
 
     /// The selected text, if any.
@@ -198,7 +208,6 @@ impl Terminal {
 
     /// Removes the selection.
     pub fn clear_selection(&self) {
-        *lock(&self.anchor) = None;
         self.term.lock().selection = None;
     }
 }
@@ -206,8 +215,8 @@ impl Terminal {
 impl Drop for Terminal {
     fn drop(&mut self) {
         self.shutdown();
-        // The thread is detached: it drops the PTY (hanging up the child)
-        // on its own and must not block the UI thread here.
+        // Detach the I/O thread: it closes the PTY and terminates the
+        // child itself, so the caller (the UI thread) never blocks here.
         drop(self.thread.take());
     }
 }

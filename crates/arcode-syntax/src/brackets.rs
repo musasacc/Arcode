@@ -21,20 +21,64 @@ fn partner(bracket: u8) -> Option<(u8, bool)> {
     }
 }
 
-/// The single bracket byte a node kind stands for, if any.
-fn bracket_kind(kind: &str) -> Option<u8> {
-    match kind.as_bytes() {
-        [byte] if partner(*byte).is_some() => Some(*byte),
-        _ => None,
+/// A bracket token: its bracket byte and how many times it repeats.
+///
+/// Most grammars use one-byte tokens (`(`), but some lex runs of the same
+/// bracket as one token, like TOML's `[[` and `]]` around array-of-tables
+/// headers. Each byte of such a token pairs with the mirrored byte of the
+/// partner token (the outer `[` with the outer `]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Token {
+    byte: u8,
+    width: usize,
+}
+
+impl Token {
+    /// The bracket token `node` stands for, if it is one.
+    ///
+    /// Named, missing and zero-width nodes never count, and the kind must
+    /// spell exactly the bytes the node covers.
+    fn of(node: Node) -> Option<Token> {
+        if node.is_named() || node.is_missing() {
+            return None;
+        }
+        let kind = node.kind().as_bytes();
+        let (&byte, rest) = kind.split_first()?;
+        partner(byte)?;
+        if rest.iter().any(|&b| b != byte) || kind.len() != node.byte_range().len() {
+            return None;
+        }
+        Some(Token {
+            byte,
+            width: kind.len(),
+        })
+    }
+
+    /// The token this one pairs with, and whether this one opens.
+    fn partner(self) -> Option<(Token, bool)> {
+        let (byte, opens) = partner(self.byte)?;
+        Some((
+            Token {
+                byte,
+                width: self.width,
+            },
+            opens,
+        ))
     }
 }
 
 impl Syntax {
-    /// Finds the bracket matching the one starting at `byte_offset`.
+    /// Finds the bracket matching the one at `byte_offset`.
     ///
     /// Only bracket *tokens* in the tree count, so brackets inside strings
-    /// and comments are ignored. Returns the partner's byte offset, or `None`
-    /// if there is no bracket at `byte_offset` or it is unmatched.
+    /// and comments are ignored. Multi-byte tokens such as TOML's `[[` work
+    /// byte by byte: the outer `[` matches the outer `]` of `]]`. Returns
+    /// the partner's byte offset, or `None` if there is no bracket at
+    /// `byte_offset` or it is unmatched.
+    ///
+    /// Well-formed pairs that delimit their parent node (the common case,
+    /// including huge JSON arrays) are found without visiting the siblings
+    /// in between; other cases scan the siblings.
     ///
     /// `text` must be the text this tree was last parsed from.
     pub fn matching_bracket(&self, text: &Rope, byte_offset: usize) -> Option<usize> {
@@ -43,51 +87,105 @@ impl Syntax {
         }
         let root = self.tree().root_node();
         let node = root.descendant_for_byte_range(byte_offset, byte_offset + 1)?;
-        if node.start_byte() != byte_offset || node.is_named() || node.is_missing() {
+        if !node.byte_range().contains(&byte_offset) {
             return None;
         }
-        let bracket = bracket_kind(node.kind())?;
+        let token = Token::of(node)?;
         // The tree may be stale; never trust it without checking the text.
-        if text.get_byte(byte_offset) != Some(bracket) {
+        if text.get_byte(byte_offset) != Some(token.byte) {
             return None;
         }
-        let (target, opens) = partner(bracket)?;
+        let (target, opens) = token.partner()?;
         let parent = node.parent()?;
-        find_partner_among_siblings(node, parent, bracket, target, opens)
+        let found = delimiting_partner(node, parent, target, opens)
+            .or_else(|| scan_siblings(node, parent, token, target, opens))?;
+        // Mirror the byte inside multi-byte tokens: `[[` at +0 pairs with
+        // the last byte of `]]`.
+        let index = byte_offset - node.start_byte();
+        Some(found.start_byte() + (token.width - 1 - index))
     }
 }
 
-/// Scans the siblings of `node` (children of `parent`) for its partner.
-fn find_partner_among_siblings(
-    node: Node,
-    parent: Node,
-    bracket: u8,
-    target: u8,
+/// Fast path: `node` is the first (or last) child of an error-free `parent`
+/// whose last (or first) child is the partner token.
+///
+/// Grammars wrap a bracketed construct in its own node, so such a parent is
+/// delimited by this one pair. This needs no walk over the siblings between,
+/// which matters for huge arrays and objects.
+fn delimiting_partner<'t>(
+    node: Node<'t>,
+    parent: Node<'t>,
+    target: Token,
     opens: bool,
-) -> Option<usize> {
+) -> Option<Node<'t>> {
+    if parent.has_error() {
+        return None;
+    }
+    let first = parent.child(0)?;
     let mut cursor = parent.walk();
-    let siblings: Vec<Node> = parent.children(&mut cursor).collect();
-    let index = siblings.iter().position(|sibling| *sibling == node)?;
-    let mut depth = 0usize;
-    let mut check = |sibling: &Node| -> Option<usize> {
-        if sibling.is_named() || sibling.is_missing() {
-            return None;
-        }
-        let kind = bracket_kind(sibling.kind())?;
-        if kind == bracket {
-            depth += 1;
-        } else if kind == target {
-            if depth == 0 {
-                return Some(sibling.start_byte());
+    if !cursor.goto_last_child() {
+        return None;
+    }
+    let last = cursor.node();
+    let (own, other) = if opens { (first, last) } else { (last, first) };
+    (own == node && other != node && Token::of(other) == Some(target)).then_some(other)
+}
+
+/// Slow path: scans the siblings of `node` for its partner, counting nesting
+/// of the same token pair.
+fn scan_siblings<'t>(
+    node: Node<'t>,
+    parent: Node<'t>,
+    token: Token,
+    target: Token,
+    opens: bool,
+) -> Option<Node<'t>> {
+    let mut cursor = parent.walk();
+    if opens {
+        // Jump to `node` (the first child ending past its start), then
+        // count nesting forwards.
+        cursor.goto_first_child_for_byte(node.start_byte())?;
+        while cursor.node() != node {
+            if !cursor.goto_next_sibling() {
+                return None;
             }
-            depth -= 1;
+        }
+        let mut depth = 0usize;
+        while cursor.goto_next_sibling() {
+            let sibling = cursor.node();
+            match Token::of(sibling) {
+                Some(t) if t == token => depth += 1,
+                Some(t) if t == target => match depth.checked_sub(1) {
+                    Some(d) => depth = d,
+                    None => return Some(sibling),
+                },
+                _ => {}
+            }
         }
         None
-    };
-    if opens {
-        siblings[index + 1..].iter().find_map(&mut check)
     } else {
-        siblings[..index].iter().rev().find_map(&mut check)
+        // Walk forwards to `node`, keeping a stack of unmatched openers;
+        // the innermost one is the partner.
+        if !cursor.goto_first_child() {
+            return None;
+        }
+        let mut open = Vec::new();
+        loop {
+            let sibling = cursor.node();
+            if sibling == node {
+                return open.pop();
+            }
+            match Token::of(sibling) {
+                Some(t) if t == target => open.push(sibling),
+                Some(t) if t == token => {
+                    open.pop();
+                }
+                _ => {}
+            }
+            if !cursor.goto_next_sibling() {
+                return None;
+            }
+        }
     }
 }
 

@@ -8,17 +8,15 @@ use arcode_buffer::movement;
 use arcode_ui_kit::theme;
 use gpui::{App, Bounds, Context, Pixels, ShapedLine, SharedString, Window, point, px, size};
 
-use crate::display::{DisplayLine, MAX_DISPLAY_CHARS, build_display_line, text_run};
-use crate::editor::{Autoscroll, HighlightCache};
-use crate::style::EditorStyle;
 use crate::Editor;
+use crate::display::{DisplayLine, MAX_DISPLAY_CHARS, build_display_line, text_run};
+use crate::editor::Autoscroll;
+use crate::style::EditorStyle;
 
 /// Width of the vertical scrollbar.
 pub(crate) const SCROLLBAR_WIDTH: Pixels = px(12.);
 /// Width of the diagnostic marker column at the gutter's left edge.
 pub(crate) const MARKER_WIDTH: Pixels = px(14.);
-/// Extra lines highlighted around the viewport so small scrolls reuse them.
-const HIGHLIGHT_MARGIN: usize = 32;
 
 /// One shaped visible line.
 pub(crate) struct VisibleLine {
@@ -139,6 +137,7 @@ impl Editor {
 
         let first = ((self.scroll_y / lh).floor() as usize).min(line_count.saturating_sub(1));
         let last = (first + (viewport_h / lh).ceil() as usize + 1).min(line_count);
+        self.ensure_highlights(first..last, cx);
         let lines = self.shape_lines(first..last, &style, window, cx);
 
         let mut max_width = lines
@@ -161,8 +160,7 @@ impl Editor {
             }
             max_width = max_width.max(cursor_x);
         }
-        let max_scroll_x =
-            (max_width + char_width * 4. - text_bounds.size.width).max(Pixels::ZERO);
+        let max_scroll_x = (max_width + char_width * 4. - text_bounds.size.width).max(Pixels::ZERO);
         self.scroll_x = self.scroll_x.clamp(Pixels::ZERO, max_scroll_x);
 
         let scrollbar = scrollbar_layout(bounds, self.scroll_y, max_scroll_y, viewport_h);
@@ -197,7 +195,6 @@ impl Editor {
         window: &mut Window,
         cx: &App,
     ) -> Vec<VisibleLine> {
-        self.ensure_highlights(range.clone());
         let theme = theme(cx);
         let spans = self.highlights.as_ref();
         let mut text = String::new();
@@ -211,7 +208,7 @@ impl Editor {
                 }
                 let trimmed = text.trim_end_matches(['\n', '\r', '\u{2028}', '\u{2029}', '\u{85}']);
                 let line_spans = spans
-                    .and_then(|c| c.spans.get(line - c.lines.start))
+                    .and_then(|c| c.spans.get(line.checked_sub(c.lines.start)?))
                     .map(Vec::as_slice)
                     .unwrap_or(&[]);
                 let display =
@@ -231,32 +228,12 @@ impl Editor {
             .collect()
     }
 
-    /// Makes sure the highlight cache covers `range` at the current version.
-    fn ensure_highlights(&mut self, range: Range<usize>) {
-        let Some(syntax) = self.syntax.as_ref() else {
-            self.highlights = None;
-            return;
-        };
-        let version = self.buffer.version();
-        if let Some(cache) = &self.highlights
-            && cache.version == version
-            && cache.lines.start <= range.start
-            && range.end <= cache.lines.end
-        {
-            return;
-        }
-        let start = range.start.saturating_sub(HIGHLIGHT_MARGIN);
-        let end = (range.end + HIGHLIGHT_MARGIN).min(self.buffer.line_count());
-        let spans = syntax.highlight_lines(self.buffer.text(), start..end);
-        self.highlights = Some(HighlightCache {
-            version,
-            lines: start..end,
-            spans,
-        });
-    }
-
     /// Buffer char index for a window position (clamped into the buffer).
-    pub(crate) fn char_for_position(&self, layout: &LayoutSnapshot, p: gpui::Point<Pixels>) -> usize {
+    pub(crate) fn char_for_position(
+        &self,
+        layout: &LayoutSnapshot,
+        p: gpui::Point<Pixels>,
+    ) -> usize {
         let rel_y = p.y - layout.text_bounds.top() + layout.scroll_y;
         let last = self.buffer.line_count().saturating_sub(1);
         let line = if rel_y < Pixels::ZERO {
@@ -336,11 +313,16 @@ fn scrollbar_layout(
         size(SCROLLBAR_WIDTH, bounds.size.height),
     );
     let content = max_scroll_y + viewport_h;
-    let thumb_h = (track.size.height * (viewport_h / content)).max(px(24.)).min(track.size.height);
+    let thumb_h = (track.size.height * (viewport_h / content))
+        .max(px(24.))
+        .min(track.size.height);
     let frac = scroll_y / max_scroll_y;
     let thumb_y = track.top() + (track.size.height - thumb_h) * frac.clamp(0., 1.);
     Some(ScrollbarLayout {
         track,
-        thumb: Bounds::new(point(track.left() + px(2.), thumb_y), size(SCROLLBAR_WIDTH - px(4.), thumb_h)),
+        thumb: Bounds::new(
+            point(track.left() + px(2.), thumb_y),
+            size(SCROLLBAR_WIDTH - px(4.), thumb_h),
+        ),
     })
 }
