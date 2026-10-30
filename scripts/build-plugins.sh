@@ -4,6 +4,15 @@
 #
 #   target/wasm-plugins/<id>/{plugin.toml,plugin.wasm[,README.md,LICENSE]}
 #
+# Packages (crate name -> plugin id):
+#   http-client -> arcode.http-client   (§9; pure Rust, ~390 KB)
+#   db-viewer   -> arcode.db-viewer     (§10; bundles SQLite 3.54, needs
+#                                        clang + wasi-libc headers; ~1.7 MB)
+# arcode-plugin-host's end-to-end tests (tests/sandbox/http_client,
+# tests/db_viewer, ...) load these folders, so run this before them. Native
+# unit tests of the plugins need no wasm (the DB viewer's compile SQLite
+# natively): cargo test --manifest-path plugins/Cargo.toml -p <crate>
+#
 # C dependencies (SQLite via rusqlite/bundled for the DB viewer) are compiled
 # with clang and the wasi-libc headers. The flags below were pinned by the
 # Step 0 spike (docs/SPIKE.md, "Plugin engine"):
@@ -21,8 +30,10 @@
 #   AR_wasm32_wasip2       archiver   (default: llvm-ar-18 or llvm-ar)
 #   ARCODE_PLUGINS_DIR     cargo workspace to build (default: plugins/)
 #   ARCODE_WASM_PLUGINS    output dir (default: target/wasm-plugins)
+#   ARCODE_WASM_TARGET_DIR cargo target dir (default: target/wasm-plugins-build)
 #
 # Usage: scripts/build-plugins.sh [package...]   (default: all members)
+#   e.g. scripts/build-plugins.sh http-client
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use crate::bindings::ui::Location;
 use crate::bindings::{Level, PanelId};
 use crate::cancel::{CancelToken, ReplySender};
+use crate::consent::{ConsentAnswer, ConsentRequest};
 use crate::manifest::{PluginId, QualifiedId};
 use crate::ui_tree::{Changes, PanelSnapshot};
 
@@ -44,6 +45,16 @@ pub enum PluginOutput {
         items: Vec<String>,
         /// Where the answer goes.
         reply: ReplySender<Option<u32>>,
+    },
+    /// A consent prompt (only with [`crate::consent::ChannelConsent`], the
+    /// manager's default): show host chrome built from `request` (its
+    /// [`ConsentRequest::message`]) and answer, or drop `reply` to dismiss.
+    /// The plugin's thread waits; the UI thread never does.
+    Consent {
+        /// What is asked; host-derived data, plugin text quoted.
+        request: ConsentRequest,
+        /// Where the answer goes.
+        reply: ReplySender<ConsentAnswer>,
     },
     /// A panel was opened (by `ui.open-panel` or for an opener).
     PanelOpened {
@@ -88,7 +99,7 @@ pub enum PluginOutput {
         /// Closed panel.
         panel: PanelId,
     },
-    /// `host.begin-task` succeeded: show "title… [Cancel]".
+    /// `host.begin-task` succeeded: show "title… \[Cancel\]".
     TaskStarted {
         /// Owner.
         plugin: PluginId,
@@ -96,7 +107,7 @@ pub enum PluginOutput {
         call: u64,
         /// Plain-text title.
         title: String,
-        /// The [Cancel] button: cancels the call (cooperatively, then hard
+        /// The \[Cancel\] button: cancels the call (cooperatively, then hard
         /// after the grace period).
         cancel: CancelToken,
     },

@@ -1,0 +1,28 @@
+# Fixture manifest (security review): a hostile plugin with ordinary,
+# everyday capabilities (no network).
+[plugin]
+id = "test.review-abuse"
+name = "Review Abuse"
+version = "0.1.0"
+api = "0.1"
+entry = "plugin.wasm"
+description = "Drives host imports the way a hostile plugin would."
+
+[capabilities]
+workspace = "read-write"
+editor = "context"
+
+[[contributes.languages]]
+id = "abuse"
+name = "Abuse"
+extensions = ["abuse"]
+
+[[contributes.commands]]
+id = "run"
+title = "Review Abuse: Run"
+
+[[contributes.panels]]
+id = "main"
+title = "Abuse"
+location = "bottom"
+icon = "terminal"

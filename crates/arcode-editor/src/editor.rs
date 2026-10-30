@@ -5,12 +5,16 @@ use std::path::Path;
 use std::rc::Rc;
 
 use arcode_buffer::{Buffer, Edit, Point, SelectionSet, ops::OpsConfig};
+use arcode_completion::SnippetSession;
 use arcode_syntax::{HighlightSpan, InputEditData, Language, Syntax};
 use gpui::{
-    App, Context, EventEmitter, FocusHandle, Focusable, Pixels, SharedString, Task, Window,
+    App, Context, EventEmitter, FocusHandle, Focusable, Modifiers, Pixels, SharedString, Task,
+    Window,
 };
 
+use crate::api::ScrollAnchor;
 use crate::diagnostics::{EditorDiagnostic, adjust_for_edit};
+use crate::ext::{ExtState, GutterLane};
 use crate::layout::LayoutSnapshot;
 use crate::mouse::{DragState, HoverState};
 use crate::style::{EditorStyle, ops_config};
@@ -32,6 +36,28 @@ pub enum EditorEvent {
     SelectionsChanged,
     /// The dirty flag flipped.
     DirtyChanged(bool),
+    /// A gutter lane was clicked: on a mark (`tag` is its
+    /// [`GutterDecoration::tag`](crate::GutterDecoration::tag)) or on an
+    /// empty slot of a lane that is clickable when empty (`tag` is `None`).
+    GutterClicked {
+        /// Zero-based buffer line.
+        line: usize,
+        /// The lane.
+        lane: GutterLane,
+        /// Tag of the clicked mark, if any.
+        tag: Option<u64>,
+        /// Modifiers held during the click.
+        modifiers: Modifiers,
+    },
+    /// A code lens item was clicked.
+    CodeLensClicked {
+        /// The set the lens belongs to.
+        set: SharedString,
+        /// Zero-based buffer line of the lens.
+        line: usize,
+        /// The [`LensItem::id`](crate::LensItem::id).
+        id: u64,
+    },
 }
 
 /// How a pending scroll request positions the primary cursor.
@@ -41,6 +67,8 @@ pub(crate) enum Autoscroll {
     Fit,
     /// Center the cursor line if it is not visible.
     Center,
+    /// Show a given line (from `scroll_to_line`), cursor untouched.
+    Line(usize, ScrollAnchor),
 }
 
 /// Highlight spans for a range of lines at one buffer version.
@@ -79,6 +107,12 @@ pub struct Editor {
     pub(crate) syntax_task: Option<Task<()>>,
     /// Edits made while the tree was being reparsed in the background.
     pub(crate) pending_syntax_edits: Vec<InputEditData>,
+    /// Large file: no full tree, viewport excerpts are parsed instead.
+    pub(crate) large_file: bool,
+    /// Decorations, popovers and key handlers from other features.
+    pub(crate) ext: ExtState,
+    /// The active snippet, if any.
+    pub(crate) snippet: Option<SnippetSession>,
 }
 
 impl EventEmitter<EditorEvent> for Editor {}
@@ -122,6 +156,9 @@ impl Editor {
             line_clipboard: None,
             syntax_task: None,
             pending_syntax_edits: Vec::new(),
+            large_file: false,
+            ext: ExtState::default(),
+            snippet: None,
         };
         editor.init_syntax(cx);
         editor
@@ -244,6 +281,7 @@ impl Editor {
     /// Bookkeeping after the selections moved without an edit.
     pub(crate) fn selections_changed(&mut self, cx: &mut Context<Self>) {
         self.marked = None;
+        self.snippet_check_cursor();
         self.autoscroll.get_or_insert(Autoscroll::Fit);
         self.reset_blink(cx);
         cx.emit(EditorEvent::SelectionsChanged);
@@ -268,18 +306,22 @@ impl Editor {
             }
             return;
         }
-        self.apply_edits(edits, cx);
+        self.after_edits(edits, cx);
     }
 
     /// Syncs syntax, diagnostics and listeners after `edits` were applied
     /// to the buffer, and emits the events.
-    pub(crate) fn apply_edits(&mut self, edits: Vec<Edit>, cx: &mut Context<Self>) {
+    pub(crate) fn after_edits(&mut self, mut edits: Vec<Edit>, cx: &mut Context<Self>) {
         if edits.is_empty() {
             return;
         }
+        let mirrors = self.snippet_after_edits(&edits);
+        edits.extend(mirrors);
+        self.snippet_check_cursor();
         self.sync_syntax(&edits, cx);
         for e in &edits {
             adjust_for_edit(&mut self.diagnostics, e);
+            self.ext.adjust_for_edit(e);
         }
         self.hover = None;
         let version = self.buffer.version();

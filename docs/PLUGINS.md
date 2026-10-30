@@ -1162,3 +1162,307 @@ Three proposals were scored from 1 to 10.
 - The import check also rejects unversioned interface names, other
   `arcode:*` packages, `arcode:plugin` 0.0.x, and reports 0.2+/1.x as
   "requires a newer Arcode".
+
+## Appendix B (continued): Steps 6-8 and the facade
+
+> **Added during implementation** of the imports, the network transport, the
+> UI tree and `PluginManager` (`crates/arcode-plugin-host`). Same rule as
+> above: the design text is unchanged; this lists what the code does
+> differently or decides where the design was silent. The app-facing API is
+> documented in `crates/arcode-plugin-host/README.md`.
+
+**host, kv, workspace, editor (Step 6):**
+- kv files use a small binary format (`ARCODE-KV 1` header, then
+  length-prefixed key/value pairs). A scope is read on first use, never at
+  startup. It is written atomically into an owner-only directory **once per
+  call**, when the call returns, not on every `set`. A damaged file,
+  invalid keys or a file over the quota read as empty, never as partial
+  data. `InstanceSpec.kv` (`KvFiles`) says where the two scopes live; with
+  no project open, the project scope lasts for the session only.
+- `find-files` without an app index uses `index::WalkIndex` (the `ignore`
+  crate). It honours `.gitignore`, `.ignore` and `.git/info/exclude` even
+  outside a git repository, does **not** hide dotfiles (only `.git`), never
+  follows symlinks, sorts by path and visits at most 500k entries per call.
+- `apply-edits` is checked on the host before any prompt: the snapshot
+  version must equal `expected-version` (otherwise `version-mismatch`), every
+  range must lie inside the snapshot, ranges must not overlap (otherwise
+  `invalid-range`), and at most 64 MiB of text may be inserted. Only then is
+  editor-write consent asked and the bridge called. `memory_editor::MemoryEditor`
+  is a complete reference `EditorBridge` that applies edits to the snapshots.
+- `host.settings()` reads live values: `InstanceHandle::set_user_settings`
+  (and `PluginManager::set_user_settings`) take effect on the next call
+  without a restart.
+
+**http (Step 7):**
+- ureq `3.5` with `default-features = false, features = ["rustls"]` (ring
+  provider, webpki roots; no gzip, no cookies). It adds **1.97 MB** to a
+  stripped release binary on its own (docs/SPIKE.md), on top of wasmtime's
+  14.81 MB. The §2 exit criterion covers wasmtime only and still holds, but
+  the plugin feature as a whole is now about 16.8 MB.
+- The host follows redirects itself (ureq's following is off) and calls
+  `allow_redirect` before every hop. 303, and 301/302 after a POST, become a
+  body-less GET; 307/308 keep the method and body. `Authorization`,
+  `Cookie`, `Proxy-Authorization` and `Host` are dropped when the origin
+  changes. At most 10 redirects.
+- Each hop runs on a short-lived `plugin-http` helper thread. The plugin
+  thread polls the result channel and the cancel token every 10 ms, so a
+  cancel returns in about 8 ms even while the server stalls; the helper
+  stops at the next body chunk or at the request timeout.
+- `timeout-ms = 0` means 30 s; the maximum is 600 s. 4xx/5xx are ordinary
+  responses. `reason` is the canonical reason phrase, because the `http`
+  crate does not keep the server's own.
+- `remote-addr` is always `none`: ureq 3 does not expose the peer address.
+- Env proxies (`HTTPS_PROXY`, `NO_PROXY`, ...) are honoured by default
+  (`TransportOptions::use_env_proxy`). Consent is still keyed on the URL's
+  host. Tests turn proxies off.
+- Network log: `net::NetworkLog`, 500 entries per plugin (time, method, host,
+  port, and `Status(u16)`, `Refused(reason)` or `Failed(reason)`). It also
+  logs requests the host refused (no gesture, denied, master switch).
+
+**UI tree and rows (Step 8):**
+- `remove(id)` removes that node only. After every accepted change, nodes
+  unreachable from the root are dropped, which is exactly "every descendant
+  no longer referenced". The SDK's `ui::apply` now does the same (it used to
+  remove the whole subtree, which differed only when a patch set moved a
+  removed node's child elsewhere). A node upserted without a parent is
+  dropped.
+- Validation also rejects a node with two parents (element ids must be
+  unique per panel), `remove` or `rows-changed` of unknown nodes,
+  `rows-changed` of a non-table, duplicate ids in `render`, and non-finite
+  split ratios. Depth counts the root as level 1 (64 levels allowed).
+- The app receives `PluginOutput::PanelView { snapshot: Arc<PanelSnapshot>,
+  changes }` instead of raw views and patches. `Changes` lists dirty and
+  removed nodes, the inputs whose `value` the plugin changed (the only ones
+  that overwrite user text), and `TableChange`s (reset vs. resize).
+  `rows-changed(id, none)` keeps the row count and still resets the cache.
+- Every accepted change clones the node map (`Arc` per node) and
+  re-validates the whole tree: about 20-30 ms for a one-node patch on a
+  20,000-node panel in a debug build, and microseconds for typical panels.
+  It runs on the plugin thread. Incremental validation is possible later if
+  a real plugin needs it.
+- `rows::RowCache` keeps **one** fetch per table outstanding, because the
+  mailbox coalesces `fetch-rows` per table and a second request would
+  supersede the first. When the viewport moves away from the outstanding
+  page, a new request may be issued (latest range wins). Visible pages come
+  first, then one page ahead, and nothing is fetched past a known end.
+- `fetch-rows` answers are checked on the plugin thread: the page must start
+  at the requested row (otherwise the call fails), extra rows are dropped,
+  more than 4 MiB of cell text fails the call, and text cells are cut to
+  4 KiB with an ellipsis.
+- The SDK property test uses `arcode_plugin::testing::random` (a seeded
+  xorshift generator of schema-valid trees). The host runs the same sequences
+  through `PanelTree` (200 seeds × 20 steps) and checks the result equals
+  the SDK's fresh flattening.
+
+**Facade:**
+- `PluginManager` (`manager/`) owns the registry, runtime, grant store,
+  instance handles and output channel. Its calls return `Pending` at once and
+  stamp the gesture flag: commands always carry it, `ui_event` follows
+  `event_is_gesture`, and lenses, panels, openers and rows never do.
+- Consent prompts become events: with `AppServices.consent = None` the
+  manager uses `consent::ChannelConsent`, which sends
+  `PluginOutput::Consent { request, reply }` and blocks the plugin thread on
+  the reply, as quick picks do. A dropped reply means `Dismissed`.
+- `PluginOutput::TaskStarted` carries the call's `CancelToken`, so the task
+  chip's [Cancel] needs no lookup.
+- Revoking a file grant calls `InstanceHandle::recycle()`. The next call
+  first runs `deactivate`, drops the store, asks for the file grant again and
+  re-activates with `restore`, before any guest code runs.
+- `set_project` stops every instance (preopen, project grants and project
+  kv change). `set_enabled(false)` stops one. Enabled state is per session:
+  persisting `enabled` and `sha256` in `plugins.toml`, and `install.rs`,
+  are still to do.
+
+## Appendix B (continued): Step 10, the HTTP client plugin
+
+> **Added during implementation** of `plugins/http-client`. Same rule as
+> above: the design text is unchanged; this lists what the plugin does
+> differently or decides where §9 was silent.
+
+**Build and layout:**
+- `plugins/` is its own cargo workspace (`plugins/Cargo.toml`, shared with
+  the DB viewer); `scripts/build-plugins.sh http-client` writes
+  `target/wasm-plugins/arcode.http-client/{plugin.toml,plugin.wasm,README.md}`.
+  The release component is **387 KB** (§9 estimated ~300 KB).
+- The crate is `crate-type = ["cdylib"]` and `export_plugin!` is behind
+  `#[cfg(target_arch = "wasm32")]`: natively the component export names
+  (`arcode:plugin/guest@0.1.0#activate`) are not valid symbols in the
+  linker's version script, so a native cdylib with the export does not
+  link. Native `cargo test` drives the `Plugin` impl directly against the
+  SDK fakes. Every plugin that wants native tests needs the same `cfg`.
+- Modules: `parse`, `vars`, `env`, `exchange` (request building, body
+  classification), `history`, `view`, `commands`; all under 400 lines.
+
+**Syntax decisions (§9 listed the features, not the rules):**
+- Comments (`#`, `//`) and `# @directives` are recognised only before the
+  body; the body is sent verbatim. Directives: `@name` (also `@name=x`;
+  wins over the `### name` text), `@no-redirect`, `@timeout N` (seconds;
+  `ms`/`s`/`m` suffixes).
+- A bare URL means GET; standard methods are accepted in any case, any
+  other all-upper-case word is a method (WebDAV). Indented lines right
+  after the request line continue the URL. `/path` plus a `Host` header
+  becomes `http://host/path`; a URL without a scheme gets `http://`.
+  A header line before the first blank line that is not `Name: value`
+  starts the body (lenient, no error).
+- `< path` includes are relative to the `.http` file (absolute paths must
+  be under `/project`), capped at 16 MiB and **not** variable-substituted
+  (JetBrains' `<@` is not supported). Response handlers (`> {% %}`,
+  `> x.js`) and `<> previous-response` lines are skipped.
+- Variables: one map, the selected environment with the file's
+  `@name = value` definitions on top (file wins, as in VS Code); values
+  may reference other variables, cycles are an error, an unknown variable
+  stops the request with a message in the panel. Dynamic variables:
+  `$uuid`/`$random.uuid`/`$guid`, `$timestamp`, `$isoTimestamp`
+  (`$datetime iso8601`), `$randomInt` (0..=1000), `$randomInt a b` and
+  `$random.integer(a, b)` (`a..b`); `$processEnv`, `$dotenv` & co. are
+  refused ("not available in the plugin sandbox"). Randomness is std's
+  `RandomState`, whose keys come from WASI `random`, so no extra crate.
+- Environment files: each of `http-client.env.json` and
+  `http-client.private.env.json` is looked up from the `.http` file's
+  directory up to `/project`, nearest wins (not only the project root as
+  §9 says). A `$shared` section (VS Code) is inherited by every
+  environment; private values override public ones; numbers, booleans and
+  `null` become text, objects (JetBrains auth configs) are ignored.
+  Without the workspace grant there is no preopen, so no environments.
+
+**Behaviour decisions:**
+- `send` always calls `host.begin-task("Sending <name or METHOD url>")`,
+  so every request gets the task chip with [Cancel] and the 60 s budget.
+  From the palette or the keybinding (no args), the request is the one
+  around the first selection's start line.
+- `max-response-bytes` is **16 MiB**, not the host's 50 MiB: the body, its
+  text and the view must fit in the manifest's 64 MiB memory limit. The
+  panel shows at most 3 MiB of body text (then a `code` excerpt with a
+  hint instead of the JSON viewer) and 1 MiB of raw text, which keeps a
+  render under the host's 8 MiB string cap; **Open in editor**
+  (`open-scratch`, JSON pretty-printed) gets the whole body.
+- JSON detection: `*/json` and `*/*+json` content types, plus sniffing
+  (`{...}`/`[...]` that parses) when the type is missing, `text/plain` or
+  `application/octet-stream`. Bodies that are not UTF-8 or contain NUL,
+  and `image/audio/video/font` types, get a 4 KiB hex dump. Languages for
+  `code`: xml, html, css, javascript, yaml, markdown, else none.
+- The panel adds a **History** tab (the project's last 50 exchanges) and a
+  **Send again** button. History entries store time, name, method, URL
+  (capped at 2048 chars), status or error, total time and size: never
+  headers or bodies, so secrets in headers are not written to kv.
+- The status item reads "HTTP env: <name>" (or "none") from activation on
+  and runs `select-environment`. Request failures (denied, timeout, DNS,
+  ...) are shown in the panel with plain sentences and recorded in the
+  history; the command itself still returns `ok`.
+- Lenses: none for documents over 50,000 lines (100 ms lens budget); parses
+  are cached per `(doc, version)` for up to 16 documents.
+
+**Tests:** 46 native unit tests (parse with JetBrains-style samples, vars,
+env, exchange, history, view, and the plugin flow against the SDK fakes)
+and 4 end-to-end tests in `crates/arcode-plugin-host/tests/sandbox/http_client/`
+(headless `PluginManager`, the plugin registered from `target/wasm-plugins`
+as *bundled* because the `arcode.` prefix is reserved, `MemoryEditor`,
+`ScriptedConsent`, real ureq against a loopback server): lenses, environment
+selection, status/headers/body/timing/JSON detection, consent prompts,
+history, network log, cancel (returns ~10 ms after `cancel()`), and a denied
+host (no connection reaches the server, the denial is remembered).
+
+## Appendix B (continued): Step 11, the DB viewer plugin
+
+> **Added during implementation** of `plugins/db-viewer`
+> (`arcode.db-viewer`). Same rule as above: the design text is unchanged;
+> this lists what the code does differently or decides where the design was
+> silent. Measurements are in `docs/SPIKE.md`, "Step 11 measurements".
+
+**Manifest (differs from the §3 reference):**
+- `workspace = "read-write"` instead of `"read"`. The viewer is still
+  read-only by default: every file is opened `mode=ro`, and writes need
+  **both** the "Allow writes" checkbox in the Query tab and a workspace
+  grant with the write box ticked. With a read-only grant, SQLite's
+  `mode=rw` open silently falls back to read-only; the plugin detects that
+  (`sqlite3_db_readonly`) and says so. This relaxes §15 "DB writes in 0.1"
+  on request; the lock problem remains (`nolock=1`), so turning writes on
+  shows "The file is not locked: close other programs using it first."
+- The `page-size` setting is dropped: the host owns page sizes (200-row
+  `fetch-rows`, §7), so a plugin setting could not change them.
+  `max-result-rows` (default 100,000, clamped to 1..=1,000,000) stays.
+
+**Opening files (§10):**
+- The WAL fallback (`immutable=1`) applies when a `-wal` file exists **or**
+  the header says WAL (bytes 18-19 = 2) with no `-wal` file: with
+  `nolock=1` SQLite cannot open a WAL database at all (no shared memory),
+  it fails with `SQLITE_CANTOPEN`. Under `immutable=1` the pager treats the
+  file like a temp file and ignores the WAL entirely, so the view is the
+  last checkpoint ("snapshot; uncheckpointed WAL changes not shown"), and
+  writes stay off for it.
+- Every connection sets `temp_store = MEMORY` (the sandbox has no writable
+  temp directory, so big sorts would fail with an I/O error) and
+  `query_only = ON` unless writes are on. With writes off, any statement
+  for which `sqlite3_stmt_readonly` is false is refused before it runs with
+  SQLite's own message plus a hint. That also stops `VACUUM INTO`, which
+  creates a file even on a read-only connection.
+- `file:` URIs percent-encode `?`, `#` and `%` in paths, so a file name
+  cannot add URI parameters.
+
+**Counting and paging (§10 "Data tab"):**
+- `count(*)` is answered by one `OP_Count` step that the progress handler
+  cannot interrupt. Measured in wasm at about 65 µs per 4 KiB page
+  (I/O-bound through WASI), so it is used only for databases of at most
+  4096 pages (~270 ms worst case). Larger databases use `count(1)` under
+  the 200 ms deadline. A 1M-row table (~22 MB) takes ~350 ms to count in
+  wasm, so its count starts **unknown**; the Data tab then shows "rows:
+  unknown" and a **Count** button that counts as a cancellable task
+  (`begin-task("Counting rows")`).
+- Paging is keyset on the rowid, generalised: every fetched page leaves
+  *anchors* (row index → rowid); a page is reached from whichever is
+  closest of the table start, an anchor below, an anchor above (walking
+  backwards) or the end (when the count is known), skipping only the
+  distance. When `max(rowid) - min(rowid) + 1 == count` (two separate
+  min/max subqueries; a combined `SELECT min(x), max(x)` is a full scan)
+  row *i* is rowid `min + i` and pages seek directly. Views, `WITHOUT
+  ROWID` tables and sorted grids use `LIMIT/OFFSET`. The rowid alias is
+  the first of `rowid`, `_rowid_`, `oid` that no column shadows.
+- Interactive statements (open, select, expand, `fetch-rows`) run under a
+  progress-handler deadline (500 ms schema, 200 ms count, 700 ms per page)
+  so a slow page becomes an inline error, never a trap of the host's 1 s
+  budget.
+- Text cells are cut to 4 KiB in the plugin, and a page with more than
+  3 MiB of text is cut further, so wide rows stay under the host's 4 MiB
+  page cap.
+
+**Query tab:**
+- **No in-panel Cancel button.** Calls into one instance are serial (§5),
+  so a Cancel click would be delivered only after the query it should
+  stop. The status line says "Running query… (Esc or [Cancel] in the status
+  bar stops it)"; those cancel the call's token, which the progress handler
+  polls every 10k VM steps. *Proposal for API 0.2:* a button flag (e.g.
+  `button-props.cancels-task`) whose click the host turns into
+  `cancel()` of that panel's running task call instead of queueing it.
+- All statements of the text run in order (rusqlite `Batch`); the last
+  result set is shown, changed rows are summed ("2 rows changed"), and a
+  run that wrote re-reads the schema.
+- A "Recent" drop-down offers the last 20 queries (project-scope kv,
+  `recent-queries`, 8 KiB per query); choosing one replaces the input text.
+
+**Sidebar and commands:**
+- `ui.open-panel` only opens *panel* contributions, so activating a
+  database or table in the sidebar calls `editor.open-file(path)` (allowed
+  with `editor = "none"`); the app routes the file to the `sqlite` opener
+  and the plugin selects the remembered table in the new view.
+- `new-query` shows the Query tab of the last-used database view; with
+  none open it picks a database (quick pick when there are several) and
+  opens it on the Query tab. `refresh` re-reads every open view and the
+  sidebar's file list.
+
+**Host change:** the `.cwasm` cache named its temp file `*.tmp<pid>`, so
+two runtimes in one process compiling the same component raced on the
+rename ("cannot write …: No such file or directory"). Temp names now carry
+a per-process counter (`cache.rs`); `tests/db_viewer` has a regression test.
+
+**Tests:** 28 unit + 22 native integration tests in `plugins/db-viewer`
+(SDK fakes; a property test checks every paging strategy against plain
+`LIMIT/OFFSET` on real SQLite; the 1M-row database is generated natively
+from `tests/fixtures/big.sql`; an ignored test regenerates the
+checked-in fixtures), and 7 end-to-end tests in
+`crates/arcode-plugin-host/tests/db_viewer/` (the real wasm under a
+headless `PluginManager`, registered as *bundled* from
+`target/wasm-plugins`): tree, rows, query and inline errors on the checked-in
+64 KB `sample.db`; the write toggle with read-only and read-write grants;
+the WAL snapshot (`wal.db` + `wal.db-wal`); the sidebar; and a 1M-row
+database that the plugin generates itself with writes on, then pages
+(< 1 s per page) and cancels during a `GROUP BY`.

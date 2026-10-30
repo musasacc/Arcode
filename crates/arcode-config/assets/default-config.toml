@@ -31,6 +31,10 @@ keymap = "default"
 auto_close_brackets = true
 # Format the file when saving.
 format_on_save = false
+# Files this large (bytes or lines) keep no full syntax tree; only the
+# visible region is parsed for highlighting, which keeps memory low.
+large_file_bytes = 4194304
+large_file_lines = 50000
 
 [ui]
 # UI font. Leave unset to use the system UI font.

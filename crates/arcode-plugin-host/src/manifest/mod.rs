@@ -1,7 +1,7 @@
 //! `plugin.toml`: parsing and validation (docs/PLUGINS.md §3).
 //!
 //! Unknown keys are errors everywhere. A [`Manifest`] only exists in
-//! validated form: [`Manifest::parse`] runs serde, then [`validate`] checks
+//! validated form: [`Manifest::parse`] runs serde, then `validate` checks
 //! ids, names, patterns and settings. Limits are kept as written and clamped
 //! with [`Limits::clamp`] against the user's maxima.
 

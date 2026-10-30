@@ -116,9 +116,13 @@ impl ComponentCache {
         let compiled = engine
             .precompile_component(wasm)
             .map_err(|e| LoadError::Compile(e.to_string()))?;
+        // Unique per writer: two threads (or two runtimes in one process)
+        // may compile the same component at once; each renames its own file.
+        static WRITERS: AtomicU64 = AtomicU64::new(0);
+        let writer = WRITERS.fetch_add(1, Ordering::Relaxed);
         let write = || -> std::io::Result<()> {
             create_private_dir(&self.dir)?;
-            let tmp = path.with_extension(format!("tmp{}", std::process::id()));
+            let tmp = path.with_extension(format!("tmp{}-{writer}", std::process::id()));
             let mut f = fs::File::create(&tmp)?;
             f.write_all(&compiled)?;
             f.sync_all()?;

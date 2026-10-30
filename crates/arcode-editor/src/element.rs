@@ -11,6 +11,7 @@ use gpui::{
 
 use crate::Editor;
 use crate::layout::LayoutSnapshot;
+use crate::mouse_ext::defer_popovers;
 use crate::paint::{Decorations, decorations};
 
 /// Paints an [`Editor`]: gutter, text, selections, cursors, diagnostics and
@@ -31,6 +32,8 @@ pub(crate) struct PrepaintState {
     decorations: Decorations,
     hitbox: Hitbox,
     text_hitbox: Hitbox,
+    /// Clickable gutter slots and lens items (pointer cursor).
+    click_hitboxes: Vec<Hitbox>,
 }
 
 impl IntoElement for EditorElement {
@@ -75,18 +78,26 @@ impl Element for EditorElement {
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
-        let (layout, decorations) = self.editor.update(cx, |editor, cx| {
+        let (layout, decorations, popovers, clickable) = self.editor.update(cx, |editor, cx| {
             let layout = editor.layout(bounds, window, cx);
             let decorations = decorations(editor, &layout, window, cx);
-            (layout, decorations)
+            let popovers = editor.popover_elements(&layout);
+            let clickable = editor.clickable_bounds(&layout);
+            (layout, decorations, popovers, clickable)
         });
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
         let text_hitbox = window.insert_hitbox(layout.text_bounds, HitboxBehavior::Normal);
+        let click_hitboxes = clickable
+            .into_iter()
+            .map(|b| window.insert_hitbox(b, HitboxBehavior::Normal))
+            .collect();
+        defer_popovers(popovers, window, cx);
         PrepaintState {
             layout,
             decorations,
             hitbox,
             text_hitbox,
+            click_hitboxes,
         }
     }
 
@@ -112,6 +123,9 @@ impl Element for EditorElement {
             .is_some_and(|b| b.track.contains(&window.mouse_position()));
         if !over_scrollbar {
             window.set_cursor_style(CursorStyle::IBeam, &prepaint.text_hitbox);
+        }
+        for hb in &prepaint.click_hitboxes {
+            window.set_cursor_style(CursorStyle::PointingHand, hb);
         }
         self.register_mouse_listeners(&prepaint.hitbox, window);
         let layout = prepaint.layout.clone();

@@ -16,7 +16,7 @@
 mod log;
 mod redirect;
 
-pub use log::{NetworkEntry, NetworkLog, NetworkOutcome};
+pub use log::{MAX_ENTRIES, NetworkEntry, NetworkLog, NetworkOutcome};
 pub use redirect::{Hop, is_redirect, next_hop, resolve};
 
 use std::io::Read;

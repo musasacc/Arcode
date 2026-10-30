@@ -32,7 +32,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::bridge::{EditorBridge, HttpTransport, NoIndex, ProjectIndex};
 use crate::cancel::lock;
-use crate::consent::{ConsentProvider, Permissions};
+use crate::consent::{ChannelConsent, ConsentProvider, Permissions};
 use crate::engine::{Runtime, RuntimeConfig};
 use crate::grant_store::GrantStore;
 use crate::grants::{Capability, GrantScope, GrantState};
@@ -83,8 +83,9 @@ pub struct AppServices {
     pub index: Option<Arc<dyn ProjectIndex>>,
     /// The network stack ([`crate::net::UreqTransport`] in the app).
     pub http: Arc<dyn HttpTransport>,
-    /// Host-drawn consent prompts.
-    pub consent: Arc<dyn ConsentProvider>,
+    /// Host-drawn consent prompts; `None` sends them as
+    /// [`PluginOutput::Consent`] events ([`ChannelConsent`]).
+    pub consent: Option<Arc<dyn ConsentProvider>>,
 }
 
 impl std::fmt::Debug for AppServices {
@@ -122,6 +123,7 @@ pub struct PluginManager {
     runtime: Arc<Runtime>,
     registry: Registry,
     app: AppServices,
+    consent: Arc<dyn ConsentProvider>,
     output: OutputSender,
     project: Option<ProjectContext>,
     permissions: Permissions,
@@ -147,15 +149,20 @@ impl PluginManager {
         app: AppServices,
     ) -> (Self, async_channel::Receiver<PluginOutput>) {
         let (output, rx) = OutputSender::channel();
+        let consent = app
+            .consent
+            .clone()
+            .unwrap_or_else(|| Arc::new(ChannelConsent::new(output.clone())));
         let roots = config.paths.discovery_roots(config.dev_folders.clone());
         let registry = Registry::discover(&roots, &config.user_limits);
         let runtime = Arc::new(Runtime::new(config.runtime.clone()));
-        let permissions = Permissions::new(grant_store(&config, None), app.consent.clone());
+        let permissions = Permissions::new(grant_store(&config, None), consent.clone());
         let manager = Self {
             config,
             runtime,
             registry,
             app,
+            consent,
             output,
             project: None,
             permissions,
@@ -193,8 +200,7 @@ impl PluginManager {
     pub fn set_project(&mut self, project: Option<ProjectContext>) {
         self.stop_all();
         let root = project.as_ref().map(|p| p.root.as_path());
-        self.permissions =
-            Permissions::new(grant_store(&self.config, root), self.app.consent.clone());
+        self.permissions = Permissions::new(grant_store(&self.config, root), self.consent.clone());
         self.project = project;
     }
 

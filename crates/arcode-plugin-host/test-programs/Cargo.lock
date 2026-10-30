@@ -161,6 +161,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "review-abuse"
+version = "0.0.0"
+dependencies = [
+ "arcode-plugin-api",
+ "serde_json",
+]
+
+[[package]]
 name = "semver"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"

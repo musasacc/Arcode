@@ -139,3 +139,38 @@ fn finder_opens_files_by_fuzzy_query(cx: &mut TestAppContext) {
 fn project_name(path: &Path) -> String {
     arcode_config::state::project_name(path)
 }
+
+#[gpui::test]
+fn tree_selection_follows_the_active_tab(cx: &mut TestAppContext) {
+    let dir = project_dir();
+    let root = fs::canonicalize(dir.path()).expect("canonical");
+    let (ws, cx) = open(cx);
+    ws.update_in(cx, |ws, window, cx| {
+        ws.open_project(root.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    let main_rs = root.join("src/main.rs");
+    let lib_rs = root.join("src/lib.rs");
+    ws.update_in(cx, |ws, window, cx| {
+        ws.open_file(&main_rs, window, cx);
+        ws.open_file(&lib_rs, window, cx);
+    });
+    let selected = |ws: &Entity<Workspace>, cx: &mut VisualTestContext| {
+        ws.read_with(cx, |ws, cx| {
+            let tree = ws.file_tree.as_ref().expect("tree");
+            tree.read(cx).selected_path().map(Path::to_path_buf)
+        })
+    };
+    assert_eq!(selected(&ws, cx), Some(lib_rs.clone()));
+    let pane = ws.read_with(cx, |ws, _| ws.panes()[0].clone());
+    pane.update_in(cx, |pane, window, cx| pane.close(1, window, cx));
+    cx.run_until_parked();
+    assert_eq!(selected(&ws, cx), Some(main_rs.clone()));
+    pane.update_in(cx, |pane, window, cx| pane.close(0, window, cx));
+    cx.run_until_parked();
+    assert_eq!(
+        selected(&ws, cx),
+        None,
+        "closing the last tab clears the tree selection"
+    );
+}

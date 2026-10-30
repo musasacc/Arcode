@@ -1,0 +1,45 @@
+# arcode.db-viewer (docs/PLUGINS.md §3, §10). Differences from the §3
+# reference manifest are listed in docs/PLUGINS.md, Appendix B (Step 11).
+[plugin]
+id = "arcode.db-viewer"
+name = "Database Viewer"
+version = "0.1.0"
+api = "0.1"
+entry = "plugin.wasm"
+description = "Browse and query SQLite databases in the project"
+
+[capabilities]
+# Read is all the viewer needs. The write checkbox of the workspace prompt
+# exists so a user *may* allow writes; the plugin still only writes after
+# the "Allow writes" toggle in the Query tab.
+workspace = "read-write"
+editor = "none"
+
+[limits]
+memory-mb = 128
+task-seconds = 300            # long queries, cancellable
+
+[[contributes.openers]]       # opening a matching file shows the plugin view
+id = "sqlite"
+patterns = ["*.sqlite", "*.sqlite3", "*.db"]
+title = "SQLite Database"
+
+[[contributes.panels]]
+id = "databases"
+title = "Databases"
+location = "sidebar"          # adds an activity-bar entry
+icon = "database"
+
+[[contributes.commands]]
+id = "refresh"
+title = "DB: Refresh Schema"
+
+[[contributes.commands]]
+id = "new-query"
+title = "DB: New Query"
+
+[[contributes.settings]]
+key = "max-result-rows"
+type = "integer"
+default = 100000
+description = "Rows kept from one query (at most 64 MiB of cell data)"

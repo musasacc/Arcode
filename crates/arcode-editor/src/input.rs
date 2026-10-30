@@ -92,7 +92,7 @@ impl Editor {
             .buffer
             .edit_with_selections(raw, group, &self.selections, &after);
         self.selections = after;
-        self.apply_edits(edits, cx);
+        self.after_edits(edits, cx);
         inserted
     }
 }

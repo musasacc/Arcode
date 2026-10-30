@@ -1,0 +1,55 @@
+# Bundled plugin manifest (docs/PLUGINS.md §3, §9).
+[plugin]
+id = "arcode.http-client"
+name = "HTTP Client"
+version = "0.1.0"
+api = "0.1"
+entry = "plugin.wasm"
+description = "Send requests from .http / .rest files"
+
+[capabilities]
+workspace = "read"            # env files and `< ./body.json` includes under /project
+editor = "context"            # reads the .http document a lens or command is about
+editor-write = false
+network = { hosts = ["*"] }   # may *ask* for any host; gesture-bound, consent per host
+
+[limits]
+memory-mb = 64
+task-seconds = 60             # CPU budget while a request is in flight (begin-task)
+
+[[contributes.languages]]
+id = "http"
+name = "HTTP Request"
+extensions = ["http", "rest"]
+line-comment = "#"
+
+[[contributes.commands]]
+id = "send"
+title = "HTTP: Send Request at Cursor"
+when = "language == http"
+key = "secondary-enter"
+
+[[contributes.commands]]
+id = "select-environment"
+title = "HTTP: Select Environment"
+when = "language == http"
+
+[[contributes.code-lenses]]
+languages = ["http"]
+
+[[contributes.panels]]
+id = "response"
+title = "Response"
+location = "editor-beside"
+icon = "globe"
+
+[[contributes.settings]]
+key = "timeout-ms"
+type = "integer"
+default = 30000
+description = "Request timeout"
+
+[[contributes.settings]]
+key = "follow-redirects"
+type = "boolean"
+default = true

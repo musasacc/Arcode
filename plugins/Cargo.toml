@@ -1,0 +1,39 @@
+# Bundled plugins (docs/PLUGINS.md §9-§12). A separate cargo workspace,
+# excluded from the root one, so a plain `cargo test` in the repo never
+# builds wasm.
+#
+#   scripts/build-plugins.sh            release wasm32-wasip2 build
+#                                       -> target/wasm-plugins/<id>/
+#   cargo test --manifest-path plugins/Cargo.toml
+#                                       native unit tests (SDK fakes)
+[workspace]
+resolver = "2"
+members = [
+    "db-viewer",
+    "http-client",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+arcode-plugin = { package = "arcode-plugin-api", path = "../crates/arcode-plugin-api" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# DB viewer (§10): SQLite compiled to wasm32-wasip2 by scripts/build-plugins.sh.
+# No default features: they pull sqlite-wasm-rs (wasm32-unknown-unknown) and hashlink.
+rusqlite = { version = "=0.41.1", default-features = false, features = ["bundled", "hooks"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = "debuginfo"
+panic = "abort"
+
+# Native tests: SQLite's C code unoptimized makes the 1M-row tests crawl.
+[profile.dev.package.libsqlite3-sys]
+opt-level = 2

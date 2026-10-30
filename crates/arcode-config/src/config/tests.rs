@@ -317,3 +317,15 @@ fn write_default_if_missing_only_once() {
     assert!(!Config::write_default_if_missing(&path).unwrap());
     assert_eq!(Config::load_from(&path).0.editor.font_size, 20.0);
 }
+
+#[test]
+fn large_file_cutoffs() {
+    let e = Config::default().editor;
+    assert_eq!(e.large_file_bytes, 4 * 1024 * 1024);
+    assert_eq!(e.large_file_lines, 50_000);
+    let (config, warnings) =
+        Config::from_toml_str("[editor]\nlarge_file_bytes = 1000\nlarge_file_lines = 20\n");
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(config.editor.large_file_bytes, 1000);
+    assert_eq!(config.editor.large_file_lines, 20);
+}

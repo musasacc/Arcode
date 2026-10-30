@@ -9,6 +9,7 @@ members = [
     "echo",
     "fs-escape",
     "net",
+    "review-abuse",
     "sockets",
     "spin",
     "spin-cancellable",

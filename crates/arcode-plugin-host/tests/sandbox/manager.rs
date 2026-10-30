@@ -50,7 +50,7 @@ fn setup() -> Setup {
         editor: editor.clone(),
         index: None,
         http: Arc::new(FakeHttp::default()),
-        consent: consent.clone(),
+        consent: Some(consent.clone()),
     };
     let (manager, outputs) = PluginManager::new(config, app);
     Setup {
@@ -271,4 +271,52 @@ fn grants_and_kv_persist_and_revoking_files_recycles() {
     assert_eq!(last_with(&h, "op", "kv-get")["result"]["get"], "v");
     s.manager.shutdown();
     assert!(h.wait_stopped(Duration::from_secs(5)));
+}
+
+#[test]
+fn consent_prompts_arrive_as_events_by_default() {
+    let dirs = tempfile::tempdir().unwrap();
+    let base = dirs.path();
+    let paths = PluginPaths::with_bases(None, &base.join("c"), &base.join("d"), &base.join("k"));
+    let mut config = ManagerConfig::new(paths);
+    config.dev_folders = vec![fixture("echo").dir];
+    config.persist = false;
+    let app = AppServices {
+        editor: Arc::new(MemoryEditor::default()),
+        index: None,
+        http: Arc::new(FakeHttp::default()),
+        consent: None,
+    };
+    let (mut manager, outputs) = PluginManager::new(config, app);
+    let root = tempfile::tempdir().unwrap();
+    manager.set_project(project(root.path(), "demo"));
+    // The app's side: answer the first prompt, record its wording.
+    let answerer = std::thread::spawn(move || {
+        while let Ok(out) = outputs.recv_blocking() {
+            if let PluginOutput::Consent { request, reply } = out {
+                reply.send(ConsentAnswer::Allow {
+                    scope: GrantScope::Project,
+                    write: false,
+                });
+                return request.message();
+            }
+        }
+        String::new()
+    });
+    let args = json!({"op": "read-file", "path": "missing.txt"}).to_string();
+    let pending = manager
+        .run_command(&q("test.echo/echo"), &args, None)
+        .unwrap();
+    assert_eq!(pending.wait(), Ok(CallOutput::Done));
+    let message = answerer.join().unwrap();
+    assert!(
+        message.contains("\u{201c}Echo\u{201d} can read"),
+        "{message}"
+    );
+    let grants = manager.grants(&echo_id());
+    assert_eq!(grants.len(), 1);
+    assert!(
+        !dirs.path().join("c").exists(),
+        "persist = false writes nothing"
+    );
 }

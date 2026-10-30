@@ -1,19 +1,18 @@
 //! Host implementations of the `arcode:plugin` imports (§6). Each function
 //! first checks the capability and the gesture, then does its work.
 //!
-//! Status per plan step:
-//! - `host`: complete (step 3/4: quick pick, settings, cancel, tasks,
-//!   notify rate limit).
-//! - `kv`: validation and quota, kept in memory per plugin; persistence to
-//!   `plugin-data/<id>/*.kv` is step 6.
-//! - `workspace`: grant check, glob validation and limit; the
-//!   `.gitignore`-aware index behind [`crate::bridge::ProjectIndex`] is
-//!   the app's (step 6 tests it against a temp project).
-//! - `editor`: snapshot reads, `context`/`all-open` rules, write consent.
+//! - `host`: log, notify (5 per minute), status item, quick pick, live
+//!   settings, cancellation, tasks.
+//! - `kv`: key rules and quota; scopes read lazily from
+//!   `plugin-data/<id>/*.kv` and written once per call.
+//! - `workspace`: grant check, glob validation and limit; the paths come
+//!   from [`crate::bridge::ProjectIndex`] ([`crate::index::WalkIndex`] by
+//!   default).
+//! - `editor`: snapshot reads, `context`/`all-open` rules, version and range
+//!   checks before write consent.
 //! - `http`: gesture, master switch, manifest hosts and per-host consent;
-//!   the transfer itself is [`crate::bridge::HttpTransport`] (ureq: step 7).
-//! - `ui`: panel bookkeeping and size caps; `PanelTree` validation and
-//!   snapshots are step 8.
+//!   the transfer is [`crate::bridge::HttpTransport`] ([`crate::net`]).
+//! - `ui`: panel bookkeeping and [`crate::ui_tree::PanelTree`] validation.
 
 mod editor;
 mod host;

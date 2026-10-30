@@ -256,6 +256,7 @@ fn cancel_during_a_slow_response_returns_promptly() {
     pending.cancel.cancel();
     assert_eq!(pending.wait(), Ok(CallOutput::Done));
     let took = cancelled_at.elapsed();
+    eprintln!("http cancel returned after {took:?}");
     assert!(took < Duration::from_millis(100), "cancel took {took:?}");
     let line = last_with(&n.h, "op", "send");
     assert_eq!(line["result"], json!({"err": "HttpError::Cancelled"}));

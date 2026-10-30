@@ -1,0 +1,20 @@
+[package]
+name = "db-viewer"
+description = "Bundled Arcode plugin: browse and query SQLite databases in the project (docs/PLUGINS.md §10)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+# cdylib: the wasm32-wasip2 component; rlib: native tests link the logic.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+arcode-plugin.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

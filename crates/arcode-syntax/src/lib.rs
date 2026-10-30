@@ -7,6 +7,8 @@
 //! - [`Syntax::highlight_lines`] returns [`HighlightSpan`]s for the visible
 //!   lines only; names come from [`HIGHLIGHT_NAMES`].
 //! - [`Syntax::matching_bracket`] finds bracket partners using the tree.
+//! - [`highlight_excerpt`] highlights a few lines of a huge document by
+//!   parsing only an excerpt, so no full tree has to be kept.
 //! - [`Syntax::runnables`] finds mains, tests and benchmarks ([`RunnableItem`]).
 //! - [`Syntax::symbols`] lists the document outline ([`OutlineItem`]).
 //!
@@ -16,6 +18,7 @@
 mod anchor;
 mod brackets;
 mod edit;
+mod excerpt;
 mod highlight;
 mod language;
 mod languages;
@@ -29,6 +32,7 @@ mod syntax;
 
 pub use brackets::{PLAIN_SCAN_LIMIT, matching_bracket_plain};
 pub use edit::InputEditData;
+pub use excerpt::{EXCERPT_CONTEXT_LINES, EXCERPT_MAX_BYTES, highlight_excerpt};
 pub use highlight::{HIGHLIGHT_NAMES, HighlightSpan};
 pub use language::Language;
 pub use outline::{OutlineItem, OutlineKind};

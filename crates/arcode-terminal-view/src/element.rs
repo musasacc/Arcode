@@ -1,7 +1,7 @@
 //! The custom element that lays out and paints the terminal grid.
 
 use arcode_terminal::{Cell, CursorShape, Rgb, Snapshot};
-use arcode_ui_kit::{settings, theme};
+use arcode_ui_kit::{apply_glyph_fallbacks, settings, theme};
 use gpui::{
     App, BorderStyle, Bounds, ContentMask, DispatchPhase, Element, ElementId, ElementInputHandler,
     Entity, Font, FontFallbacks, FontFeatures, FontStyle, FontWeight, GlobalElementId, Hsla,
@@ -315,12 +315,26 @@ impl FrameBuilder<'_> {
         window: &Window,
         frame: &mut Frame,
     ) {
+        let fallbacks: Vec<SharedString> = self
+            .m
+            .font
+            .fallbacks
+            .as_ref()
+            .map(|f| f.fallback_list().iter().map(|s| s.clone().into()).collect())
+            .unwrap_or_default();
         for seg in text_segments(cells, fg_override) {
-            let runs: Vec<TextRun> = seg
+            let mut runs: Vec<TextRun> = seg
                 .runs
                 .iter()
                 .map(|run| self.text_run(run.len, &run.style))
                 .collect();
+            // GPUI's Linux backend ignores `Font::fallbacks` and cannot fall
+            // back from italic runs; split out glyphs the font lacks.
+            if let Some(split) =
+                apply_glyph_fallbacks(&seg.text, &runs, &fallbacks, window.text_system())
+            {
+                runs = split;
+            }
             let force_width = (!seg.single).then_some(self.m.cell_width);
             let line = window.text_system().shape_line(
                 SharedString::from(seg.text),
