@@ -2,11 +2,44 @@
 //! the mouse.
 
 use arcode_buffer::Point;
-use gpui::{Context, ScrollStrategy, Window};
+use gpui::{App, Context, KeyBinding, ScrollStrategy, Window, actions};
 
 use super::results::Row;
-use super::{ProjectSearch, ProjectSearchEvent};
+use super::{CONTEXT, GLOB_CONTEXT, ProjectSearch, ProjectSearchEvent, REPLACE_CONTEXT};
+use crate::find_bar::{ToggleCase, ToggleRegex, ToggleWord};
 use crate::finder::{Confirm, SelectNext, SelectPrev};
+
+actions!(
+    project_search,
+    [
+        /// Runs the search now and stays in the field (Enter in the
+        /// replace and glob fields).
+        RunSearch,
+        /// Replace All, after a confirmation (from the replace field).
+        ReplaceAllMatches,
+    ]
+);
+
+/// Registers the Search view's key bindings.
+pub fn bind_keys(cx: &mut App) {
+    let ctx = Some(CONTEXT);
+    cx.bind_keys([
+        KeyBinding::new("up", SelectPrev, ctx),
+        KeyBinding::new("down", SelectNext, ctx),
+        KeyBinding::new("enter", Confirm, ctx),
+        KeyBinding::new("alt-c", ToggleCase, ctx),
+        KeyBinding::new("alt-w", ToggleWord, ctx),
+        KeyBinding::new("alt-r", ToggleRegex, ctx),
+        // Enter outside the query field must not leave the view.
+        KeyBinding::new("enter", RunSearch, Some(REPLACE_CONTEXT)),
+        KeyBinding::new(
+            "secondary-alt-enter",
+            ReplaceAllMatches,
+            Some(REPLACE_CONTEXT),
+        ),
+        KeyBinding::new("enter", RunSearch, Some(GLOB_CONTEXT)),
+    ]);
+}
 
 impl ProjectSearch {
     /// Activates row `ix`: a file header collapses or expands, a line opens

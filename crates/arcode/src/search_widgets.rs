@@ -181,6 +181,30 @@ pub fn field_box(
         .children(trailing)
 }
 
+/// A search error on one line for a narrow view: the regex engine's
+/// multi-line report (pattern, caret, message) becomes
+/// `Invalid regular expression: unclosed group`.
+pub fn short_error(message: &str) -> String {
+    let lines: Vec<&str> = message
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    let text = match (lines.first(), lines.last()) {
+        (Some(first), Some(last)) if lines.len() > 1 => {
+            let head = first.split(':').next().unwrap_or(first);
+            let tail = last.strip_prefix("error:").unwrap_or(last).trim();
+            format!("{head}: {tail}")
+        }
+        _ => message.trim().to_owned(),
+    };
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().chain(chars).collect(),
+        None => text,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,5 +219,20 @@ mod tests {
         assert!(q.is_regex && q.case_sensitive && !q.smart_case);
         SearchOption::Case.toggle(&mut opts);
         assert!(!SearchOption::Case.is_on(&opts));
+    }
+
+    #[test]
+    fn regex_errors_fit_on_one_line() {
+        let q = arcode_search::SearchQuery {
+            is_regex: true,
+            ..arcode_search::SearchQuery::new("(")
+        };
+        let err = q.validate().unwrap_err().to_string();
+        assert!(err.contains('\n'));
+        assert_eq!(
+            short_error(&err),
+            "Invalid regular expression: unclosed group"
+        );
+        assert_eq!(short_error("invalid glob `[`: x"), "Invalid glob `[`: x");
     }
 }

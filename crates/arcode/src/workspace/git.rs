@@ -195,7 +195,7 @@ impl Workspace {
                 }
             },
         );
-        self._subscriptions.push(sub);
+        self.subs.set("branch_picker", sub);
         window.focus(&picker.focus_handle(cx));
         self.branch_picker = Some(picker);
         cx.notify();

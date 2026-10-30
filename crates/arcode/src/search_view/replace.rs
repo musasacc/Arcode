@@ -8,13 +8,11 @@
 use std::path::{Path, PathBuf};
 
 use arcode_editor::Editor;
-use arcode_search::{
-    CancelToken, FileMatches, SearchError, SearchQuery, search_collect, search_text,
-};
+use arcode_search::{CancelToken, SearchError, SearchQuery, search_collect, search_text};
 use gpui::{AppContext, Context, Entity, PromptLevel, Window};
 
 use super::{ProjectSearch, ProjectSearchEvent};
-use crate::find_bar::replace_edits;
+use crate::find_bar::bulk::{BulkReplace, MAX_EDITS, replace_all_edits};
 
 /// Outcome of a replace run.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -94,20 +92,11 @@ pub fn replace_in_editor<T>(
     replacement: &str,
     cx: &mut Context<T>,
 ) -> usize {
-    let edits = {
-        let e = editor.read(cx);
-        let Ok(lines) = search_text(&e.buffer().text().to_string(), query) else {
-            return 0;
-        };
-        let buffer = e.buffer();
-        replace_edits(
-            lines.iter().map(|l| l.line),
-            |line| buffer.line_text(line),
-            query,
-            replacement,
-        )
+    let text = editor.read(cx).buffer().text().to_string();
+    let Ok(BulkReplace { edits, count }) = replace_all_edits(&text, query, replacement, MAX_EDITS)
+    else {
+        return 0;
     };
-    let count = edits.len();
     if count > 0 && !editor.update(cx, |e, cx| e.apply_edits(edits, cx)) {
         return 0;
     }
@@ -115,33 +104,7 @@ pub fn replace_in_editor<T>(
 }
 
 impl ProjectSearch {
-    /// `file` as found on disk, or, when it is open with unsaved changes,
-    /// the matches of the editor's text instead (`None` if it has none).
-    pub(super) fn prefer_buffer(
-        &self,
-        file: FileMatches,
-        query: &SearchQuery,
-        cx: &gpui::App,
-    ) -> Option<FileMatches> {
-        let Some(editor) = self
-            .open_editor(&file.path, cx)
-            .filter(|e| e.read(cx).is_dirty())
-        else {
-            return Some(file);
-        };
-        let text = editor.read(cx).buffer().text().to_string();
-        let matches = search_text(&text, query).ok()?;
-        (!matches.is_empty()).then_some(FileMatches { matches, ..file })
-    }
-
-    fn open_editor(&self, path: &Path, cx: &gpui::App) -> Option<Entity<Editor>> {
-        let editors = self.editors.as_ref()?;
-        editors(cx)
-            .into_iter()
-            .find(|e| e.read(cx).path() == Some(path))
-    }
-
-    fn replace_query(&self, cx: &gpui::App) -> Option<(SearchQuery, String)> {
+    pub(super) fn replace_query(&self, cx: &gpui::App) -> Option<(SearchQuery, String)> {
         let query = SearchQuery {
             max_results: 0,
             ..self.build_query(cx)
@@ -150,12 +113,18 @@ impl ProjectSearch {
         Some((query, self.replacement.read(cx).text().to_string()))
     }
 
-    /// Replaces every match in `paths`: open files through their editors,
-    /// the others on disk in the background. Then searches again.
-    pub(super) fn replace_files(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
-        let Some((query, replacement)) = self.replace_query(cx) else {
-            return;
-        };
+    /// Replaces every match of `query` by `replacement` in `paths`: open
+    /// files through their editors, the others on disk in the background.
+    /// Then searches again. The query and replacement are passed in (not
+    /// read from the fields) so a confirmed replace writes exactly what the
+    /// confirmation described.
+    pub(super) fn replace_files(
+        &mut self,
+        paths: Vec<PathBuf>,
+        query: SearchQuery,
+        replacement: String,
+        cx: &mut Context<Self>,
+    ) {
         let mut outcome = ReplaceOutcome::default();
         let mut on_disk = Vec::new();
         for path in paths {
@@ -204,8 +173,9 @@ impl ProjectSearch {
 
     /// Replaces every match in the listed file at index `file_ix`.
     pub fn replace_in_file(&mut self, file_ix: usize, cx: &mut Context<Self>) {
-        if let Some(path) = self.results.files().get(file_ix).map(|f| f.path.clone()) {
-            self.replace_files(vec![path], cx);
+        let path = self.results.files().get(file_ix).map(|f| f.path.clone());
+        if let (Some(path), Some((query, replacement))) = (path, self.replace_query(cx)) {
+            self.replace_files(vec![path], query, replacement, cx);
         }
     }
 
@@ -229,7 +199,7 @@ impl ProjectSearch {
             let files = counting.await.unwrap_or_default();
             let Ok((paths, total)) = this.update(cx, |view, cx| {
                 let mut total = 0;
-                let paths: Vec<PathBuf> = files
+                let mut paths: Vec<PathBuf> = files
                     .into_iter()
                     .map(|f| {
                         total += match view.open_editor(&f.path, cx) {
@@ -239,6 +209,11 @@ impl ProjectSearch {
                         f.path
                     })
                     .collect();
+                // Unsaved buffers whose text matches while their file does not.
+                for (path, n) in view.unsaved_only_counts(&paths, &query, cx) {
+                    total += n;
+                    paths.push(path);
+                }
                 (paths, total)
             }) else {
                 return;
@@ -276,7 +251,7 @@ impl ProjectSearch {
             this.update(cx, |view, cx| {
                 view.replacing = false;
                 if confirmed {
-                    view.replace_files(paths, cx);
+                    view.replace_files(paths, query, replacement, cx);
                 } else {
                     cx.notify();
                 }

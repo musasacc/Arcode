@@ -16,7 +16,10 @@ mod panes;
 mod render;
 #[cfg(test)]
 mod review_git;
+#[cfg(test)]
+mod review_palette;
 mod status;
+mod subs;
 #[cfg(test)]
 mod tests;
 
@@ -27,8 +30,8 @@ use std::time::Duration;
 use arcode_buffer::Buffer;
 use arcode_editor::{Editor, EditorEvent};
 use gpui::{
-    AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, Pixels, PromptLevel,
-    SharedString, Subscription, Task, Window, px,
+    AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, Pixels, SharedString,
+    Subscription, Task, Window, px,
 };
 
 use crate::activity_bar::Activity;
@@ -107,6 +110,8 @@ pub struct Workspace {
     active_editor_sub: Option<Subscription>,
     /// Go to definition, symbol pickers and the back/forward history.
     pub(crate) nav: crate::navigation::Navigator,
+    /// Overlay, pane and editor subscriptions (bounded).
+    subs: subs::Subs,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -167,6 +172,7 @@ impl Workspace {
             toast_task: None,
             active_editor_sub: None,
             nav: Default::default(),
+            subs: Default::default(),
             _subscriptions: subscriptions,
         }
     }
@@ -311,40 +317,6 @@ impl Workspace {
         });
     }
 
-    /// Runs `then` right away, or after the user agreed to discard unsaved
-    /// changes in open editors.
-    fn confirm_discard(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-        then: impl FnOnce(&mut Self, &mut Window, &mut Context<Self>) + 'static,
-    ) {
-        let dirty = self
-            .editors(cx)
-            .iter()
-            .filter(|e| e.read(cx).is_dirty())
-            .count();
-        if dirty == 0 {
-            then(self, window, cx);
-            return;
-        }
-        let message = format!("{dirty} file(s) have unsaved changes. Discard them?");
-        let answer = window.prompt(
-            PromptLevel::Warning,
-            &message,
-            None,
-            &["Discard", "Cancel"],
-            cx,
-        );
-        cx.spawn_in(window, async move |this, cx| {
-            if answer.await.ok() == Some(0) {
-                this.update_in(cx, |ws, window, cx| then(ws, window, cx))
-                    .ok();
-            }
-        })
-        .detach();
-    }
-
     /// Re-indexes the project's files in the background.
     fn rescan_files(&mut self, cx: &mut Context<Self>) {
         let Some(root) = self.project.as_ref().map(|p| p.root.clone()) else {
@@ -396,7 +368,7 @@ impl Workspace {
                     crate::app::reload_settings(cx);
                 }
             });
-            self._subscriptions.push(sub);
+            self.subs.tie(editor.downgrade().into(), sub);
         }
         self.lsp
             .update(cx, |lsp, cx| lsp.register_editor(&editor, cx));

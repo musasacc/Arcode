@@ -120,7 +120,7 @@ impl Editor {
         };
         // A keyboard request in flight is not the mouse's to cancel.
         if !self.hovering.pending_keyboard {
-            let word = at.and_then(|p| Some((self.word_under(p)?, p)));
+            let word = at.and_then(|p| Some((self.hover_target(p)?, p)));
             let enabled = arcode_ui_kit::settings(cx).editor.hover;
             match word {
                 Some((word, p)) if enabled => {

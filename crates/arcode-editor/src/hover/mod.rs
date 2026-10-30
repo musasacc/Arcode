@@ -15,6 +15,7 @@
 //! window's focus moves elsewhere (a picker, the terminal, another editor),
 //! so it never floats over the workspace's overlays.
 
+mod lifecycle;
 mod mouse;
 mod view;
 
@@ -24,7 +25,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use arcode_buffer::{Point, ops};
-use gpui::{Bounds, Context, Pixels, Task, WeakFocusHandle, Window, point};
+use gpui::{Bounds, Context, Pixels, Task, WeakFocusHandle, point};
 
 use crate::Editor;
 use crate::completion::docs::{Block, blocks_for};
@@ -117,7 +118,8 @@ impl Editor {
     pub fn show_hover(&mut self, cx: &mut Context<Self>) {
         let head = self.selections.primary().head;
         let word = ops::word_range_at(&self.buffer, head)
-            .or_else(|| ops::word_range_at(&self.buffer, head.checked_sub(1)?));
+            .or_else(|| ops::word_range_at(&self.buffer, head.checked_sub(1)?))
+            .or_else(|| self.symbol_char_at(head));
         let at = self
             .buffer
             .char_to_point(word.as_ref().map_or(head, |w| w.start));
@@ -174,59 +176,6 @@ impl Editor {
         self.hovering.task = None;
     }
 
-    /// Keyboard hovers (shown or still asked for) close when the cursor
-    /// moves.
-    pub(crate) fn hover_after_cursor_move(&mut self) {
-        if self.hover.as_ref().is_some_and(|h| h.keyboard) {
-            self.hover = None;
-            self.cancel_hover_request();
-        } else if self.hovering.pending_keyboard {
-            self.cancel_hover_request();
-        }
-    }
-
-    /// Called on render: when the window's focus moved and this editor does
-    /// not have it, the hover closes (it is drawn above everything, so it
-    /// would cover a picker or the finder that took the focus).
-    pub(crate) fn hover_check_focus(&mut self, window: &Window, cx: &gpui::App) {
-        let now = window.focused(cx).map(|f| f.downgrade());
-        if now == self.hovering.last_focus {
-            return;
-        }
-        self.hovering.last_focus = now;
-        if !self.focus_handle.is_focused(window) {
-            self.hide_hover();
-        }
-    }
-
-    /// Called after each layout: a mouse hover closes when the view
-    /// scrolled (the mouse is no longer over its symbol), any hover when
-    /// its line left the view.
-    pub(crate) fn hover_after_layout(&mut self, previous: Option<(Pixels, Pixels)>) {
-        let Some(hover) = &self.hover else {
-            return;
-        };
-        let Some(layout) = &self.layout else {
-            return;
-        };
-        let scrolled = previous.is_some_and(|p| p != (layout.scroll_x, layout.scroll_y));
-        if (scrolled && !hover.keyboard) || layout.visible(hover.anchor.line).is_none() {
-            self.hover = None;
-            self.cancel_hover_request();
-        }
-    }
-
-    /// Diagnostics changed: refresh those in the hover, keep its docs.
-    pub(crate) fn hover_after_diagnostics(&mut self) {
-        let Some(mut hover) = self.hover.take() else {
-            return;
-        };
-        hover.diagnostics = self.diagnostics_at(hover.at);
-        if !hover.diagnostics.is_empty() || !hover.docs.is_empty() {
-            self.hover = Some(hover);
-        }
-    }
-
     /// Diagnostics whose range covers `at` (an empty range matches its
     /// own column).
     pub(crate) fn diagnostics_at(&self, at: Point) -> Vec<EditorDiagnostic> {
@@ -254,6 +203,22 @@ impl Editor {
             return None;
         }
         ops::word_range_at(&self.buffer, pos)
+    }
+
+    /// What a hover at `at` asks about: the identifier there, else the
+    /// single operator or punctuation char (`?`, `+`, a literal's quote),
+    /// which servers such as rust-analyzer also describe. `None` on
+    /// whitespace and past the end of the line.
+    pub(crate) fn hover_target(&self, at: Point) -> Option<Range<usize>> {
+        self.word_under(at)
+            .or_else(|| self.symbol_char_at(self.buffer.point_to_char(at)))
+    }
+
+    /// The one-char range at char offset `pos` when that char is neither
+    /// whitespace nor part of an identifier.
+    fn symbol_char_at(&self, pos: usize) -> Option<Range<usize>> {
+        let c = self.buffer.char_at(pos)?;
+        (!c.is_whitespace() && !is_word_char(c)).then_some(pos..pos + 1)
     }
 
     /// A popover state anchored at `range.start` (else `at`); `None` when

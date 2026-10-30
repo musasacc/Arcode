@@ -43,7 +43,7 @@ impl Workspace {
     pub(super) fn reset_panes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let pane = cx.new(|cx| Pane::new(window, cx));
         let sub = Self::subscribe_pane(&pane, window, cx);
-        self._subscriptions.push(sub);
+        self.subs.tie(pane.downgrade().into(), sub);
         self.panes = vec![pane];
         self.active_pane = 0;
         self.update_closable(cx);
@@ -54,7 +54,7 @@ impl Workspace {
     pub fn split_right(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let pane = cx.new(|cx| Pane::new(window, cx));
         let sub = Self::subscribe_pane(&pane, window, cx);
-        self._subscriptions.push(sub);
+        self.subs.tie(pane.downgrade().into(), sub);
         let ix = (self.active_pane + 1).min(self.panes.len());
         self.panes.insert(ix, pane.clone());
         self.active_pane = ix;

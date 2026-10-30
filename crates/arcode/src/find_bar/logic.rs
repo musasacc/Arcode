@@ -1,5 +1,5 @@
 //! Pure parts of the find bar: match positions, choosing the current match
-//! and turning replacements into editor edits.
+//! and turning one replacement into an editor edit.
 
 use std::ops::Range;
 
@@ -47,35 +47,6 @@ pub fn step(
             Some((before + n - 1) % n)
         }
     }
-}
-
-/// Edits replacing every match on the given lines. `line_text(line)`
-/// returns a line without its break. Matches are found again per line, so
-/// regex groups expand exactly as in a project replace.
-pub fn replace_edits(
-    lines: impl IntoIterator<Item = usize>,
-    line_text: impl Fn(usize) -> String,
-    query: &SearchQuery,
-    replacement: &str,
-) -> Vec<(Range<Point>, String)> {
-    let mut edits = Vec::new();
-    let mut last = None;
-    for line in lines {
-        if last == Some(line) {
-            continue;
-        }
-        last = Some(line);
-        let text = line_text(line);
-        let Ok(found) = line_replacements(&text, query, replacement) else {
-            return Vec::new();
-        };
-        edits.extend(
-            found
-                .into_iter()
-                .map(|(r, new)| (Point::new(line, r.start)..Point::new(line, r.end), new)),
-        );
-    }
-    edits
 }
 
 /// The edit replacing exactly the match `range` (which must still be a
@@ -137,21 +108,12 @@ mod tests {
     }
 
     #[test]
-    fn replacements_become_edits() {
+    fn replacing_one_match() {
         let q = SearchQuery {
             is_regex: true,
             ..SearchQuery::new(r"(\d+)")
         };
-        let lines = ["a1 b22", "x", "3"];
-        let edits = replace_edits([0, 0, 2], |l| lines[l].to_owned(), &q, "<$1>");
-        assert_eq!(
-            edits,
-            vec![
-                (p(0, 1)..p(0, 2), "<1>".to_owned()),
-                (p(0, 4)..p(0, 6), "<22>".to_owned()),
-                (p(2, 0)..p(2, 1), "<3>".to_owned()),
-            ]
-        );
+        let lines = ["a1 b22"];
         let one = replace_one_edit(&(p(0, 4)..p(0, 6)), lines[0], &q, "[$1]");
         assert_eq!(one, Some((p(0, 4)..p(0, 6), "[22]".to_owned())));
         assert_eq!(

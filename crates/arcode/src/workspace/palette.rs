@@ -71,7 +71,7 @@ impl Workspace {
                 }
             }
         });
-        self._subscriptions.push(sub);
+        self.subs.set("palette", sub);
         window.focus(&palette.focus_handle(cx));
         self.palette = Some(palette);
         cx.notify();

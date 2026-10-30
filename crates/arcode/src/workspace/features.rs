@@ -133,7 +133,7 @@ impl Workspace {
                 todo.update(cx, |t, cx| t.paths_changed(&[path], false, cx));
             }
         });
-        self._subscriptions.push(sub);
+        self.subs.tie(editor.downgrade().into(), sub);
     }
 
     /// Files changed on disk (from the project watcher).

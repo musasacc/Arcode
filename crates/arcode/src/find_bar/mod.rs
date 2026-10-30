@@ -5,10 +5,13 @@
 //! editor's background-highlight extension point (sets `"find"` and
 //! `"find-current"`). Replacements are editor edits, so they are undoable.
 
+pub mod bulk;
 mod highlight;
 mod logic;
 mod render;
 mod replace;
+#[cfg(test)]
+mod review_find_bar;
 mod run;
 #[cfg(test)]
 mod tests;
@@ -27,7 +30,7 @@ use gpui::{
 use crate::search_widgets::{SearchOption, SearchOptions};
 use crate::text_field::{TextChanged, TextField};
 
-pub use logic::{first_at_or_after, match_ranges, replace_edits, status_text, step};
+pub use logic::{first_at_or_after, match_ranges, status_text, step};
 
 actions!(
     find_bar,
@@ -116,6 +119,9 @@ pub struct FindBar {
     searched: Option<Searched>,
     /// Where to select the first match once the running search ends.
     pending_select: Option<Point>,
+    /// A next (`true`) or previous step asked for while the matches were
+    /// stale; taken once the running search ends.
+    pending_step: Option<bool>,
     task: Option<Task<()>>,
     editor_sub: Option<Subscription>,
     _subs: Vec<Subscription>,
@@ -153,6 +159,7 @@ impl FindBar {
             notice: None,
             searched: None,
             pending_select: None,
+            pending_step: None,
             task: None,
             editor_sub: None,
             _subs: subs,
@@ -242,6 +249,7 @@ impl FindBar {
         }
         self.clear_highlights(cx);
         self.editor = editor;
+        self.notice = None;
         self.matches.clear();
         self.current = None;
         self.searched = None;
@@ -261,6 +269,7 @@ impl FindBar {
         self.open = false;
         self.task = None;
         self.pending_select = None;
+        self.pending_step = None;
         self.clear_highlights(cx);
         self.searched = None;
         cx.emit(FindBarEvent::Closed);
@@ -269,6 +278,7 @@ impl FindBar {
     /// Re-applies the highlights after the bar is shown again.
     pub fn reshow(&mut self, cx: &mut Context<Self>) {
         self.open = true;
+        self.notice = None;
         self.research(None, None, cx);
     }
 
@@ -299,8 +309,18 @@ impl FindBar {
         }
     }
 
-    /// Moves to the next (or previous) match and selects it.
+    /// Moves to the next (or previous) match and selects it. When the
+    /// matches are stale (edited buffer, other editor, changed query, a
+    /// search still running), searches now and steps once it is done, so
+    /// the selection is always a match of the current text.
     pub fn go(&mut self, forward: bool, cx: &mut Context<Self>) {
+        if !self.is_fresh(cx) {
+            if self.open && self.editor.is_some() {
+                self.pending_step = Some(forward);
+                self.research(None, None, cx);
+            }
+            return;
+        }
         let Some(cursor) = self.selection_start(cx) else {
             return;
         };

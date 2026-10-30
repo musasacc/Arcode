@@ -48,11 +48,17 @@ fn only_attached_files_join_the_workspace_server() {
     manager.open_document(&ws.join("main.fk"), "fake", 1, "x".to_string());
     manager.attach_to_workspace(&lib.join("option.fk"));
     manager.open_document(&lib.join("option.fk"), "fake", 1, "x".to_string());
-    assert_eq!(manager.server_instances(), vec![("alpha".into(), ws.clone())]);
+    assert_eq!(
+        manager.server_instances(),
+        vec![("alpha".into(), ws.clone())]
+    );
     manager.open_document(&other.join("lib.fk"), "fake", 1, "x".to_string());
     assert_eq!(
         manager.server_instances(),
-        vec![("alpha".into(), other.clone()), ("alpha".into(), ws.clone())]
+        vec![
+            ("alpha".into(), other.clone()),
+            ("alpha".into(), ws.clone())
+        ]
     );
     manager.shutdown_all();
 }

@@ -6,6 +6,8 @@ use arcode_buffer::Point;
 use arcode_search::search_text;
 use gpui::{App, AppContext, Context};
 
+use crate::search_widgets::short_error;
+
 use super::{FindBar, MAX_MATCHES, Searched, first_at_or_after, match_ranges};
 
 impl FindBar {
@@ -27,6 +29,7 @@ impl FindBar {
         self.error = None;
         if query.pattern.is_empty() {
             self.pending_select = None;
+            self.pending_step = None;
             self.task = None;
             self.matches.clear();
             self.current = None;
@@ -37,8 +40,9 @@ impl FindBar {
         }
         if let Err(err) = query.validate() {
             self.pending_select = None;
+            self.pending_step = None;
             self.task = None;
-            self.error = Some(err.to_string().into());
+            self.error = Some(short_error(&err.to_string()).into());
             self.matches.clear();
             self.current = None;
             self.searched = None;
@@ -81,7 +85,7 @@ impl FindBar {
         let lines = match found {
             Ok(lines) => lines,
             Err(err) => {
-                self.error = Some(err.to_string().into());
+                self.error = Some(short_error(&err.to_string()).into());
                 Vec::new()
             }
         };
@@ -100,6 +104,9 @@ impl FindBar {
         }
         self.apply_highlights(cx);
         cx.notify();
+        if let Some(forward) = self.pending_step.take() {
+            self.go(forward, cx);
+        }
     }
 
     pub(super) fn is_fresh(&self, cx: &App) -> bool {

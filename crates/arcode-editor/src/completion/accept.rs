@@ -45,9 +45,9 @@ impl Editor {
         if self.read_only
             || self
                 .completion
-            .session
-            .as_ref()
-            .is_none_or(|s| row >= s.menu.ranked.len())
+                .session
+                .as_ref()
+                .is_none_or(|s| row >= s.menu.ranked.len())
         {
             return false;
         }

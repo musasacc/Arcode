@@ -8,6 +8,7 @@ pub mod branch_picker;
 pub mod diff_view;
 pub mod editor;
 pub mod hunk_popover;
+pub mod ignore_filter;
 pub mod panel;
 #[cfg(test)]
 mod review_blame_text;
