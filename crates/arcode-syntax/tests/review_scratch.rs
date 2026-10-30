@@ -34,7 +34,7 @@ fn scratch_cases() {
 
 #[test]
 fn rust_many_attributes_cost() {
-    for n in [2_000usize, 8_000] {
+    for n in [100usize, 200, 400, 800] {
         let mut src = String::new();
         for _ in 0..n {
             src.push_str("#[allow(dead_code)]\n");
@@ -50,7 +50,7 @@ fn rust_many_attributes_cost() {
 
 #[test]
 fn scope_quadratic() {
-    for blocks in [2_000usize, 16_000] {
+    for blocks in [2_000usize, 4_000, 8_000, 16_000] {
         let mut src = String::new();
         for i in 0..blocks {
             src.push_str(&format!("describe('s{i}', () => {{\n  it('t{i}', () => {{}});\n}});\n"));

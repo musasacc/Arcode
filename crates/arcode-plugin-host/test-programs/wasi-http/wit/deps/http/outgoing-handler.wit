@@ -1,0 +1,9 @@
+/// A stand-in with the real package and interface name (the real
+/// `wasi:http` WIT is large and irrelevant to the check). Version 0.3.0 so
+/// wasm-component-ld does not try to merge it with the wasi:http@0.2.x it
+/// knows; the host refuses `wasi:http` at any version.
+package wasi:http@0.3.0;
+
+interface outgoing-handler {
+  handle: func(request: u32) -> u32;
+}

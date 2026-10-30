@@ -1,0 +1,15 @@
+# Fixture manifest (docs/PLUGINS.md §14): Allocates until the memory limit.
+[plugin]
+id = "test.alloc-bomb"
+name = "Alloc Bomb"
+version = "0.1.0"
+api = "0.1"
+entry = "plugin.wasm"
+description = "Allocates until the memory limit."
+
+[limits]
+memory-mb = 16
+
+[[contributes.commands]]
+id = "run"
+title = "Alloc Bomb: Run"

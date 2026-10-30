@@ -5,7 +5,7 @@ use crate::manifest::PluginSource;
 
 fn manifest(capabilities: &str) -> Manifest {
     let text = format!(
-        "[plugin]\nid = \"test.consent\"\nname = \"Consent\\nTest\"\nversion = \"0.1.0\"\napi = \"0.1\"\n\
+        "[plugin]\nid = \"test.consent\"\nname = \"Consent Test\"\nversion = \"0.1.0\"\napi = \"0.1\"\n\
          [capabilities]\n{capabilities}\n"
     );
     Manifest::parse(&text, PluginSource::Dev).unwrap()

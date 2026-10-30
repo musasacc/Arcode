@@ -139,7 +139,12 @@ pub fn status_text(server: &str, state: &ServerState) -> String {
     match &state.status {
         ServerStatus::Starting => format!("{server}: starting…"),
         ServerStatus::Stopped => format!("{server}: stopped"),
-        ServerStatus::Failed(reason) => format!("{server}: failed: {}", first_line(reason)),
+        ServerStatus::Failed(reason) if reason.contains("not found on PATH") => {
+            format!("{server}: not installed")
+        }
+        ServerStatus::Failed(reason) => {
+            format!("{server}: failed: {}", truncate(first_line(reason), 40))
+        }
         ServerStatus::Running | ServerStatus::Busy(_) => {
             if let Some((_, p)) = state.progress.last() {
                 let title = p
@@ -164,6 +169,14 @@ pub fn status_text(server: &str, state: &ServerState) -> String {
 /// The first line of `text`, trimmed.
 pub fn first_line(text: &str) -> &str {
     text.lines().next().unwrap_or("").trim()
+}
+
+/// Cuts `text` to at most `max` characters, adding `…` when shortened.
+fn truncate(text: &str, max: usize) -> String {
+    match text.char_indices().nth(max) {
+        Some((ix, _)) => format!("{}…", &text[..ix]),
+        None => text.to_string(),
+    }
 }
 
 /// `Indexing` -> `indexing`, but leaves acronyms like `LSP` alone.
@@ -266,6 +279,10 @@ mod tests {
         assert_eq!(status_text("ra", &state), "ra: indexing 40%");
         state.status = ServerStatus::Failed("no such file\nmore".into());
         assert_eq!(status_text("ra", &state), "ra: failed: no such file");
+        state.status = ServerStatus::Failed("taplo not found on PATH (install it)".into());
+        assert_eq!(status_text("taplo", &state), "taplo: not installed");
+        state.status = ServerStatus::Failed("x".repeat(60));
+        assert_eq!(status_text("ra", &state).chars().count(), 4 + 8 + 40 + 1);
         assert_eq!(lowercase_first("LSP"), "LSP");
     }
 }
