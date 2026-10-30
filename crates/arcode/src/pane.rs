@@ -10,8 +10,12 @@ use gpui::{
     SharedString, Subscription, Window, div, prelude::*, px,
 };
 
-use crate::actions::{self, CloseTab, SplitRight, shortcut_label};
+use crate::actions::{
+    self, CloseTab, Find, FindNext, FindPrevious, Replace, SplitRight, shortcut_label,
+};
+use crate::find_bar::FindBar;
 
+mod find;
 mod tab;
 
 /// Height of the tab strip.
@@ -28,6 +32,30 @@ pub enum PaneEvent {
     CloseRequested,
 }
 
+/// How a tab without a file (e.g. a diff) is shown and found again.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TabLabel {
+    /// The tab text.
+    pub title: SharedString,
+    /// Identifies the tab for [`Pane::position_of_key`]; unlike the title
+    /// it can tell apart files of the same name.
+    pub key: SharedString,
+    /// Shown on hover (e.g. the full path).
+    pub tooltip: SharedString,
+}
+
+impl TabLabel {
+    /// A label whose key and tooltip are the title.
+    pub fn new(title: impl Into<SharedString>) -> Self {
+        let title = title.into();
+        Self {
+            key: title.clone(),
+            tooltip: title.clone(),
+            title,
+        }
+    }
+}
+
 /// A group of editor tabs.
 pub struct Pane {
     focus_handle: FocusHandle,
@@ -37,7 +65,10 @@ pub struct Pane {
     closable: bool,
     subscriptions: Vec<(EntityId, Subscription)>,
     /// Tab titles for editors without a file (e.g. diff tabs).
-    titles: HashMap<EntityId, SharedString>,
+    titles: HashMap<EntityId, TabLabel>,
+    /// The find bar (created on first use) and whether it is shown.
+    find: Option<(Entity<FindBar>, Subscription)>,
+    find_open: bool,
     _focus_sub: Option<Subscription>,
 }
 
@@ -63,6 +94,8 @@ impl Pane {
             closable: false,
             subscriptions: Vec::new(),
             titles: HashMap::new(),
+            find: None,
+            find_open: false,
             _focus_sub: Some(sub),
         }
     }
@@ -92,31 +125,33 @@ impl Pane {
             .position(|e| e.read(cx).path().is_some_and(|p| p == path))
     }
 
-    /// Index of the tab titled `title` by [`Pane::add_titled_editor`].
-    pub fn position_of_title(&self, title: &str) -> Option<usize> {
-        self.items
-            .iter()
-            .position(|e| self.titles.get(&e.entity_id()).is_some_and(|t| t == title))
+    /// Index of the tab with `key` added by [`Pane::add_titled_editor`].
+    pub fn position_of_key(&self, key: &str) -> Option<usize> {
+        self.items.iter().position(|e| {
+            self.titles
+                .get(&e.entity_id())
+                .is_some_and(|t| t.key == key)
+        })
     }
 
     /// The tab title of `editor`.
     pub fn title_of(&self, editor: &Entity<Editor>, cx: &App) -> SharedString {
         self.titles
             .get(&editor.entity_id())
-            .cloned()
+            .map(|t| t.title.clone())
             .unwrap_or_else(|| editor.read(cx).title())
     }
 
-    /// Adds an editor shown under `title` (an editor without a file, such
+    /// Adds an editor shown under `label` (an editor without a file, such
     /// as a diff) and activates it.
     pub fn add_titled_editor(
         &mut self,
         editor: Entity<Editor>,
-        title: SharedString,
+        label: TabLabel,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.titles.insert(editor.entity_id(), title);
+        self.titles.insert(editor.entity_id(), label);
         self.add_editor(editor, window, cx);
     }
 
@@ -149,6 +184,7 @@ impl Pane {
         };
         self.active = index;
         window.focus(&editor.focus_handle(cx));
+        self.sync_find_target(cx);
         cx.emit(PaneEvent::ActiveItemChanged);
         cx.notify();
     }
@@ -210,6 +246,7 @@ impl Pane {
         if self.focus_handle.contains_focused(window, cx) || self.items.is_empty() {
             self.focus(window, cx);
         }
+        self.sync_find_target(cx);
         cx.emit(PaneEvent::ActiveItemChanged);
         cx.notify();
     }
@@ -309,7 +346,16 @@ impl Render for Pane {
             Some(editor) => div()
                 .flex_1()
                 .min_h_0()
-                .child(editor.clone())
+                .flex()
+                .flex_col()
+                .when_some(
+                    self.find
+                        .as_ref()
+                        .filter(|_| self.find_open)
+                        .map(|(bar, _)| bar.clone()),
+                    |el, bar| el.child(bar),
+                )
+                .child(div().flex_1().min_h_0().child(editor.clone()))
                 .into_any_element(),
             None => div()
                 .flex_1()
@@ -321,6 +367,17 @@ impl Render for Pane {
             .key_context(actions::PANE_CONTEXT)
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::close_active))
+            .on_action(cx.listener(|pane, _: &Find, window, cx| pane.open_find(false, window, cx)))
+            .on_action(
+                cx.listener(|pane, _: &Replace, window, cx| pane.open_find(true, window, cx)),
+            )
+            .on_action(cx.listener(|pane, _: &FindNext, _, cx| pane.find_step(true, cx)))
+            .capture_action(cx.listener(|pane, _: &arcode_editor::Cancel, _, cx| {
+                // Escape in the editor also closes the find bar (the editor
+                // still gets the action).
+                pane.close_find(cx);
+            }))
+            .on_action(cx.listener(|pane, _: &FindPrevious, _, cx| pane.find_step(false, cx)))
             .on_any_mouse_down(cx.listener(|pane, _, window, _| {
                 if pane.items.is_empty() {
                     window.focus(&pane.focus_handle);

@@ -267,7 +267,7 @@ impl Editor {
         } else if !self.selections.primary().is_empty() {
             let head = self.selections.primary().head;
             self.update_selections(cx, |_, s| *s = SelectionSet::single(head));
-        } else if self.hover.take().is_some() {
+        } else if self.hide_hover() {
             cx.notify();
         } else {
             cx.propagate();

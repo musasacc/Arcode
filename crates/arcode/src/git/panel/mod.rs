@@ -3,12 +3,15 @@
 //! with stage, unstage and discard actions. Clicking a file opens its diff.
 
 mod commit;
+mod empty;
+#[cfg(test)]
+mod review_tests;
 mod rows;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use arcode_ui_kit::{ButtonStyle, IconName, button, icon, icon_button, theme};
+use arcode_ui_kit::{IconName, icon_button, theme};
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, PromptLevel, Subscription,
     UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
@@ -43,6 +46,8 @@ pub struct GitPanel {
     store: Entity<GitStore>,
     message: Entity<TextField>,
     amend: bool,
+    /// A commit is running; further commit requests are ignored.
+    committing: bool,
     collapsed: HashSet<Group>,
     scroll: UniformListScrollHandle,
     focus_handle: FocusHandle,
@@ -74,6 +79,7 @@ impl GitPanel {
             store,
             message,
             amend: false,
+            committing: false,
             collapsed: HashSet::new(),
             scroll: UniformListScrollHandle::new(),
             focus_handle: cx.focus_handle(),
@@ -145,15 +151,33 @@ impl GitPanel {
         });
     }
 
-    fn stage_group(&mut self, group: Group, cx: &mut Context<Self>) {
-        let tracked_only = group == Group::Changes;
+    /// Stages exactly the files listed in `group` ("Stage all" on its
+    /// header). Never `git add -A` / `-u`: those would also stage the other
+    /// groups and mark unresolved conflicts resolved.
+    pub(crate) fn stage_group(&mut self, group: Group, cx: &mut Context<Self>) {
+        let paths = self.group_paths(group, cx);
+        if paths.is_empty() {
+            return;
+        }
         self.store.update(cx, |s, cx| {
             s.run(
-                move |repo| arcode_git::stage_all(repo, tracked_only),
+                move |repo| arcode_git::stage_paths(repo, &paths),
                 |_, _, _| {},
                 cx,
             )
         });
+    }
+
+    /// Paths of the active repository's entries in `group`.
+    fn group_paths(&self, group: Group, cx: &App) -> Vec<PathBuf> {
+        self.store
+            .read(cx)
+            .snapshot()
+            .entries
+            .iter()
+            .filter(|e| group.contains(e))
+            .map(|e| e.path.clone())
+            .collect()
     }
 
     fn unstage_all(&mut self, cx: &mut Context<Self>) {
@@ -162,15 +186,7 @@ impl GitPanel {
     }
 
     fn confirm_discard_group(&mut self, group: Group, window: &mut Window, cx: &mut Context<Self>) {
-        let paths: Vec<PathBuf> = self
-            .store
-            .read(cx)
-            .snapshot()
-            .entries
-            .iter()
-            .filter(|e| group.contains(e))
-            .map(|e| e.path.clone())
-            .collect();
+        let paths = self.group_paths(group, cx);
         self.confirm_discard(paths, window, cx);
     }
 
@@ -256,52 +272,13 @@ impl GitPanel {
             }),
         ))
     }
-
-    fn render_empty(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let c = theme(cx).colors.clone();
-        let store = self.store.read(cx);
-        if store.root().is_none() {
-            return rows::note("No folder is open.", cx).into_any_element();
-        }
-        if !store.is_loaded() {
-            return rows::note("Loading…", cx).into_any_element();
-        }
-        div()
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap_3()
-            .px_4()
-            .py_6()
-            .text_sm()
-            .text_color(c.text_muted)
-            .child(
-                icon(IconName::GitBranch)
-                    .size(px(32.))
-                    .color(c.text_disabled),
-            )
-            .child(
-                div()
-                    .text_center()
-                    .child("This folder is not a git repository."),
-            )
-            .child(
-                button("git-init", "Initialize Repository")
-                    .style(ButtonStyle::Primary)
-                    .on_click(
-                        cx.listener(|p, _, _, cx| {
-                            p.store.update(cx, |s, cx| s.init_repository(cx))
-                        }),
-                    ),
-            )
-            .into_any_element()
-    }
 }
 
 impl Render for GitPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = theme(cx).colors.clone();
         let has_repo = self.store.read(cx).active_repo().is_some();
+        let has_root = self.store.read(cx).root().is_some();
         let header = div()
             .flex()
             .flex_none()
@@ -329,12 +306,14 @@ impl Render for GitPanel {
                             window.dispatch_action(Box::new(crate::actions::ToggleBlame), cx)
                         }),
                 )
-                .child(
+            })
+            .when(has_root, |el| {
+                el.child(
                     icon_button("git-refresh", IconName::Refresh)
                         .size(px(24.))
                         .tooltip("Refresh")
                         .on_click(
-                            cx.listener(|p, _, _, cx| p.store.update(cx, |s, cx| s.refresh(cx))),
+                            cx.listener(|p, _, _, cx| p.store.update(cx, |s, cx| s.reload(cx))),
                         ),
                 )
             });
@@ -350,7 +329,8 @@ impl Render for GitPanel {
             return root.child(self.render_empty(cx));
         }
         let rows = build_rows(&self.store.read(cx).snapshot().entries, &self.collapsed);
-        let empty = rows.is_empty();
+        let error = self.store.read(cx).snapshot().error.clone();
+        let empty = rows.is_empty() && error.is_none();
         let list = uniform_list(
             "git-files",
             rows.len(),
@@ -375,6 +355,7 @@ impl Render for GitPanel {
             .child(self.render_commit_box(window, cx))
             .child(div().h(px(1.)).mx_2().my_1().bg(c.border))
             .when(empty, |el| el.child(rows::note("No changes.", cx)))
+            .children(error.map(|err| empty::error_note(err, cx)))
             .child(list)
     }
 }

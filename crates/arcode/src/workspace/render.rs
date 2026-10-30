@@ -50,6 +50,8 @@ impl Workspace {
             (Activity::Files, Some(tree)) => tree.clone().into_any_element(),
             (Activity::Files, None) => sidebar::no_folder(cx).into_any_element(),
             (Activity::Git, _) => self.git.panel.clone().into_any_element(),
+            (Activity::Search, _) => self.features.search.clone().into_any_element(),
+            (Activity::Todo, _) => self.features.todo_side.clone().into_any_element(),
             (other, _) => sidebar::placeholder(other, cx).into_any_element(),
         };
         div()
@@ -215,6 +217,10 @@ impl Render for Workspace {
             .child(self.status_bar.clone());
         let root = self.register_actions(root, cx);
         let root = self.register_git_actions(root, cx);
-        self.render_overlays(root, cx)
+        let root = self.register_nav_actions(root, cx);
+        let root = self.register_feature_actions(root, cx);
+        let root = self.render_overlays(root, cx);
+        let root = self.render_palette_overlay(root, cx);
+        self.render_nav_overlay(root, cx)
     }
 }

@@ -89,6 +89,15 @@ pub(crate) fn text_decorations(
 
     bracket_pair(editor, layout, colors, d);
     diagnostic_underlines(editor, layout, colors, d);
+    for b in editor.link_bounds(layout) {
+        let style = UnderlineStyle {
+            thickness: px(1.),
+            color: Some(colors.accent),
+            wavy: false,
+        };
+        d.underlines
+            .push((point(b.left(), b.bottom() - px(3.)), b.size.width, style));
+    }
 
     let shape = editor.ext.cursor_shape;
     // Block-style cursors stay visible (hollow) when unfocused, like Vim.

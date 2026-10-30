@@ -65,6 +65,14 @@ pub fn remove_recent(path: &Path, cx: &mut App) {
     }
 }
 
+/// Records that the palette command `label` was run and saves the state.
+pub fn touch_recent_command(label: &str, cx: &mut App) {
+    cx.global_mut::<PersistedState>()
+        .state
+        .touch_recent_command(label);
+    save(cx);
+}
+
 /// Remembers the placement of `window` (saved on the next [`save`]).
 pub fn record_window(window: &Window, cx: &mut App) {
     let (bounds, maximized) = match window.window_bounds() {

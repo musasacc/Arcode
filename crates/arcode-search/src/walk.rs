@@ -21,6 +21,10 @@ pub(crate) struct WalkConfig<'a> {
     pub include_globs: &'a [String],
     pub exclude_globs: &'a [String],
     pub max_file_size: u64,
+    /// Visit only these files and folders (absolute paths under the root,
+    /// a folder with everything in it); folders that do not lead to one of
+    /// them are not entered. `None` visits all.
+    pub only: Option<&'a [PathBuf]>,
 }
 
 /// Counters from one walk.
@@ -126,8 +130,21 @@ where
         .require_git(false)
         .follow_links(false)
         .max_filesize((cfg.max_file_size > 0).then_some(cfg.max_file_size))
-        .overrides(overrides)
-        .filter_entry(|e| e.file_name() != ".git");
+        .overrides(overrides);
+    match cfg.only {
+        Some(only) => {
+            let only: std::sync::Arc<[PathBuf]> = only.into();
+            builder.filter_entry(move |e| {
+                e.file_name() != ".git"
+                    && only
+                        .iter()
+                        .any(|p| p.starts_with(e.path()) || e.path().starts_with(p))
+            });
+        }
+        None => {
+            builder.filter_entry(|e| e.file_name() != ".git");
+        }
+    }
     let walker = builder.build_parallel();
 
     let visited = AtomicUsize::new(0);
@@ -205,6 +222,7 @@ mod tests {
                 include_globs: &globs,
                 exclude_globs: &[],
                 max_file_size: 0,
+                only: None,
             };
             let o = build_overrides(root, &cfg).expect("globs");
             o.matched(root.join(path), false).is_whitelist()

@@ -13,7 +13,9 @@
 
 mod accept;
 mod choices;
-mod docs;
+pub(crate) mod code_highlight;
+pub(crate) mod docs;
+mod docs_view;
 mod keys;
 mod kind;
 mod menu;
@@ -38,6 +40,7 @@ use crate::Editor;
 
 pub use arcode_completion::{CandidateKind, CandidateSource, CompletionCandidate, InsertAction};
 pub use docs::{Block, Inline, InlineStyle, parse_markdown};
+pub(crate) use docs_view::DocsView;
 pub(crate) use session::{Pending, Session};
 pub(crate) use signature::SignatureState;
 pub use snippets::{load_user_snippets, reload_user_snippets, user_snippets_error};
@@ -282,12 +285,15 @@ pub(crate) struct CompletionState {
     pub seq: u64,
     pub request_task: Option<Task<()>>,
     pub resolve_task: Option<Task<()>>,
+    /// Session id and item index of the resolve in flight.
+    pub resolving: Option<(u64, usize)>,
     pub view: Option<Entity<MenuView>>,
+    pub docs_view: Option<Entity<DocsView>>,
     pub ranker: Ranker,
     pub words: BufferWords,
-    /// Word start whose request found nothing; typing on in that word
-    /// does not ask again.
-    pub no_results_at: Option<usize>,
+    /// Word start and word whose complete answer had nothing; typing on
+    /// in that word does not ask again.
+    pub no_results: Option<(usize, String)>,
     pub signature: SignatureState,
 }
 

@@ -95,6 +95,12 @@ pub fn is_skipped_dir(name: &str) -> bool {
     SKIPPED_DIRS.contains(&name)
 }
 
+/// [`is_skipped_dir`] folders as exclude globs (any depth), so project
+/// search and the TODO list skip what the file tree and finder skip.
+pub fn skipped_dir_globs() -> Vec<String> {
+    SKIPPED_DIRS.iter().map(|d| (*d).to_owned()).collect()
+}
+
 /// A directory walker that respects `.gitignore` and skips
 /// [`is_skipped_dir`] folders.
 pub(crate) fn walker(dir: &Path) -> WalkBuilder {

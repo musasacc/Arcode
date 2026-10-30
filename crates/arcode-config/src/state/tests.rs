@@ -175,3 +175,25 @@ fn non_unicode_paths_are_left_out_of_the_file() {
         .push("/work/ok.rs".into());
     assert_eq!(loaded, expected);
 }
+
+#[test]
+fn recent_commands_are_ordered_capped_and_saved() {
+    let mut state = AppState::default();
+    for i in 0..(MAX_RECENT_COMMANDS + 5) {
+        state.touch_recent_command(&format!("cmd::C{i}"));
+    }
+    state.touch_recent_command("cmd::C3");
+    assert_eq!(state.recent_commands.len(), MAX_RECENT_COMMANDS);
+    assert_eq!(state.recent_commands[0], "cmd::C3");
+    assert_eq!(
+        state.recent_commands[1],
+        format!("cmd::C{}", MAX_RECENT_COMMANDS + 4)
+    );
+    let mut sample = sample();
+    sample.touch_recent_command("arcode::ToggleFinder");
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.toml");
+    sample.save_to(&path).unwrap();
+    let loaded = AppState::load_from(&path).unwrap();
+    assert_eq!(loaded.recent_commands, ["arcode::ToggleFinder"]);
+}

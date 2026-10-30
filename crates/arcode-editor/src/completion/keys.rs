@@ -12,6 +12,11 @@ impl Editor {
         let Some(session) = &mut self.completion.session else {
             return false;
         };
+        // An empty list (waiting for a re-request) is not shown: the keys
+        // belong to the editor.
+        if session.menu.ranked.is_empty() {
+            return false;
+        }
         let m = &ks.modifiers;
         if m.control || m.alt || m.platform || m.function {
             return false;
@@ -82,7 +87,8 @@ impl Editor {
         }
     }
 
-    /// Resolves the selected item for its documentation, once.
+    /// Resolves the selected item for its documentation, once: a resolve
+    /// already in flight for it is kept.
     pub(crate) fn completion_resolve_selected(&mut self, cx: &mut Context<Self>) {
         let Some(session) = &self.completion.session else {
             return;
@@ -92,7 +98,8 @@ impl Editor {
         };
         let (id, index) = (session.id, ranked.index);
         let item = &session.items[index];
-        if !item.needs_resolve {
+        let in_flight = self.completion.resolving == Some((id, index));
+        if !item.needs_resolve || in_flight {
             return;
         }
         let Some(provider) = self.completion.provider.clone() else {
@@ -101,13 +108,28 @@ impl Editor {
         let Some(task) = provider.resolve(self, item, cx) else {
             return;
         };
+        self.completion.resolving = Some((id, index));
         self.completion.resolve_task = Some(cx.spawn(async move |this, cx| {
-            let Ok(mut resolved) = task.await else {
-                return;
-            };
-            resolved.needs_resolve = false;
+            let resolved = task.await;
             this.update(cx, |editor, cx| {
-                editor.completion_replace_item(id, index, resolved, cx)
+                if editor.completion.resolving == Some((id, index)) {
+                    editor.completion.resolving = None;
+                }
+                match resolved {
+                    Ok(mut resolved) => {
+                        resolved.needs_resolve = false;
+                        editor.completion_replace_item(id, index, resolved, cx);
+                    }
+                    Err(err) => {
+                        // Not asked again for this list.
+                        log::debug!("completion resolve failed: {err:#}");
+                        if let Some(s) = editor.completion.session.as_mut().filter(|s| s.id == id)
+                            && let Some(item) = s.items.get_mut(index)
+                        {
+                            item.needs_resolve = false;
+                        }
+                    }
+                }
             })
             .ok();
         }));

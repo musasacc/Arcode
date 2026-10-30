@@ -1,6 +1,6 @@
 mod common;
 
-use arcode_search::{CancelToken, TodoOptions, scan_todos, scan_todos_with};
+use arcode_search::{CancelToken, TodoOptions, scan_todos, scan_todos_in_paths, scan_todos_with};
 use common::{slash, tree};
 
 #[test]
@@ -82,4 +82,48 @@ fn symbol_tags_in_tree() {
     assert_eq!((items[0].line, items[0].column), (0, 4));
     assert_eq!(items[0].author.as_deref(), Some("ann"));
     assert_eq!(items[0].text, "tidy");
+}
+
+#[test]
+fn rescans_only_the_given_paths_with_the_same_filters() {
+    let dir = tree(&[
+        (".gitignore", b"vendor/\nskip.rs\n"),
+        ("src/a.rs", b"// TODO: a\n"),
+        ("src/deep/b.rs", b"// FIXME: b\n"),
+        ("src/c.rs", b"// TODO: c\n"),
+        ("vendor/v.rs", b"// TODO: vendored\n"),
+        ("skip.rs", b"// TODO: ignored file\n"),
+        (".hidden/h.rs", b"// TODO: hidden\n"),
+    ]);
+    let root = dir.path();
+    let paths: Vec<_> = [
+        "src/deep/b.rs",
+        "src/a.rs",
+        "vendor/v.rs",
+        "skip.rs",
+        ".hidden/h.rs",
+        "src/missing.rs",
+        "src/deep",
+    ]
+    .iter()
+    .map(|p| root.join(p))
+    .collect();
+    let opts = TodoOptions::default();
+    let items = scan_todos_in_paths(root, &paths, &opts, &CancelToken::new()).expect("scan");
+    let got: Vec<_> = items
+        .iter()
+        .map(|t| (slash(&t.relative), t.text.as_str()))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("src/a.rs".to_owned(), "a"),
+            ("src/deep/b.rs".to_owned(), "b"),
+        ]
+    );
+    assert!(
+        scan_todos_in_paths(root, &[], &opts, &CancelToken::new())
+            .expect("scan")
+            .is_empty()
+    );
 }

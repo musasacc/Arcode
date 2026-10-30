@@ -26,7 +26,10 @@ impl TestRepo {
     fn new() -> Option<Self> {
         Command::new("git").arg("--version").output().ok()?;
         let dir = tempfile::tempdir().ok()?;
-        let root = fs::canonicalize(dir.path()).ok()?;
+        // A visible sub-folder: hidden folders are not searched for
+        // nested repositories.
+        let root = fs::canonicalize(dir.path()).ok()?.join("repo");
+        fs::create_dir(&root).ok()?;
         let repo = Self { _dir: dir, root };
         repo.git(&["init", "-q", "-b", "main"]);
         for (k, v) in [
@@ -72,11 +75,11 @@ fn settle(cx: &mut VisualTestContext) {
     }
 }
 
-fn open_repo_file(
-    cx: &mut TestAppContext,
+fn open_repo_file<'a>(
+    cx: &'a mut TestAppContext,
     repo: &TestRepo,
     rel: &str,
-) -> (Entity<Workspace>, Entity<Editor>, &mut VisualTestContext) {
+) -> (Entity<Workspace>, Entity<Editor>, &'a mut VisualTestContext) {
     let (ws, cx) = open(cx);
     let root = repo.root.clone();
     ws.update_in(cx, |ws, window, cx| ws.open_project(root, window, cx));
@@ -238,7 +241,7 @@ fn nested_repositories_and_commit(cx: &mut TestAppContext) {
     let found: Vec<PathBuf> = store.update(cx, |s, _| {
         s.repos().iter().map(|r| r.workdir.clone()).collect()
     });
-    assert_eq!(found, [repo.root.clone()]);
+    assert_eq!(found, std::slice::from_ref(&repo.root));
 
     fs::write(repo.root.join("README.md"), "hello\n").unwrap();
     let panel = ws.update(cx, |ws, _| ws.git_panel().clone());
@@ -287,4 +290,34 @@ fn diff_tab_shows_changes_read_only(cx: &mut TestAppContext) {
     });
     settle(cx);
     assert_eq!(ws.update(cx, |ws, cx| ws.editors(cx).len()), 1);
+}
+
+/// A lens clicked before the debounced re-parse acts on the conflict that
+/// starts on the lens's (shifted) line, not on stale line numbers.
+#[gpui::test]
+fn lens_click_right_after_an_edit_resolves_the_right_conflict(cx: &mut TestAppContext) {
+    let Some(repo) = TestRepo::new() else { return };
+    let text = "a\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> feature\n";
+    repo.commit("c.txt", text);
+    let (ws, editor, cx) = open_repo_file(cx, &repo, "c.txt");
+    let git = ws.update(cx, |ws, _| ws.git_editors().clone());
+    assert_eq!(
+        git.update(cx, |g, _| g.conflicts(editor.entity_id()).len()),
+        1
+    );
+    // Two new lines on top: the conflict now starts on line 3, while the
+    // cached conflicts still say line 1.
+    editor.update(cx, |e, cx| {
+        e.apply_edits(
+            vec![(Point::new(0, 0)..Point::new(0, 0), "x\ny\n".into())],
+            cx,
+        )
+    });
+    // "Accept Incoming" (action 1) of conflict 0, clicked on line 3.
+    git.update(cx, |g, cx| g.conflict_lens_clicked(&editor, 3, 1, cx));
+    settle(cx);
+    assert_eq!(
+        editor.update(cx, |e, _| e.buffer().to_string()),
+        "x\ny\na\ntheirs\n"
+    );
 }

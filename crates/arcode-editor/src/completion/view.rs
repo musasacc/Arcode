@@ -1,30 +1,32 @@
 //! The completion popup: up to ten rows (kind badge, label with the
-//! matched characters highlighted, detail on the right) and a side panel
-//! with the selected item's documentation.
+//! matched characters highlighted, detail on the right). The selected
+//! item's documentation is a separate side view ([`super::docs_view`]).
 //!
 //! The editor owns the list and pushes the visible state here after every
 //! change; the view only keeps its own scroll position for the mouse wheel.
 
-use arcode_completion::{CandidateKind, CandidateSource};
+use arcode_completion::CandidateKind;
 use arcode_ui_kit::{settings, theme, truncated};
 use gpui::{
-    AnyElement, Context, FontWeight, HighlightStyle, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Pixels, Render, ScrollDelta, ScrollWheelEvent, SharedString,
-    StatefulInteractiveElement, Styled, StyledText, WeakEntity, Window, div, prelude::*, px,
+    Context, FontWeight, HighlightStyle, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, Pixels, Render, ScrollDelta, ScrollWheelEvent, SharedString, Styled, StyledText,
+    WeakEntity, Window, div, prelude::*, px,
 };
 
-use super::docs::{Block, blocks_for, render_blocks};
+use super::CompletionItem;
 use super::kind::kind_badge;
 use super::menu::{VISIBLE_ROWS, clamp_top};
-use super::{CompletionItem, Documentation};
 use crate::Editor;
 
 /// Height of one row.
 const ROW_HEIGHT: f32 = 22.;
 /// Width of the list.
 const LIST_WIDTH: f32 = 420.;
-/// Width of the documentation panel.
-const DOCS_WIDTH: f32 = 340.;
+
+/// Height of the list box showing `rows` rows.
+pub(crate) fn list_height(rows: usize) -> Pixels {
+    px(ROW_HEIGHT * rows.min(VISIBLE_ROWS) as f32 + 8.)
+}
 
 /// One visible row.
 #[derive(Debug, Clone, PartialEq)]
@@ -71,49 +73,12 @@ fn char_ranges(text: &str, indices: &[u32]) -> Vec<std::ops::Range<usize>> {
     out
 }
 
-/// The documentation side panel of the selected item.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct DocPanel {
-    pub detail: Option<SharedString>,
-    pub blocks: Vec<Block>,
-}
-
-impl DocPanel {
-    /// The panel for `item` (empty when it has neither detail nor docs).
-    pub fn for_item(item: &CompletionItem) -> Self {
-        let blocks = item
-            .documentation
-            .as_ref()
-            .map(blocks_for)
-            .unwrap_or_default();
-        // Snippets show their body when they have no documentation.
-        let is_snippet = item.candidate.source == CandidateSource::Snippet;
-        let blocks = if blocks.is_empty() && is_snippet && item.candidate.insert.is_snippet() {
-            blocks_for(&Documentation::Markdown(format!(
-                "```\n{}\n```",
-                item.candidate.insert.text()
-            )))
-        } else {
-            blocks
-        };
-        DocPanel {
-            detail: item.candidate.detail.clone().map(SharedString::from),
-            blocks,
-        }
-    }
-
-    fn is_empty(&self) -> bool {
-        self.blocks.is_empty()
-    }
-}
-
 /// The popup view.
 pub(crate) struct MenuView {
     editor: WeakEntity<Editor>,
     rows: Vec<Row>,
     selected: usize,
     scroll_top: usize,
-    docs: Option<DocPanel>,
     /// Fractional wheel scrolling not yet turned into rows.
     wheel: f32,
 }
@@ -125,7 +90,6 @@ impl MenuView {
             rows: Vec::new(),
             selected: 0,
             scroll_top: 0,
-            docs: None,
             wheel: 0.,
         }
     }
@@ -136,21 +100,14 @@ impl MenuView {
         rows: Vec<Row>,
         selected: usize,
         scroll_top: usize,
-        docs: Option<DocPanel>,
         cx: &mut Context<Self>,
     ) {
-        let docs = docs.filter(|d| !d.is_empty());
-        if rows == self.rows
-            && selected == self.selected
-            && scroll_top == self.scroll_top
-            && docs == self.docs
-        {
+        if rows == self.rows && selected == self.selected && scroll_top == self.scroll_top {
             return;
         }
         self.rows = rows;
         self.selected = selected;
         self.scroll_top = scroll_top;
-        self.docs = docs;
         cx.notify();
     }
 
@@ -239,35 +196,6 @@ impl MenuView {
                     .child(truncated(detail))
             }))
     }
-
-    fn render_docs(&self, docs: &DocPanel, height: Pixels, cx: &mut Context<Self>) -> AnyElement {
-        let colors = &theme(cx).colors;
-        let mono = SharedString::from(settings(cx).editor.font_family.clone());
-        div()
-            .id("completion-docs")
-            .occlude()
-            .w(px(DOCS_WIDTH))
-            .max_h(height.max(px(120.)))
-            .overflow_y_scroll()
-            .px_2()
-            .py_1p5()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .bg(colors.surface_raised)
-            .border_1()
-            .border_color(colors.border)
-            .rounded_md()
-            .shadow_md()
-            .children(docs.detail.clone().map(|d| {
-                div()
-                    .font_family(mono)
-                    .text_color(colors.text_muted)
-                    .child(d)
-            }))
-            .children(render_blocks(&docs.blocks, cx))
-            .into_any_element()
-    }
 }
 
 impl Render for MenuView {
@@ -278,7 +206,6 @@ impl Render for MenuView {
         let font_family = ui.font_family.clone();
         let top = clamp_top(self.scroll_top, self.rows.len());
         let visible = self.rows.len().min(VISIBLE_ROWS);
-        let list_height = px(ROW_HEIGHT * visible as f32 + 8.);
         let rows: Vec<_> = self
             .rows
             .iter()
@@ -301,12 +228,12 @@ impl Render for MenuView {
                 .rounded_full()
                 .bg(colors.scrollbar_thumb)
         });
-        let list = div()
+        let mut list = div()
             .id("completion-list")
             .occlude()
             .relative()
             .w(px(LIST_WIDTH))
-            .h(list_height)
+            .h(list_height(self.rows.len()))
             .py_1()
             .flex()
             .flex_col()
@@ -316,25 +243,14 @@ impl Render for MenuView {
             .rounded_md()
             .shadow_md()
             .on_scroll_wheel(cx.listener(|v, e, _, cx| v.scroll(e, cx)))
-            .children(rows)
-            .children(thumb);
-        let docs = self
-            .docs
-            .clone()
-            .map(|d| self.render_docs(&d, list_height, cx));
-        let mut root = div()
-            .flex()
-            .flex_row()
-            .items_start()
-            .gap_1()
             .text_size(font_size)
             .text_color(colors.text)
-            .child(list)
-            .children(docs);
+            .children(rows)
+            .children(thumb);
         if let Some(family) = font_family {
-            root = root.font_family(SharedString::from(family));
+            list = list.font_family(SharedString::from(family));
         }
-        root
+        list
     }
 }
 

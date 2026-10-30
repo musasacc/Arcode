@@ -22,6 +22,7 @@ arcode-lsp.workspace = true
 arcode-terminal.workspace = true
 arcode-config.workspace = true
 arcode-git.workspace = true
+arcode-search.workspace = true
 arcode-editor.workspace = true
 arcode-terminal-view.workspace = true
 arcode-ui-kit.workspace = true
@@ -34,6 +35,7 @@ nucleo-matcher.workspace = true
 memory-stats.workspace = true
 notify.workspace = true
 async-channel.workspace = true
+unicode-width.workspace = true
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

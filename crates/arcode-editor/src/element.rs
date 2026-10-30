@@ -10,6 +10,7 @@ use gpui::{
 };
 
 use crate::Editor;
+use crate::hover::defer_hover_popover;
 use crate::layout::LayoutSnapshot;
 use crate::mouse_ext::defer_popovers;
 use crate::paint::{Decorations, decorations};
@@ -83,6 +84,11 @@ impl Element for EditorElement {
             let decorations = decorations(editor, &layout, window, cx);
             let popovers = editor.popover_elements(&layout);
             let clickable = editor.clickable_bounds(&layout);
+            let hover_bounds = editor.hovering.popover_bounds.clone();
+            match &editor.hover {
+                Some(hover) => defer_hover_popover(hover, hover_bounds, &layout, window, cx),
+                None => hover_bounds.set(None),
+            }
             (layout, decorations, popovers, clickable)
         });
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);

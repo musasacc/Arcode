@@ -1,12 +1,13 @@
 //! Fuzzy ranking of completion candidates with nucleo-matcher.
 
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::HashMap;
+use std::collections::hash_map::Entry as Slot;
 
 use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 
-use crate::candidate::{CandidateKind, CompletionCandidate};
+use crate::candidate::{CandidateKind, CandidateSource, CompletionCandidate};
 
 /// One ranked result, referring back into the candidate slice.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,8 +75,10 @@ impl Ranker {
     /// input order. Within a local source, candidates with a `sort_text`
     /// come first in its order. An empty query keeps every candidate:
     /// preselected first, then `sort_text` order (server items with equal
-    /// `sort_text` by label). Duplicates (same label
-    /// and kind) are dropped, keeping the best-ranked one.
+    /// `sort_text` by label). Duplicates (same label and kind) are dropped,
+    /// keeping the best-ranked one, except items of one server: those can
+    /// differ only in what they import (`HashMap` from two crates), so all
+    /// of them are kept.
     pub fn rank(
         &mut self,
         query: &str,
@@ -129,7 +132,7 @@ impl Ranker {
         };
         entries[..split].sort_unstable_by(cmp);
 
-        let mut seen: HashSet<(&str, CandidateKind)> = HashSet::new();
+        let mut seen = Seen::default();
         let mut out = Vec::new();
         for i in 0..entries.len() {
             if i == split {
@@ -137,7 +140,7 @@ impl Ranker {
             }
             let entry = &entries[i];
             let cand = &candidates[entry.index];
-            if !seen.insert((cand.label.as_str(), cand.kind)) {
+            if !seen.keep(cand) {
                 continue;
             }
             let mut match_indices = Vec::new();
@@ -183,10 +186,10 @@ fn rank_empty(candidates: &[CompletionCandidate], limit: usize) -> Vec<RankedCan
             })
             .then(a.cmp(&b))
     });
-    let mut seen: HashSet<(&str, CandidateKind)> = HashSet::new();
+    let mut seen = Seen::default();
     order
         .into_iter()
-        .filter(|&i| seen.insert((candidates[i].label.as_str(), candidates[i].kind)))
+        .filter(|&i| seen.keep(&candidates[i]))
         .take(limit)
         .map(|index| RankedCandidate {
             index,
@@ -194,6 +197,31 @@ fn rank_empty(candidates: &[CompletionCandidate], limit: usize) -> Vec<RankedCan
             match_indices: Vec::new(),
         })
         .collect()
+}
+
+/// The (label, kind) pairs ranked so far, with the server of the first
+/// (`None` for a local source).
+#[derive(Default)]
+struct Seen<'a> {
+    first: HashMap<(&'a str, CandidateKind), Option<&'a str>>,
+}
+
+impl<'a> Seen<'a> {
+    /// Whether `cand` (ranked after every candidate seen so far) is kept:
+    /// it is new, or another item of the server whose item came first.
+    fn keep(&mut self, cand: &'a CompletionCandidate) -> bool {
+        let server = match &cand.source {
+            CandidateSource::Lsp { server } => Some(server.as_str()),
+            _ => None,
+        };
+        match self.first.entry((cand.label.as_str(), cand.kind)) {
+            Slot::Vacant(slot) => {
+                slot.insert(server);
+                true
+            }
+            Slot::Occupied(first) => server.is_some() && *first.get() == server,
+        }
+    }
 }
 
 /// `s` as one UTF-32 element per char, so match indices are char indices.

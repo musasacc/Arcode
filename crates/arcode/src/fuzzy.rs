@@ -63,7 +63,7 @@ pub fn rank(paths: &[String], query: &str, limit: usize) -> Vec<FileMatch> {
 }
 
 /// Converts sorted char positions into merged byte ranges of `text`.
-fn char_indices_to_ranges(text: &str, positions: &[u32]) -> Vec<Range<usize>> {
+pub fn char_indices_to_ranges(text: &str, positions: &[u32]) -> Vec<Range<usize>> {
     let mut ranges: Vec<Range<usize>> = Vec::new();
     let mut wanted = positions.iter().copied().peekable();
     for (char_ix, (byte, ch)) in text.char_indices().enumerate() {

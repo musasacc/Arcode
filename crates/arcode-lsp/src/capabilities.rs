@@ -15,7 +15,8 @@ pub fn client_capabilities() -> ClientCapabilities {
             "applyEdit": true,
             "configuration": true,
             "workspaceFolders": true,
-            "workspaceEdit": { "documentChanges": true }
+            "workspaceEdit": { "documentChanges": true },
+            "symbol": { "symbolKind": { "valueSet": (1..=26).collect::<Vec<u32>>() } }
         },
         "textDocument": {
             "synchronization": { "didSave": true, "dynamicRegistration": false },
@@ -43,7 +44,10 @@ pub fn client_capabilities() -> ClientCapabilities {
                 "contextSupport": true
             },
             "definition": { "linkSupport": true },
+            "typeDefinition": { "linkSupport": true },
+            "implementation": { "linkSupport": true },
             "references": {},
+            "documentHighlight": {},
             "rename": { "prepareSupport": true },
             "codeAction": {
                 "codeActionLiteralSupport": {
@@ -68,10 +72,24 @@ pub fn client_capabilities() -> ClientCapabilities {
                 },
                 "contextSupport": true
             },
-            "documentSymbol": { "hierarchicalDocumentSymbolSupport": true }
+            "documentSymbol": {
+                "hierarchicalDocumentSymbolSupport": true,
+                "symbolKind": { "valueSet": (1..=26).collect::<Vec<u32>>() }
+            }
         },
         "window": { "workDoneProgress": true },
-        "general": { "positionEncodings": ["utf-8", "utf-16"] }
+        "general": { "positionEncodings": ["utf-8", "utf-16"] },
+        // Client-side commands the editor runs when attached to a
+        // completion item. rust-analyzer only attaches the ones listed here,
+        // under its own name.
+        "experimental": {
+            "commands": {
+                "commands": [
+                    "editor.action.triggerParameterHints",
+                    "rust-analyzer.triggerParameterHints"
+                ]
+            }
+        }
     });
     serde_json::from_value(caps).unwrap_or_default()
 }
@@ -110,6 +128,14 @@ mod tests {
     #[test]
     fn capabilities_parse_into_typed_struct() {
         let caps = client_capabilities();
+        let commands = &caps.experimental.as_ref().unwrap()["commands"]["commands"];
+        assert_eq!(
+            commands,
+            &json!([
+                "editor.action.triggerParameterHints",
+                "rust-analyzer.triggerParameterHints"
+            ])
+        );
         let td = caps.text_document.as_ref().unwrap();
         assert_eq!(td.synchronization.as_ref().unwrap().did_save, Some(true));
         let diag = td.publish_diagnostics.as_ref().unwrap();
@@ -164,10 +190,22 @@ mod tests {
         assert!(td.inlay_hint.is_some());
         assert!(td.signature_help.is_some());
         assert!(td.document_symbol.is_some());
+        assert_eq!(
+            td.type_definition.as_ref().unwrap().link_support,
+            Some(true)
+        );
+        assert_eq!(td.implementation.as_ref().unwrap().link_support, Some(true));
+        assert!(td.document_highlight.is_some());
+        let symbol_kinds = td.document_symbol.as_ref().unwrap().symbol_kind.as_ref();
+        assert_eq!(
+            symbol_kinds.unwrap().value_set.as_ref().map(Vec::len),
+            Some(26)
+        );
         let ws = caps.workspace.as_ref().unwrap();
         assert_eq!(ws.configuration, Some(true));
         assert_eq!(ws.workspace_folders, Some(true));
         assert_eq!(ws.apply_edit, Some(true));
+        assert!(ws.symbol.is_some());
         assert_eq!(caps.window.as_ref().unwrap().work_done_progress, Some(true));
         assert_eq!(
             caps.general.as_ref().unwrap().position_encodings,

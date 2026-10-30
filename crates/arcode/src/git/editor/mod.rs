@@ -64,6 +64,8 @@ pub(crate) struct EditorGit {
     pub blame_shown: Option<usize>,
     pub column_task: Option<Task<()>>,
     pub conflicts: Vec<Conflict>,
+    /// Buffer version `conflicts` were parsed from.
+    pub conflicts_version: Option<u64>,
     pub _sub: Subscription,
 }
 
@@ -131,6 +133,7 @@ impl GitEditors {
                 blame_shown: None,
                 column_task: None,
                 conflicts: Vec::new(),
+                conflicts_version: None,
                 _sub: sub,
             },
         );

@@ -144,3 +144,19 @@ fn replace_invalid_regex_errors() {
         Err(SearchError::InvalidPattern(_))
     ));
 }
+
+#[test]
+fn line_replacements_expand_each_match() {
+    let q = regex(r"(\w+)=(\d)");
+    let got = arcode_search::line_replacements("é a=1, bb=2 x", &q, "$2:$1").unwrap();
+    assert_eq!(
+        got,
+        vec![(2..5, "1:a".to_owned()), (7..11, "2:bb".to_owned())]
+    );
+    let mut lit = SearchQuery::new("$x");
+    lit.case_sensitive = true;
+    let got = arcode_search::line_replacements("a $x $X", &lit, "$1").unwrap();
+    assert_eq!(got, vec![(2..4, "$1".to_owned())]);
+    let empty = arcode_search::line_replacements("abc", &regex("x*"), "y").unwrap();
+    assert!(empty.is_empty());
+}

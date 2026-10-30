@@ -68,11 +68,25 @@ substring/fuzzy match), save (Ctrl+S), close tab (Ctrl+W), toggle panel
 terminal (Ctrl+`), split right (Ctrl+\), undo/redo, copy/cut/paste,
 select all, Ctrl+D (select next occurrence).
 
+Code navigation (in an editor): hover at the cursor (Ctrl+K Ctrl+I),
+go to definition (F12 or Ctrl+click), go to implementation (Ctrl+F12),
+find all references (Shift+F12), go to symbol in file (Ctrl+Shift+O),
+go to symbol in workspace (Ctrl+T), back / forward (Alt+Left /
+Alt+Right; macOS Ctrl+- / Ctrl+Shift+-).
+
 Git: Source Control view (Ctrl+Shift+G), commit from the message box
 (Ctrl+Enter), toggle the blame column (Ctrl+Alt+B), next / previous merge
 conflict (Alt+] / Alt+[). Clicking the branch in the title bar or status
 bar opens the branch picker. The command names are listed in
 `arcode::actions::commands()` for a command palette.
+
+Search: find in the active file (Ctrl+F; replace Ctrl+H, Cmd+Alt+F on
+macOS; Enter / Shift+Enter or F3 / Shift+F3 for next / previous; Alt+C,
+Alt+W, Alt+R toggle match case, whole word, regex; Ctrl+Alt+Enter in the
+replace field replaces all), Search view (Ctrl+Shift+F; with the replace
+field Ctrl+Shift+H), command palette (Ctrl+Shift+P or F1, or type `>` in
+the title bar search box). Every command is registered in
+`arcode::commands` with a name, a category and its key binding.
 
 ## Milestone 1 acceptance
 

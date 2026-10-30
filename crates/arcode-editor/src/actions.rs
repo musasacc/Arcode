@@ -101,6 +101,17 @@ actions!(
         ShowCompletions,
         /// Shows the parameter hints of the call around the cursor.
         ShowSignatureHelp,
+        /// Shows the hover (documentation and diagnostics) at the cursor.
+        ShowHover,
+        /// Goes to the definition of the symbol at the cursor. Handled by
+        /// the application (it may open another file).
+        GoToDefinition,
+        /// Goes to the type definition of the symbol at the cursor.
+        GoToTypeDefinition,
+        /// Goes to the implementations of the symbol at the cursor.
+        GoToImplementation,
+        /// Lists every reference to the symbol at the cursor.
+        FindAllReferences,
     ]
 );
 
@@ -153,6 +164,10 @@ pub fn bind_keys(cx: &mut App) {
         // Ctrl on every platform (Cmd+Space is the system search on macOS).
         KeyBinding::new("ctrl-space", ShowCompletions, ctx),
         KeyBinding::new("ctrl-shift-space", ShowSignatureHelp, ctx),
+        KeyBinding::new("secondary-k secondary-i", ShowHover, ctx),
+        KeyBinding::new("f12", GoToDefinition, ctx),
+        KeyBinding::new("secondary-f12", GoToImplementation, ctx),
+        KeyBinding::new("shift-f12", FindAllReferences, ctx),
     ];
     if cfg!(target_os = "macos") {
         b.extend([

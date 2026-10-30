@@ -43,6 +43,16 @@ fn range(buffer: &Buffer, r: lsp_types::Range, encoding: PositionEncoding) -> Ra
     to_point(buffer, r.start, encoding)..to_point(buffer, r.end, encoding)
 }
 
+/// A server's command under the name the editor runs it by (servers name
+/// their client-side commands differently).
+pub fn editor_command(command: &str) -> String {
+    match command {
+        "rust-analyzer.triggerParameterHints" => "editor.action.triggerParameterHints",
+        other => other,
+    }
+    .to_string()
+}
+
 /// LSP documentation as the editor's.
 pub fn documentation(doc: lsp_types::Documentation) -> Option<Documentation> {
     let doc = match doc {
@@ -132,7 +142,7 @@ pub fn completion_item(
     item.commit_characters = lsp.commit_characters.clone().unwrap_or_default();
     item.documentation = lsp.documentation.clone().and_then(documentation);
     item.deprecated = deprecated;
-    item.command = lsp.command.as_ref().map(|c| c.command.clone());
+    item.command = lsp.command.as_ref().map(|c| editor_command(&c.command));
     item.needs_resolve = resolvable;
     item.provider_data = Some(Rc::new(LspItemData {
         server: server.to_string(),
@@ -162,7 +172,7 @@ pub fn merge_resolved(
             text_edits(buffer, resolved.additional_text_edits.clone(), encoding);
     }
     if let Some(command) = &resolved.command {
-        item.command = Some(command.command.clone());
+        item.command = Some(editor_command(&command.command));
     }
     item.needs_resolve = false;
     let server = item
@@ -237,6 +247,55 @@ pub fn signature_help(help: lsp_types::SignatureHelp) -> Option<SignatureHelp> {
         active_parameter: help.active_parameter.map(|a| a as usize),
         signatures,
     })
+}
+
+fn to_lsp_documentation(doc: &Documentation) -> lsp_types::Documentation {
+    match doc {
+        Documentation::PlainText(t) => lsp_types::Documentation::String(t.clone()),
+        Documentation::Markdown(t) => {
+            lsp_types::Documentation::MarkupContent(lsp_types::MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: t.clone(),
+            })
+        }
+    }
+}
+
+/// The editor's signature help back as LSP, for the `activeSignatureHelp`
+/// of a retrigger. Parameter labels become UTF-16 offsets.
+pub fn to_lsp_signature_help(help: &SignatureHelp) -> lsp_types::SignatureHelp {
+    let signatures = help
+        .signatures
+        .iter()
+        .map(|s| {
+            let utf16 = |chars: usize| -> u32 {
+                s.label
+                    .chars()
+                    .take(chars)
+                    .map(|c| c.len_utf16() as u32)
+                    .sum()
+            };
+            let parameters = s
+                .parameters
+                .iter()
+                .map(|p| lsp_types::ParameterInformation {
+                    label: ParameterLabel::LabelOffsets([utf16(p.label.start), utf16(p.label.end)]),
+                    documentation: p.documentation.as_ref().map(to_lsp_documentation),
+                })
+                .collect();
+            lsp_types::SignatureInformation {
+                label: s.label.clone(),
+                documentation: s.documentation.as_ref().map(to_lsp_documentation),
+                parameters: Some(parameters),
+                active_parameter: s.active_parameter.map(|a| a as u32),
+            }
+        })
+        .collect();
+    lsp_types::SignatureHelp {
+        signatures,
+        active_signature: Some(help.active_signature as u32),
+        active_parameter: help.active_parameter.map(|a| a as u32),
+    }
 }
 
 #[cfg(test)]

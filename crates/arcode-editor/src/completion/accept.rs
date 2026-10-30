@@ -17,6 +17,11 @@ use crate::api::map_offset;
 const TRIGGER_SIGNATURE: &str = "editor.action.triggerParameterHints";
 const TRIGGER_SUGGEST: &str = "editor.action.triggerSuggest";
 
+/// `\r\n` and `\r` as `\n`, like the buffer stores them.
+fn normalize_breaks(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\r', "\n")
+}
+
 impl Editor {
     /// Accepts the selected completion (Enter). Returns whether one was
     /// shown.
@@ -35,6 +40,17 @@ impl Editor {
         replace: bool,
         cx: &mut Context<Self>,
     ) -> bool {
+        // An empty list (waiting for a re-request) accepts nothing, and a
+        // read-only buffer takes no edits.
+        if self.read_only
+            || self
+                .completion
+            .session
+            .as_ref()
+            .is_none_or(|s| row >= s.menu.ranked.len())
+        {
+            return false;
+        }
         let Some(session) = self.completion.session.take() else {
             return false;
         };
@@ -107,7 +123,7 @@ impl Editor {
                 log::debug!("dropping an overlapping additional completion edit");
                 continue;
             }
-            out.push((a..b, text.replace("\r\n", "\n")));
+            out.push((a..b, normalize_breaks(text)));
         }
         out
     }
@@ -121,7 +137,11 @@ impl Editor {
         extra: Vec<(Range<usize>, String)>,
         cx: &mut Context<Self>,
     ) -> u64 {
-        let text = item.candidate.insert.text().to_string();
+        if self.read_only {
+            return self.buffer.version();
+        }
+        // The buffer stores LF only; place the cursor by what it inserts.
+        let text = normalize_breaks(item.candidate.insert.text());
         if item.candidate.insert.is_snippet() {
             self.insert_snippet_at(range, &text, extra, cx);
             return self.buffer.version();
@@ -184,7 +204,11 @@ impl Editor {
 
     fn run_completion_command(&mut self, command: Option<&str>, cx: &mut Context<Self>) {
         match command {
-            Some(TRIGGER_SIGNATURE) => self.show_signature_help(cx),
+            Some(TRIGGER_SIGNATURE) => {
+                if super::settings(cx).signature_help {
+                    self.show_signature_help(cx);
+                }
+            }
             Some(TRIGGER_SUGGEST) => self.show_completions(cx),
             Some(other) => log::debug!("completion command `{other}` is not supported"),
             None => {}

@@ -3,12 +3,13 @@
 
 use std::ops::Range;
 
-use arcode_completion::{CompletionCandidate, detect_path_prefix, path_query};
+use arcode_completion::{CandidateKind, CompletionCandidate, detect_path_prefix, path_query};
 use gpui::{AppContext, Context};
 
+use super::docs_view::{DocPanel, DocsView};
 use super::menu::MenuState;
-use super::view::{DocPanel, MenuView, Row};
-use super::{COMPLETION_POPOVER, CompletionItem, CompletionTrigger, is_word_char};
+use super::view::{MenuView, Row, list_height};
+use super::{COMPLETION_POPOVER, CompletionItem, is_word_char};
 use crate::Editor;
 use crate::ext::EditorPopover;
 
@@ -40,18 +41,45 @@ pub(crate) struct Anchor {
 pub(crate) struct Pending {
     pub id: u64,
     pub anchor: Anchor,
-    pub trigger: CompletionTrigger,
+    /// The list opened after a trigger character (only server items).
+    pub after_trigger: bool,
 }
 
 /// The list being shown.
 pub(crate) struct Session {
     pub id: u64,
     pub anchor: Anchor,
+    /// Opened after a trigger character; re-requests keep it.
+    pub after_trigger: bool,
     pub items: Vec<CompletionItem>,
     pub candidates: Vec<CompletionCandidate>,
     pub incomplete: bool,
     pub menu: MenuState,
     pub query: String,
+}
+
+/// What identifies an item across two answers of the same list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ItemKey {
+    label: String,
+    kind: CandidateKind,
+    detail: Option<String>,
+}
+
+impl ItemKey {
+    pub fn of(item: &CompletionItem) -> Self {
+        ItemKey {
+            label: item.candidate.label.clone(),
+            kind: item.candidate.kind,
+            detail: item.candidate.detail.clone(),
+        }
+    }
+
+    pub fn matches(&self, item: &CompletionItem) -> bool {
+        self.label == item.candidate.label
+            && self.kind == item.candidate.kind
+            && self.detail == item.candidate.detail
+    }
 }
 
 impl Session {
@@ -150,16 +178,41 @@ impl Editor {
         }
         let session = self.completion.session.as_mut().expect("checked above");
         session.menu = MenuState::rank(&mut self.completion.ranker, &query, &session.candidates);
-        session.query = query;
-        if session.menu.ranked.is_empty() && !session.incomplete {
+        session.query = query.clone();
+        if session.menu.ranked.is_empty() {
+            if session.incomplete {
+                // The re-request may still find something: keep the list,
+                // but draw nothing and leave the keys to the editor.
+                self.completion_hide_box(cx);
+                return;
+            }
             // A complete list has nothing for this word: typing on in it
             // does not ask again.
-            self.completion.no_results_at = Some(session.anchor.start);
+            self.completion.no_results = Some((session.anchor.start, query));
             self.hide_completions(cx);
             return;
         }
         self.completion_push_rows(cx);
+        self.completion_show_box(cx);
         self.completion_resolve_selected(cx);
+    }
+
+    /// The item the user selected with the arrows in the list shown at
+    /// `anchor`, to select it again in a newer answer.
+    pub(crate) fn completion_user_choice(&self, anchor: &Anchor) -> Option<ItemKey> {
+        let session = self.completion.session.as_ref()?;
+        let same = session.anchor.start == anchor.start && session.anchor.mode == anchor.mode;
+        if !(same && session.menu.user_moved) {
+            return None;
+        }
+        session.selected_item().map(ItemKey::of)
+    }
+
+    /// Hides the popup box but keeps the (empty) list.
+    pub(crate) fn completion_hide_box(&mut self, cx: &mut Context<Self>) {
+        self.completion.resolve_task = None;
+        self.completion.resolving = None;
+        self.hide_popover(COMPLETION_POPOVER, cx);
     }
 
     /// Whether the completion list is shown.
@@ -192,6 +245,7 @@ impl Editor {
         self.completion.pending = None;
         self.completion.request_task = None;
         self.completion.resolve_task = None;
+        self.completion.resolving = None;
         self.hide_popover(COMPLETION_POPOVER, cx);
     }
 
@@ -207,7 +261,6 @@ impl Editor {
 
     /// Replaces the shown list with `session` and shows the popover.
     pub(crate) fn completion_open(&mut self, session: Session, cx: &mut Context<Self>) {
-        let start = self.offset_to_point(session.anchor.start);
         let same_place = self.completion.session.as_ref().is_some_and(|s| {
             s.anchor.start == session.anchor.start && s.anchor.mode == session.anchor.mode
         });
@@ -215,20 +268,42 @@ impl Editor {
         if self.completion.view.is_none() {
             let editor = cx.entity().downgrade();
             self.completion.view = Some(cx.new(|_| MenuView::new(editor)));
+            self.completion.docs_view = Some(cx.new(|_| DocsView::new()));
         }
         self.completion_push_rows(cx);
-        if !(same_place && self.has_popover(COMPLETION_POPOVER)) {
-            let view = self.completion.view.clone().expect("created above");
-            let popover = EditorPopover::new(start, view.into())
-                .on_key(|editor, ks, _, cx| editor.update(cx, |e, cx| e.completion_key(ks, cx)));
-            self.show_popover(COMPLETION_POPOVER, popover, cx);
+        if !same_place {
+            self.hide_popover(COMPLETION_POPOVER, cx);
         }
+        self.completion_show_box(cx);
         self.completion_resolve_selected(cx);
+    }
+
+    /// Shows the popup box of the current list if it is not shown.
+    pub(crate) fn completion_show_box(&mut self, cx: &mut Context<Self>) {
+        if self.has_popover(COMPLETION_POPOVER) {
+            return;
+        }
+        let (Some(session), Some(view), Some(docs)) = (
+            &self.completion.session,
+            &self.completion.view,
+            &self.completion.docs_view,
+        ) else {
+            return;
+        };
+        let start = self.offset_to_point(session.anchor.start);
+        let popover = EditorPopover::new(start, view.clone().into())
+            .side(docs.clone().into())
+            .on_key(|editor, ks, _, cx| editor.update(cx, |e, cx| e.completion_key(ks, cx)));
+        self.show_popover(COMPLETION_POPOVER, popover, cx);
     }
 
     /// Sends the visible state to the popup view.
     pub(crate) fn completion_push_rows(&mut self, cx: &mut Context<Self>) {
-        let (Some(session), Some(view)) = (&self.completion.session, &self.completion.view) else {
+        let (Some(session), Some(view), Some(docs_view)) = (
+            &self.completion.session,
+            &self.completion.view,
+            &self.completion.docs_view,
+        ) else {
             return;
         };
         let rows: Vec<Row> = session
@@ -239,10 +314,11 @@ impl Editor {
             .collect();
         let selected = session.menu.selected;
         let scroll_top = session.menu.scroll_top;
-        let docs = session.selected_item().map(DocPanel::for_item);
-        view.update(cx, |v, cx| {
-            v.set_state(rows, selected, scroll_top, docs, cx)
-        });
+        let height = list_height(rows.len());
+        let docs = session.selected_item().and_then(DocPanel::for_item);
+        let docs_view = docs_view.clone();
+        view.update(cx, |v, cx| v.set_state(rows, selected, scroll_top, cx));
+        docs_view.update(cx, |v, cx| v.set_docs(docs, height, cx));
     }
 
     /// Replaces the item at `index` (in `items`) of session `id`, e.g. after

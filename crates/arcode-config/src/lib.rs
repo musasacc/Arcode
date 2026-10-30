@@ -21,7 +21,8 @@ mod lenient;
 
 pub use config::{
     CompletionSettings, Config, EditorSettings, GitSettings, Keymap, LanguageSettings,
-    LspServerSettings, NamedServer, TerminalSettings, ThemeChoice, UiSettings,
+    LspServerSettings, NamedServer, SearchSettings, TerminalSettings, ThemeChoice, TodoSettings,
+    UiSettings,
 };
 pub use state::{AppState, ProjectSession, RecentProject, WindowState};
 pub use theme::{

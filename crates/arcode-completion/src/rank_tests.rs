@@ -154,6 +154,28 @@ fn duplicates_merged_keep_best() {
 }
 
 #[test]
+fn items_of_one_server_with_the_same_label_are_all_kept() {
+    // Two auto-imports of `HashMap` from one server, plus the same item
+    // from another server and a buffer word of the same kind.
+    let mut std_map = lsp("HashMap");
+    std_map.detail = Some("std::collections".into());
+    let mut brown = lsp("HashMap");
+    brown.detail = Some("hashbrown".into());
+    let mut other = lsp("HashMap");
+    other.source = CandidateSource::Lsp {
+        server: "other".into(),
+    };
+    let mut w = word("HashMap");
+    w.kind = CandidateKind::Function;
+    let cands = vec![std_map, brown, other, w];
+    let ranked = rank("Hash", &cands, 10);
+    let idx: Vec<usize> = ranked.iter().map(|r| r.index).collect();
+    assert_eq!(idx, [0, 1]);
+    let empty: Vec<usize> = rank("", &cands, 10).iter().map(|r| r.index).collect();
+    assert_eq!(empty, [0, 1]);
+}
+
+#[test]
 fn match_indices_point_into_label() {
     let cands = vec![lsp("from_str")];
     let r = &rank("fs", &cands, 1)[0];
@@ -215,9 +237,17 @@ fn ranks_ten_thousand_quickly() {
 
 #[test]
 fn many_duplicates_beyond_partial_sort_head() {
-    // 300 copies of one label followed by distinct ones: the dedup must
-    // reach past the partially sorted head.
-    let mut cands: Vec<_> = (0..300).map(|_| lsp("dup")).collect();
+    // 300 copies of one label (from 300 servers) followed by distinct
+    // ones: the dedup must reach past the partially sorted head.
+    let mut cands: Vec<_> = (0..300)
+        .map(|i| {
+            let mut c = lsp("dup");
+            c.source = CandidateSource::Lsp {
+                server: format!("s{i}"),
+            };
+            c
+        })
+        .collect();
     cands.extend((0..20).map(|i| lsp(&format!("dupe{i:02}"))));
     let ranked = rank("dup", &cands, 10);
     assert_eq!(ranked.len(), 10);

@@ -2,18 +2,20 @@
 //! active one, and every git operation the UI triggers. All git work runs
 //! on the background executor; the store emits events when results arrive.
 
-use std::path::{Path, PathBuf};
-use std::time::Duration;
+mod ops;
+#[cfg(test)]
+mod tests;
+mod watch;
 
-use arcode_git::{FileStatus, GitResult, Head, Repo, StatusSummary};
+use std::path::{Path, PathBuf};
+
+use arcode_git::{FileStatus, GitError, Head, Repo, StatusSummary};
 use gpui::{AppContext, Context, EventEmitter, Task};
 
-use super::watcher::{Change, RepoWatcher};
+use super::watcher::RepoWatcher;
 
 /// How deep below the project root repositories are searched.
 const NESTED_REPO_DEPTH: usize = 3;
-/// Quiet time after a file-system event before refreshing.
-const WATCH_DEBOUNCE: Duration = Duration::from_millis(250);
 
 /// Events emitted by the [`GitStore`].
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,6 +29,14 @@ pub enum GitEvent {
     IndexChanged,
     /// A user-visible message (errors, confirmations).
     Message(String),
+    /// Files in the working tree changed on disk (from the watcher, after
+    /// the debounce). With `overflow` more changed than were listed.
+    FilesChanged {
+        /// Changed paths (files or folders; may no longer exist).
+        paths: Vec<PathBuf>,
+        /// Too many changes to list: treat everything as changed.
+        overflow: bool,
+    },
 }
 
 /// The status of the active repository.
@@ -38,6 +48,9 @@ pub struct GitSnapshot {
     pub entries: Vec<FileStatus>,
     /// Whether a merge is in progress.
     pub merging: bool,
+    /// Why the status could not be read (git missing, a broken
+    /// repository); the entries are empty then and must not read as clean.
+    pub error: Option<String>,
 }
 
 impl GitSnapshot {
@@ -54,10 +67,14 @@ pub struct GitStore {
     active: usize,
     snapshot: GitSnapshot,
     loaded: bool,
+    /// Repository discovery is running: "no repository" is not known yet.
+    discovering: bool,
     busy: usize,
     refresh_task: Option<Task<()>>,
     refresh_again: bool,
     watcher: Option<RepoWatcher>,
+    /// Changed working-tree paths collected by the watcher.
+    changed: super::watcher::ChangedPaths,
     _watch_task: Option<Task<()>>,
     _discover_task: Option<Task<()>>,
 }
@@ -73,10 +90,12 @@ impl GitStore {
             active: 0,
             snapshot: GitSnapshot::default(),
             loaded: false,
+            discovering: false,
             busy: 0,
             refresh_task: None,
             refresh_again: false,
             watcher: None,
+            changed: Default::default(),
             _watch_task: None,
             _discover_task: None,
         }
@@ -152,12 +171,25 @@ impl GitStore {
         self.watcher = None;
         self._watch_task = None;
         self.refresh_task = None;
+        self.refresh_again = false;
         cx.emit(GitEvent::ReposChanged);
         cx.notify();
-        let Some(root) = root else {
+        if root.is_none() {
+            self.discovering = false;
             self._discover_task = None;
             return;
+        }
+        self.rediscover(cx);
+    }
+
+    /// Finds the repositories of the project again in the background (after
+    /// `git init`, or a repository appearing on disk). Nothing changes when
+    /// the list is the same.
+    pub fn rediscover(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.root.clone() else {
+            return;
         };
+        self.discovering = true;
         let scan = cx.background_spawn({
             let root = root.clone();
             async move { arcode_git::discover_repos(&root, NESTED_REPO_DEPTH) }
@@ -165,7 +197,17 @@ impl GitStore {
         self._discover_task = Some(cx.spawn(async move |this, cx| {
             let repos = scan.await;
             this.update(cx, |store, cx| {
-                if store.root.as_ref() == Some(&root) {
+                if store.root.as_ref() != Some(&root) {
+                    return;
+                }
+                store.discovering = false;
+                let same = store.loaded
+                    && repos.len() == store.repos.len()
+                    && repos
+                        .iter()
+                        .zip(&store.repos)
+                        .all(|(a, b)| a.workdir == b.workdir);
+                if !same {
                     store.set_repos(repos, cx);
                 }
             })
@@ -173,19 +215,32 @@ impl GitStore {
         }));
     }
 
-    /// Re-discovers repositories (after `git init`).
-    pub fn rediscover(&mut self, cx: &mut Context<Self>) {
-        let root = self.root.clone();
-        self.set_project_root(root, cx);
-    }
-
     fn set_repos(&mut self, repos: Vec<Repo>, cx: &mut Context<Self>) {
+        // Keep the active repository when it is still there.
+        let previous = self.active_repo().map(|r| r.workdir.clone());
         self.repos = repos;
-        self.active = 0;
+        let active = previous
+            .and_then(|dir| self.repos.iter().position(|r| r.workdir == dir))
+            .unwrap_or(0);
+        if active != self.active || self.snapshot.head.is_none() {
+            self.snapshot = GitSnapshot::default();
+        }
+        self.active = active;
+        // A running refresh may belong to a repository that is gone.
+        self.refresh_task = None;
+        self.refresh_again = false;
         self.start_watching(cx);
         cx.emit(GitEvent::ReposChanged);
         cx.emit(GitEvent::IndexChanged);
-        self.refresh(cx);
+        if self.repos.is_empty() {
+            // Known now: no repository (the view offers `git init`).
+            self.loaded = true;
+            self.snapshot = GitSnapshot::default();
+            cx.emit(GitEvent::StatusChanged);
+            cx.notify();
+        } else {
+            self.refresh(cx);
+        }
     }
 
     /// Makes repository `ix` the one shown in the source control view.
@@ -193,7 +248,13 @@ impl GitStore {
         if ix < self.repos.len() && ix != self.active {
             self.active = ix;
             self.snapshot = GitSnapshot::default();
+            // Drop a refresh of the previous repository: its result must
+            // not be shown as this one's status.
+            self.refresh_task = None;
+            self.refresh_again = false;
             cx.emit(GitEvent::ReposChanged);
+            cx.emit(GitEvent::StatusChanged);
+            cx.notify();
             self.refresh(cx);
         }
     }
@@ -213,35 +274,16 @@ impl GitStore {
         }
     }
 
-    fn start_watching(&mut self, cx: &mut Context<Self>) {
-        let Some(root) = self.root.clone() else {
-            return;
-        };
+    /// What Refresh does: re-reads the status, or looks for repositories
+    /// again when there is none (one may have been created outside).
+    pub fn reload(&mut self, cx: &mut Context<Self>) {
         if self.repos.is_empty() {
-            // Nothing to watch until a repository exists (`git init`
-            // rediscovers and starts watching).
-            return;
-        }
-        let (tx, rx) = async_channel::bounded::<Change>(4);
-        self.watcher = RepoWatcher::start(&root, &self.repos, tx);
-        self._watch_task = Some(cx.spawn(async move |this, cx| {
-            while let Ok(first) = rx.recv().await {
-                cx.background_executor().timer(WATCH_DEBOUNCE).await;
-                let mut git = first == Change::Git;
-                while let Ok(kind) = rx.try_recv() {
-                    git |= kind == Change::Git;
-                }
-                let alive = this.update(cx, |store, cx| {
-                    if git {
-                        cx.emit(GitEvent::IndexChanged);
-                    }
-                    store.refresh(cx);
-                });
-                if alive.is_err() {
-                    break;
-                }
+            if !self.discovering {
+                self.rediscover(cx);
             }
-        }));
+        } else {
+            self.refresh(cx);
+        }
     }
 
     /// Re-reads the status of the active repository in the background.
@@ -252,12 +294,16 @@ impl GitStore {
             return;
         }
         let Some(repo) = self.active_repo().cloned() else {
-            self.loaded = self.root.is_some();
-            self.snapshot = GitSnapshot::default();
-            cx.emit(GitEvent::StatusChanged);
-            cx.notify();
+            if self.discovering {
+                // Not known yet whether there is a repository: the view
+                // keeps "Loading…" and never offers `git init` too early.
+                return;
+            }
+            // Discovery decided "no repository" (`set_repos`); a new one is
+            // found by the watcher or by `reload`.
             return;
         };
+        let workdir = repo.workdir.clone();
         let work = cx.background_spawn(async move {
             let head = repo.head();
             let merging = repo.git_dir.join("MERGE_HEAD").is_file();
@@ -268,18 +314,31 @@ impl GitStore {
             let (head, merging, entries) = work.await;
             this.update(cx, |store, cx| {
                 store.refresh_task = None;
-                let entries = entries.unwrap_or_else(|err| {
-                    log::warn!("git status failed: {err}");
-                    Vec::new()
-                });
+                if store.active_repo().map(|r| &r.workdir) != Some(&workdir) {
+                    // The active repository changed meanwhile.
+                    store.refresh(cx);
+                    return;
+                }
+                let (entries, error) = match entries {
+                    Ok(entries) => (entries, None),
+                    Err(err) => {
+                        log::warn!("git status failed: {err}");
+                        (Vec::new(), Some(status_error(&err)))
+                    }
+                };
+                let new_error = error.is_some() && error != store.snapshot.error;
                 let snapshot = GitSnapshot {
                     head: Some(head),
                     entries,
                     merging,
+                    error,
                 };
                 let first = !store.loaded;
                 store.loaded = true;
                 if snapshot != store.snapshot || first {
+                    if new_error && let Some(err) = &snapshot.error {
+                        cx.emit(GitEvent::Message(err.clone()));
+                    }
                     store.snapshot = snapshot;
                     cx.emit(GitEvent::StatusChanged);
                     cx.notify();
@@ -291,73 +350,14 @@ impl GitStore {
             .ok();
         }));
     }
+}
 
-    /// Runs `op` on the active repository in the background. On success
-    /// the status refreshes, editors are told the index changed and
-    /// `then` runs with the result; failures become a message.
-    pub fn run<T: Send + 'static>(
-        &mut self,
-        op: impl FnOnce(&Repo) -> GitResult<T> + Send + 'static,
-        then: impl FnOnce(&mut Self, T, &mut Context<Self>) + 'static,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(repo) = self.active_repo().cloned() else {
-            cx.emit(GitEvent::Message("No git repository".into()));
-            return;
-        };
-        self.run_in(repo, op, then, cx);
-    }
-
-    /// Like [`GitStore::run`] on a given repository.
-    pub fn run_in<T: Send + 'static>(
-        &mut self,
-        repo: Repo,
-        op: impl FnOnce(&Repo) -> GitResult<T> + Send + 'static,
-        then: impl FnOnce(&mut Self, T, &mut Context<Self>) + 'static,
-        cx: &mut Context<Self>,
-    ) {
-        self.busy += 1;
-        cx.notify();
-        let work = cx.background_spawn(async move { op(&repo) });
-        cx.spawn(async move |this, cx| {
-            let result = work.await;
-            this.update(cx, |store, cx| {
-                store.busy -= 1;
-                match result {
-                    Ok(value) => then(store, value, cx),
-                    Err(err) => cx.emit(GitEvent::Message(err.to_string())),
-                }
-                cx.emit(GitEvent::IndexChanged);
-                store.refresh(cx);
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    /// Runs `git init` in the project folder (only on an explicit click).
-    pub fn init_repository(&mut self, cx: &mut Context<Self>) {
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        self.busy += 1;
-        cx.notify();
-        let work = cx.background_spawn(async move { arcode_git::init_repo(&root).map(drop) });
-        cx.spawn(async move |this, cx| {
-            let result = work.await;
-            this.update(cx, |store, cx| {
-                store.busy -= 1;
-                match result {
-                    Ok(()) => {
-                        cx.emit(GitEvent::Message("Initialized a git repository".into()));
-                        store.rediscover(cx);
-                    }
-                    Err(err) => cx.emit(GitEvent::Message(err.to_string())),
-                }
-            })
-            .ok();
-        })
-        .detach();
+/// The user-facing text for a failed status read.
+fn status_error(err: &GitError) -> String {
+    match err {
+        GitError::GitNotFound => {
+            "Git was not found. Install git (or add it to PATH) to see changes.".into()
+        }
+        other => format!("Cannot read the repository status: {other}"),
     }
 }

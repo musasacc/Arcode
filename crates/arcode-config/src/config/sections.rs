@@ -58,6 +58,13 @@ pub struct EditorSettings {
     pub large_file_bytes: u64,
     /// Files with at least this many lines are "large" too.
     pub large_file_lines: usize,
+    /// Show documentation (and diagnostics) when the mouse rests on a
+    /// symbol.
+    pub hover: bool,
+    /// Milliseconds the mouse must rest on a symbol before its hover shows.
+    pub hover_delay_ms: u64,
+    /// Highlight the other occurrences of the symbol under the cursor.
+    pub occurrence_highlight: bool,
     /// `[editor.completion]`: completion popup, snippets, signature help.
     pub completion: CompletionSettings,
 }
@@ -88,6 +95,9 @@ impl Default for EditorSettings {
             format_on_save: false,
             large_file_bytes: 4 * 1024 * 1024,
             large_file_lines: 50_000,
+            hover: true,
+            hover_delay_ms: 300,
+            occurrence_highlight: true,
             completion: CompletionSettings::default(),
         }
     }
@@ -110,6 +120,9 @@ impl_section!(EditorSettings {
     format_on_save,
     large_file_bytes,
     large_file_lines,
+    hover,
+    hover_delay_ms,
+    occurrence_highlight,
 });
 
 impl EditorSettings {
@@ -154,8 +167,18 @@ impl EditorSettings {
             ));
             self.tab_size = defaults.tab_size;
         }
+        if self.hover_delay_ms > Self::MAX_HOVER_DELAY_MS {
+            warnings.push(format!(
+                "`editor.hover_delay_ms` capped at {}",
+                Self::MAX_HOVER_DELAY_MS
+            ));
+            self.hover_delay_ms = Self::MAX_HOVER_DELAY_MS;
+        }
         self.completion.validate(warnings);
     }
+
+    /// Longest accepted hover delay.
+    pub const MAX_HOVER_DELAY_MS: u64 = 5000;
 }
 
 /// Which theme to use. Written in TOML as a string: `"system"`, `"dark"`,

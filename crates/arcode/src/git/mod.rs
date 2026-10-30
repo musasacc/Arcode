@@ -9,6 +9,10 @@ pub mod diff_view;
 pub mod editor;
 pub mod hunk_popover;
 pub mod panel;
+#[cfg(test)]
+mod review_blame_text;
+#[cfg(test)]
+mod review_watcher;
 pub mod store;
 pub mod watcher;
 

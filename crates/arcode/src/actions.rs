@@ -63,6 +63,52 @@ actions!(
     ]
 );
 
+actions!(
+    navigation,
+    [
+        /// Goes back to where the cursor was before the last jump.
+        GoBack,
+        /// Goes forward again after going back.
+        GoForward,
+        /// Lists the symbols of the active file.
+        ShowDocumentSymbols,
+        /// Searches the symbols of the whole workspace.
+        ShowWorkspaceSymbols,
+    ]
+);
+
+actions!(
+    search,
+    [
+        /// Shows the Search view (find in the whole project).
+        ShowProjectSearch,
+        /// Shows the Search view with the replace field.
+        ReplaceInFiles,
+        /// Opens the find bar of the active editor.
+        Find,
+        /// Opens the find bar of the active editor with the replace field.
+        Replace,
+        /// Selects the next match of the find bar.
+        FindNext,
+        /// Selects the previous match of the find bar.
+        FindPrevious,
+        /// Shows the TODO view in the sidebar.
+        ShowTodos,
+        /// Shows the TODO list in the bottom panel.
+        ShowTodoPanel,
+        /// Scans the project for TODO comments again.
+        RefreshTodos,
+    ]
+);
+
+actions!(
+    palette,
+    [
+        /// Opens (or closes) the command palette.
+        ToggleCommandPalette,
+    ]
+);
+
 /// Key context of the workspace root view.
 pub const WORKSPACE_CONTEXT: &str = "Workspace";
 /// Key context of a pane (tab strip + editor).
@@ -91,6 +137,24 @@ pub fn commands() -> Vec<(&'static str, Box<dyn gpui::Action>)> {
             "Editor: Trigger Parameter Hints",
             Box::new(arcode_editor::ShowSignatureHelp),
         ),
+        ("Editor: Show Hover", Box::new(arcode_editor::ShowHover)),
+        ("Go to Definition", Box::new(arcode_editor::GoToDefinition)),
+        (
+            "Go to Type Definition",
+            Box::new(arcode_editor::GoToTypeDefinition),
+        ),
+        (
+            "Go to Implementation",
+            Box::new(arcode_editor::GoToImplementation),
+        ),
+        (
+            "Find All References",
+            Box::new(arcode_editor::FindAllReferences),
+        ),
+        ("Go to Symbol in File", Box::new(ShowDocumentSymbols)),
+        ("Go to Symbol in Workspace", Box::new(ShowWorkspaceSymbols)),
+        ("Go Back", Box::new(GoBack)),
+        ("Go Forward", Box::new(GoForward)),
         ("Git: Show Source Control", Box::new(ShowSourceControl)),
         ("Git: Toggle Blame", Box::new(ToggleBlame)),
         ("Git: Switch Branch", Box::new(SwitchBranch)),
@@ -100,7 +164,71 @@ pub fn commands() -> Vec<(&'static str, Box<dyn gpui::Action>)> {
         ("Git: Previous Conflict", Box::new(PreviousConflict)),
         ("Git: Refresh", Box::new(RefreshGit)),
         ("Git: Initialize Repository", Box::new(InitRepository)),
+        ("View: Command Palette", Box::new(ToggleCommandPalette)),
+        ("Search: Find in Files", Box::new(ShowProjectSearch)),
+        ("Search: Replace in Files", Box::new(ReplaceInFiles)),
+        ("Search: Find", Box::new(Find)),
+        ("Search: Replace", Box::new(Replace)),
+        ("Search: Find Next", Box::new(FindNext)),
+        ("Search: Find Previous", Box::new(FindPrevious)),
+        ("TODO: Show TODOs", Box::new(ShowTodos)),
+        ("TODO: Show TODO Panel", Box::new(ShowTodoPanel)),
+        ("TODO: Rescan Project", Box::new(RefreshTodos)),
+        ("Application: Quit", Box::new(Quit)),
     ]
+}
+
+/// Editor commands for the palette (they run in the focused editor).
+pub fn editor_commands() -> Vec<(&'static str, Box<dyn gpui::Action>)> {
+    use arcode_editor as e;
+    vec![
+        ("Editor: Undo", Box::new(e::Undo)),
+        ("Editor: Redo", Box::new(e::Redo)),
+        ("Editor: Cut", Box::new(e::Cut)),
+        ("Editor: Copy", Box::new(e::Copy)),
+        ("Editor: Paste", Box::new(e::Paste)),
+        ("Editor: Select All", Box::new(e::SelectAll)),
+        (
+            "Editor: Select Next Occurrence",
+            Box::new(e::SelectNextOccurrence),
+        ),
+        ("Editor: Add Cursor Above", Box::new(e::AddCursorAbove)),
+        ("Editor: Add Cursor Below", Box::new(e::AddCursorBelow)),
+        (
+            "Editor: Toggle Line Comment",
+            Box::new(e::ToggleLineComment),
+        ),
+        ("Editor: Move Line Up", Box::new(e::MoveLineUp)),
+        ("Editor: Move Line Down", Box::new(e::MoveLineDown)),
+        ("Editor: Duplicate Line", Box::new(e::DuplicateLine)),
+        ("Editor: Go to Start of File", Box::new(e::MoveDocStart)),
+        ("Editor: Go to End of File", Box::new(e::MoveDocEnd)),
+        ("File: Save", Box::new(e::Save)),
+    ]
+}
+
+/// Bindings of search, the find bar, the TODO list and the palette.
+fn bind_search_keys(cx: &mut App) {
+    let ws = Some(WORKSPACE_CONTEXT);
+    let editor = Some(arcode_editor::KEY_CONTEXT);
+    let pane = Some(PANE_CONTEXT);
+    let replace = if cfg!(target_os = "macos") {
+        "cmd-alt-f"
+    } else {
+        "ctrl-h"
+    };
+    cx.bind_keys([
+        KeyBinding::new("secondary-shift-p", ToggleCommandPalette, ws),
+        KeyBinding::new("f1", ToggleCommandPalette, ws),
+        KeyBinding::new("secondary-shift-f", ShowProjectSearch, ws),
+        KeyBinding::new("secondary-shift-h", ReplaceInFiles, ws),
+        KeyBinding::new("secondary-f", Find, editor),
+        KeyBinding::new("secondary-f", Find, pane),
+        KeyBinding::new(replace, Replace, editor),
+        KeyBinding::new(replace, Replace, pane),
+        KeyBinding::new("f3", FindNext, pane),
+        KeyBinding::new("shift-f3", FindPrevious, pane),
+    ]);
 }
 
 /// Registers the application key bindings.
@@ -131,6 +259,32 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-w", CloseTab, Some(PANE_CONTEXT)),
         KeyBinding::new("secondary-q", Quit, None),
     ]);
+    bind_navigation_keys(cx);
+    bind_search_keys(cx);
+}
+
+/// Navigation bindings. They live in the editor (and empty pane) contexts
+/// so keys like Alt+Left and Ctrl+T still reach the terminal.
+fn bind_navigation_keys(cx: &mut App) {
+    let editor = Some(arcode_editor::KEY_CONTEXT);
+    let mut bindings = vec![
+        KeyBinding::new("secondary-shift-o", ShowDocumentSymbols, editor),
+        KeyBinding::new("secondary-t", ShowWorkspaceSymbols, editor),
+        KeyBinding::new("secondary-t", ShowWorkspaceSymbols, Some(PANE_CONTEXT)),
+    ];
+    if cfg!(target_os = "macos") {
+        bindings.extend([
+            KeyBinding::new("ctrl--", GoBack, editor),
+            KeyBinding::new("ctrl-shift--", GoForward, editor),
+            KeyBinding::new("ctrl-_", GoForward, editor),
+        ]);
+    } else {
+        bindings.extend([
+            KeyBinding::new("alt-left", GoBack, editor),
+            KeyBinding::new("alt-right", GoForward, editor),
+        ]);
+    }
+    cx.bind_keys(bindings);
 }
 
 /// Human-readable form of a `secondary-` shortcut for the current platform,

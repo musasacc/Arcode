@@ -13,17 +13,22 @@ macro_rules! embedded {
 }
 
 static FILES: &[(&str, &[u8])] = embedded![
+    "icons/arrow-down.svg",
     "icons/arrow-right.svg",
+    "icons/arrow-up.svg",
     "icons/bug.svg",
+    "icons/case-sensitive.svg",
     "icons/check.svg",
     "icons/chevron-down.svg",
     "icons/chevron-right.svg",
+    "icons/chevrons-down-up.svg",
     "icons/circle-alert.svg",
     "icons/circle-check.svg",
     "icons/circle-dot.svg",
     "icons/circle-play.svg",
     "icons/circle-x.svg",
     "icons/columns-2.svg",
+    "icons/command.svg",
     "icons/copy.svg",
     "icons/ellipsis.svg",
     "icons/external-link.svg",
@@ -52,6 +57,9 @@ static FILES: &[(&str, &[u8])] = embedded![
     "icons/plus.svg",
     "icons/puzzle.svg",
     "icons/refresh-cw.svg",
+    "icons/regex.svg",
+    "icons/replace-all.svg",
+    "icons/replace.svg",
     "icons/rows-2.svg",
     "icons/save.svg",
     "icons/search.svg",
@@ -63,6 +71,7 @@ static FILES: &[(&str, &[u8])] = embedded![
     "icons/triangle-alert.svg",
     "icons/type.svg",
     "icons/undo-2.svg",
+    "icons/whole-word.svg",
     "icons/x.svg",
 ];
 

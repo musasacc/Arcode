@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::{LspManager, State, absolute};
 use crate::client::ServerSpec;
 
 /// A configured language server.
@@ -66,9 +67,88 @@ pub fn find_root(file: &Path, markers: &[String], workspace_root: Option<&Path>)
     }
 }
 
+impl LspManager {
+    /// Marks `path`, a file outside the workspace that navigation is about
+    /// to open (a standard library source a definition led to), to join a
+    /// server already running for the workspace instead of starting one for
+    /// its own root. Other files outside the workspace (another project
+    /// opened from the file dialog) keep getting their own servers.
+    pub fn attach_to_workspace(&self, path: &Path) {
+        self.lock().attached.insert(absolute(path));
+    }
+}
+
+/// The root of the running `name` instance an attached `path` joins
+/// instead of `own_root`, if any.
+pub(super) fn shared_root(
+    state: &State,
+    name: &str,
+    path: &Path,
+    own_root: &Path,
+) -> Option<PathBuf> {
+    let own = (name.to_string(), own_root.to_path_buf());
+    if !state.attached.contains(path) || state.servers.contains_key(&own) {
+        return None;
+    }
+    let running: Vec<&Path> = state
+        .servers
+        .iter()
+        .filter(|((n, _), slot)| n == name && slot.is_usable())
+        .map(|((_, r), _)| r.as_path())
+        .collect();
+    reuse_root(path, state.workspace_root.as_deref(), &running)
+}
+
+/// For a file outside `workspace_root`, the root of an already running
+/// instance to send it to instead of starting a new server for the file's
+/// own root: library sources reached through go-to-definition belong to
+/// the project's server. Prefers the instance at the workspace root, then
+/// one inside it. `None` when the file is inside the workspace, there is
+/// no workspace, or no instance runs inside it.
+pub(crate) fn reuse_root(
+    file: &Path,
+    workspace_root: Option<&Path>,
+    running: &[&Path],
+) -> Option<PathBuf> {
+    let ws = workspace_root?;
+    if file.starts_with(ws) || running.iter().any(|r| file.starts_with(r)) {
+        return None;
+    }
+    running
+        .iter()
+        .find(|r| **r == ws)
+        .or_else(|| running.iter().find(|r| r.starts_with(ws)))
+        .map(|r| r.to_path_buf())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn outside_files_reuse_the_workspace_instance() {
+        let ws = Path::new("/proj");
+        let std_file = Path::new("/toolchain/library/core/src/option.rs");
+        let sub = Path::new("/proj/crates/a");
+        assert_eq!(
+            reuse_root(std_file, Some(ws), &[sub, ws]),
+            Some(ws.to_path_buf())
+        );
+        assert_eq!(
+            reuse_root(std_file, Some(ws), &[sub]),
+            Some(sub.to_path_buf())
+        );
+        // Nothing runs for the workspace, inside files, or no workspace.
+        assert_eq!(reuse_root(std_file, Some(ws), &[Path::new("/other")]), None);
+        assert_eq!(
+            reuse_root(Path::new("/proj/src/a.rs"), Some(ws), &[ws]),
+            None
+        );
+        assert_eq!(reuse_root(std_file, None, &[ws]), None);
+        // A file inside a running instance's own root keeps its root.
+        let lib = Path::new("/toolchain/library/core");
+        assert_eq!(reuse_root(std_file, Some(ws), &[ws, lib]), None);
+    }
 
     #[test]
     fn finds_nearest_marker() {

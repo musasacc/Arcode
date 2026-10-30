@@ -72,7 +72,12 @@ impl Workspace {
             .on_action(cx.listener(Self::new_terminal))
     }
 
-    fn toggle_finder(&mut self, _: &ToggleFinder, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn toggle_finder(
+        &mut self,
+        _: &ToggleFinder,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.project_menu_open = false;
         if self.finder.is_some() {
             self.close_finder(window, cx);
@@ -96,6 +101,11 @@ impl Workspace {
                         ws.open_file(&path, window, cx);
                     }
                     FinderEvent::Dismissed => ws.close_finder(window, cx),
+                    FinderEvent::SwitchToCommands(query) => {
+                        let query = query.clone();
+                        ws.close_finder(window, cx);
+                        ws.open_palette(&query, window, cx);
+                    }
                 },
             );
         self._subscriptions.push(sub);

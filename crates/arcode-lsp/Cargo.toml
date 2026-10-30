@@ -27,3 +27,7 @@ tempfile.workspace = true
 [[test]]
 name = "manager"
 harness = false
+
+[[test]]
+name = "manager_routing"
+harness = false

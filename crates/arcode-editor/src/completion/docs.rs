@@ -43,8 +43,14 @@ pub enum Block {
     Paragraph(Inline),
     /// `- item`
     Bullet(Inline),
-    /// A fenced code block.
-    Code(String),
+    /// A fenced code block and the language named after its fence
+    /// (e.g. `rust` for "```rust"), used to color it.
+    Code {
+        /// The fence's language tag, if any.
+        language: Option<String>,
+        /// The code.
+        text: String,
+    },
     /// `---`
     Rule,
 }
@@ -64,11 +70,20 @@ pub fn parse_markdown(src: &str) -> Vec<Block> {
         let trimmed = line.trim_start();
         if let Some(fence) = ["```", "~~~"].into_iter().find(|f| trimmed.starts_with(f)) {
             flush(&mut para, &mut blocks);
+            let tag = trimmed[fence.len()..].trim();
+            let language = tag
+                .split(|c: char| c == ',' || c.is_whitespace())
+                .next()
+                .filter(|t| !t.is_empty())
+                .map(str::to_string);
             let code: Vec<&str> = lines
                 .by_ref()
                 .take_while(|l| !l.trim_start().starts_with(fence))
                 .collect();
-            blocks.push(Block::Code(code.join("\n")));
+            blocks.push(Block::Code {
+                language,
+                text: code.join("\n"),
+            });
         } else if trimmed.is_empty() {
             flush(&mut para, &mut blocks);
         } else if let Some(rest) = heading(trimmed) {
@@ -216,17 +231,21 @@ pub(crate) fn render_blocks(blocks: &[Block], cx: &App) -> Vec<AnyElement> {
                 .child("•")
                 .child(div().flex_1().min_w_0().child(styled(inline, cx)))
                 .into_any_element(),
-            Block::Code(code) => div()
-                .px_1p5()
-                .py_1()
-                .rounded_sm()
-                .bg(colors.background)
-                .font_family(mono.clone())
-                .children(code.lines().map(|l| {
-                    let line = if l.is_empty() { " " } else { l };
-                    div().child(SharedString::from(line.to_string()))
-                }))
-                .into_any_element(),
+            Block::Code { language, text } => {
+                let spans = super::code_highlight::highlight(language.as_deref(), text);
+                div()
+                    .px_1p5()
+                    .py_1()
+                    .rounded_sm()
+                    .bg(colors.background)
+                    .font_family(mono.clone())
+                    .children(text.lines().enumerate().map(|(i, l)| {
+                        let line = if l.is_empty() { " " } else { l };
+                        let line_spans = spans.as_ref().and_then(|s| s.get(i));
+                        div().child(super::code_highlight::styled_line(line, line_spans, cx))
+                    }))
+                    .into_any_element()
+            }
             Block::Rule => div()
                 .h(px(1.))
                 .my_0p5()
@@ -298,7 +317,10 @@ mod tests {
                         (26..30, InlineStyle::Link),
                     ]
                 )),
-                Block::Code("let x = 1;\n\nx".into()),
+                Block::Code {
+                    language: Some("rust".into()),
+                    text: "let x = 1;\n\nx".into(),
+                },
                 Block::Bullet(inline("one", &[])),
                 Block::Bullet(inline("two_words", &[])),
                 Block::Rule,

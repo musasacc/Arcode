@@ -130,7 +130,9 @@ is none; each editor keeps an incremental `WordIndex`, built lazily and not
 at all above 2 MB), file names inside string literals that start like a
 path (listed on the background executor) and snippets (built-in plus the
 user's `snippets.toml`, loaded in the background and reloaded when saved in
-an editor). Everything is ranked with `arcode_completion::Ranker`.
+an editor). Everything is ranked with `arcode_completion::Ranker`, which
+drops duplicates (same label and kind) except items of one server: those
+can differ only in what they import, so all of them stay.
 
 - **Never blocking.** Typing schedules a request after
   `editor.completion.delay_ms` from a task, so the bridge has already
@@ -139,7 +141,13 @@ an editor). Everything is ranked with `arcode_completion::Ranker`.
   anything but the latest are ignored. While a newer list loads, the old
   one stays shown and is re-filtered locally, so the popup does not
   flicker. Complete lists are only filtered as you type; incomplete ones
-  are asked again (`TriggerForIncompleteCompletions`).
+  are asked again (`TriggerForIncompleteCompletions`), remembering whether
+  the list opened after a trigger character (then only server items are
+  shown). An incomplete list filtered to nothing stays open but hidden
+  (no box, keys go to the editor) until the next answer. A row the user
+  picked with the arrows stays selected when a newer answer arrives. A
+  complete answer with nothing for a word is not asked again while that
+  word grows; a different word at the same place is.
 - **Session.** A list is anchored at the start of the completed word (or
   file name, or snippet placeholder for choices). Any cursor move or edit
   re-filters it; leaving the word closes it. Several cursors or a
@@ -147,15 +155,74 @@ an editor). Everything is ranked with `arcode_completion::Ranker`.
 - **Accepting** applies the item's `textEdit` (insert or, with
   Shift+Enter, replace range, extended by what was typed since the answer)
   plus `additionalTextEdits` as one undo step; snippets go through the
-  snippet session. Items the server must resolve first get their
+  snippet session. The selected item is resolved once for its docs (a
+  resolve in flight is not resent while typing). Items the server must
+  resolve first get their
   additional edits applied when the resolve answer arrives, if they lie
   above the accepted line. `editor.action.triggerParameterHints` and
-  `editor.action.triggerSuggest` commands are run by the editor.
+  `editor.action.triggerSuggest` commands are run by the editor
+  (`editor.completion.signature_help = false` disables the first).
+  rust-analyzer attaches its `rust-analyzer.triggerParameterHints` only
+  when the client lists it in `experimental.commands`; the bridge maps it
+  to the editor's name. Signature help also opens while a snippet
+  placeholder (an argument) is selected.
 - **Keys** come through the popover's `on_key`: up/down/page, Enter/Tab,
   Escape, and commit characters (accept, then type the character).
 - **Popovers flip.** The editor measures each popover and opens it on the
   other side of its line when it does not fit (completion below, signature
-  help above), and shifts it left to stay inside the window.
+  help above), and shifts it left to stay inside the window. A popover can
+  have a side panel (the completion docs), placed right of it (left
+  without room) and aligned with its edge nearest the line, so a tall
+  panel never pushes a list that flipped above away from the cursor.
+
+## Hover and navigation
+
+`arcode_editor::hover` owns the hover popover; a `HoverProvider` (the
+app's `lsp_bridge::hover`) answers `textDocument/hover` as plain
+`HoverInfo` (documentation sections plus the symbol range).
+
+- **Hover.** Diagnostics under the mouse show at once; when the mouse
+  rests on an identifier for `editor.hover_delay_ms` (300 ms) the
+  provider is asked and its documentation follows the diagnostics in the
+  same popover (`editor.hover = false` turns the request off). One timer
+  per rest, no polling: moving inside the same word keeps the request,
+  leaving it cancels it (a sequence number drops late answers). The
+  popover stays while the mouse is inside the symbol's range or inside
+  the popover itself (its bounds are recorded in prepaint), so long
+  documentation scrolls. It opens above the line in the lower part of the
+  window. Ctrl+K Ctrl+I shows it for the cursor; that one stays until the
+  cursor moves or Escape. Markdown is rendered by the completion docs
+  renderer; fenced code is colored with tree-sitter by its fence tag (an
+  untagged block uses the document's language), cached per block.
+- **Definition link.** While Ctrl (Cmd) is held over an identifier the
+  provider is asked for the definition and, when there is one, its origin
+  range is underlined in the accent color with a pointer cursor.
+  Secondary-click moves the cursor there and dispatches `GoToDefinition`.
+- **Navigation commands** (`crates/arcode/src/navigation/`):
+  `GoToDefinition` (F12), `GoToTypeDefinition`, `GoToImplementation`
+  (Ctrl+F12) and `FindAllReferences` (Shift+F12) are editor actions the
+  workspace handles. One target jumps; several open a picker grouped by
+  file with preview lines (read on the background executor; open buffers
+  win over the disk because the server answers for their unsaved text).
+  Document symbols (Ctrl+Shift+O) use `textDocument/documentSymbol`,
+  flattened with nesting depth, and fall back to the tree-sitter outline;
+  workspace symbols (Ctrl+T) send the query to the server (debounced) and
+  fall back to the outlines of the open files. Without a server, Go to
+  Definition looks for an outline symbol named like the word.
+- **Opening targets.** A target opens in the active pane, or activates
+  the pane where it is open, and is centered. LSP ranges are converted
+  against the buffer once it is open. A file outside the project (e.g.
+  the Rust standard library) opens read-only. `LspManager` sends such a
+  file to the server already running for the workspace instead of
+  starting a server for its own root (`reuse_root`), so
+  rust-analyzer keeps answering inside library sources.
+- **History.** Every jump and every switch to another file records the
+  previous cursor place; Alt+Left / Alt+Right (macOS Ctrl+- /
+  Ctrl+Shift+-) walk it. Places a few lines apart in one file merge, and
+  stepping through the history does not record new places.
+- **Occurrences.** `textDocument/documentHighlight` is asked 250 ms after
+  the cursor stops on an identifier (`editor.occurrence_highlight`) and
+  drawn as background highlights (set `"occurrences"`, writes stronger).
 
 ## Git
 
@@ -168,15 +235,27 @@ never fetches, pulls or pushes. In the app (`crates/arcode/src/git/`):
   (the Source Control view follows the active editor's repository) and
   runs every operation on the background executor (`GitStore::run`).
   Nothing is created on open: a folder without git shows an
-  "Initialize Repository" button that runs `git init` only when clicked.
+  "Initialize Repository" button that runs `git init` only when clicked,
+  and only once discovery has finished (never inside an existing
+  repository). A status refresh never publishes the result for a
+  repository that is no longer the active one. When git cannot read the
+  status (git missing, a broken repository) the view shows the reason
+  instead of "No changes". Group "Stage all" stages exactly the listed
+  files (`stage_paths`), never `git add -A`/`-u`, so conflicts stay
+  unresolved; commits are guarded against a double Ctrl+Enter.
 - Watching is event driven (`notify`: inotify, FSEvents,
   ReadDirectoryChangesW). On Linux each non-ignored folder gets its own
   watch so `target/` and `node_modules/` cost nothing; elsewhere the root
-  is watched recursively. Changes under a git directory (index, `HEAD`,
-  refs, merge state) re-run status and make editors recompute their
-  gutter and blame; worktree changes re-run status. Events are coalesced
-  for 250 ms. Our own reads never write the index (`GIT_OPTIONAL_LOCKS=0`),
-  so they cannot trigger themselves.
+  is watched recursively. The folder walk runs on the watcher's own
+  thread, never on the main thread. Changes under a git directory (index,
+  `HEAD`, refs, merge state) re-run status and make editors recompute
+  their gutter and blame; worktree changes re-run status; a `.git`
+  appearing or vanishing (`git init`/`git clone` in a terminal)
+  re-discovers the repositories. Without any repository only the top
+  three folder levels are watched, for that purpose. At most one message
+  per kind is queued, so worktree churn cannot crowd out an index change,
+  and events are coalesced for 250 ms. Our own reads never write the
+  index (`GIT_OPTIONAL_LOCKS=0`), so they cannot trigger themselves.
 - `GitEditors` decorates editors through the extension points: change bars
   (set `"git"`, index against the buffer plus staged hunks mapped into
   buffer lines by `gutter_hunks`), recomputed 300 ms after the last edit;
@@ -187,10 +266,62 @@ never fetches, pulls or pushes. In the app (`crates/arcode/src/git/`):
   column 0, set `"git-blame-column"`); merge conflict regions (set
   `"git-conflict"`) with Accept Current | Accept Incoming | Accept Both |
   Compare lenses, a counter in the status bar and next / previous
-  conflict commands. Blame is cached per buffer version.
+  conflict commands. Conflict actions check the buffer version: a lens
+  clicked before the debounced re-parse acts on the conflict that starts
+  on that line now, and lenses are re-parsed right after a resolution.
+  Blame is cached per buffer version; a dirty buffer is blamed with its
+  own line ending (CRLF files stay attributed). The blame column pads by
+  the glyphs' real advances (`arcode_ui_kit::glyph_advance`, CJK in
+  fallback fonts), so the code lines up for any author name.
 - Diff tabs are read-only editors without a path (so they can never be
   saved over a file) showing an inline diff (`inline_diff`), with a custom
-  tab title kept by the pane.
+  tab label kept by the pane (`TabLabel`: title, key, tooltip). File diffs
+  are keyed by path, so same-named files get separate tabs.
+
+## Search, command palette and TODO list
+
+All searching goes through `arcode-search` on the background executor; the
+UI never walks the project or scans a file on the main thread.
+
+- **Find bar** (`crates/arcode/src/find_bar/`, Ctrl+F / Ctrl+H, Cmd+Alt+F
+  on macOS): owned by the pane and shown above its active editor, following
+  tab switches. Each search snapshots the rope and runs
+  `arcode_search::search_text` in the background (at most 20 000 matches);
+  matches are drawn through the background-highlight extension point (sets
+  `"find"` and `"find-current"`) and searched again 150 ms after an edit.
+  Replace and Replace All are `apply_edits` calls (Replace All is one undo
+  step); regex groups expand per match with `line_replacements`. A hidden
+  bar keeps its query (F3 reopens it) but neither searches nor highlights.
+- **Search view** (`crates/arcode/src/search_view/`, Ctrl+Shift+F,
+  Ctrl+Shift+H for replace): typing re-runs the search after
+  `search.debounce_ms`; a new run cancels the old one through its
+  `CancelToken`. Results stream over a channel and are added in batches
+  (40 ms), sorted by path. The run stops at `search.max_results` ("Show
+  more" raises the limit). Include and exclude globs come from the view,
+  `search.exclude` and the folders the file tree skips (`target`,
+  `node_modules`). A file open with unsaved changes is shown with the
+  matches of its buffer. Replace in a file or Replace All first counts every
+  match (not only those listed) and asks for confirmation with the counts;
+  open files are changed in their editors (undoable, left unsaved), others
+  are rewritten with `replace_in_file`, which skips non-UTF-8 and binary
+  files; the reasons are shown in the view.
+- **Command palette** (`crates/arcode/src/commands/`, Ctrl+Shift+P, F1, or
+  `>` in the file finder; Backspace on an empty query goes back to files):
+  `CommandRegistry` is a global of commands (category, name, action), built
+  from `actions::commands()` and `actions::editor_commands()`; features add
+  theirs with `commands::register`. When the palette opens it lists only the
+  commands available at the current focus (`Window::is_action_available`)
+  with the binding that applies there, and the chosen command is dispatched
+  back on that focus. Ranking uses nucleo; recently used commands
+  (`recent_commands` in `state.toml`) come first when they match well.
+- **TODO list** (`crates/arcode/src/todo/`): one `TodoStore` per workspace
+  (tags from `todo.tags`) feeds the TODO activity and the Todo tab of the
+  bottom panel. The project is scanned once; after that only changed paths
+  are scanned again (`scan_todos_in_paths`, same ignore rules): files saved
+  in Arcode, and paths the project watcher reports. The git watcher records
+  changed working-tree paths in a shared set and `GitStore` emits them as
+  `GitEvent::FilesChanged` after its 250 ms debounce (more than 1000 paths,
+  or 500 pending, fall back to a full rescan).
 
 ## Large files
 
