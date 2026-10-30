@@ -342,3 +342,17 @@ fn hover_settings_parse_and_cap() {
     assert_eq!(config.editor.hover_delay_ms, 5000);
     assert_eq!(warnings.len(), 1, "{warnings:?}");
 }
+
+#[test]
+fn language_feature_settings_parse_and_cap() {
+    let e = Config::default().editor;
+    assert!(e.inlay_hints && e.code_action_lightbulb && !e.format_on_save);
+    assert_eq!(e.format_on_save_timeout_ms, 1500);
+    let (config, warnings) = Config::from_toml_str(
+        "[editor]\ninlay_hints = false\ncode_action_lightbulb = false\nformat_on_save = true\nformat_on_save_timeout_ms = 60000\n",
+    );
+    let e = config.editor;
+    assert!(!e.inlay_hints && !e.code_action_lightbulb && e.format_on_save);
+    assert_eq!(e.format_on_save_timeout_ms, 10_000);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+}

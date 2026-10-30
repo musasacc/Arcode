@@ -10,10 +10,37 @@
 use std::ops::Range;
 
 use arcode_buffer::Point;
+use arcode_editor::Editor;
 use arcode_search::{LineReplacer, SearchQuery, search_text};
+use gpui::{App, Entity};
 
 /// Most edits handed to the editor for one Replace All.
 pub const MAX_EDITS: usize = 256;
+
+impl BulkReplace {
+    /// Applies the edits to `editor` as one undo step. Merged whole-line
+    /// edits would carry a cursor inside them to their end (hundreds of
+    /// lines away), so the cursor is put back where it was. Returns whether
+    /// the editor took the edits.
+    pub fn apply(self, editor: &Entity<Editor>, cx: &mut App) -> bool {
+        if self.edits.is_empty() {
+            return false;
+        }
+        let merged = self.edits.len() < self.count;
+        editor.update(cx, |e, cx| {
+            let sel = e.selections().primary();
+            let cursor = e.offset_to_point(sel.head);
+            let applied = e.apply_edits(self.edits, cx);
+            if applied && merged {
+                e.select_ranges(vec![cursor..cursor], cx);
+            }
+            applied
+        })
+    }
+}
+
+/// A line number and its replacements (char ranges and new text).
+type LineReps = (usize, Vec<(Range<usize>, String)>);
 
 /// Edits replacing every match of a text, and how many matches they cover.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -36,7 +63,7 @@ pub fn replace_all_edits(
     let replacer = LineReplacer::new(query, replacement)?;
     let found = search_text(text, query)?;
     let lines: Vec<&str> = text.split('\n').collect();
-    let mut per_line: Vec<(usize, Vec<(Range<usize>, String)>)> = Vec::new();
+    let mut per_line: Vec<LineReps> = Vec::new();
     let mut count = 0;
     for line in found.iter().map(|l| l.line) {
         if per_line.last().is_some_and(|(l, _)| *l == line) {
@@ -69,7 +96,7 @@ pub fn replace_all_edits(
 /// one edit over its whole lines (unmatched lines in between are copied).
 fn merged_edits(
     lines: &[&str],
-    per_line: &[(usize, Vec<(Range<usize>, String)>)],
+    per_line: &[LineReps],
     max_edits: usize,
 ) -> Vec<(Range<Point>, String)> {
     let group = per_line.len().div_ceil(max_edits).max(1);

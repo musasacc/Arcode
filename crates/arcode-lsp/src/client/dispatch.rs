@@ -2,6 +2,7 @@
 //! server-to-client requests and turn notifications into events.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use lsp_types::{
     ApplyWorkspaceEditParams, ConfigurationParams, LogMessageParams, MessageType, NumberOrString,
@@ -10,14 +11,17 @@ use lsp_types::{
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncWrite};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use super::shared::Shared;
 use crate::error::{INVALID_PARAMS, METHOD_NOT_FOUND};
-use crate::event::LspEvent;
+use crate::event::{EditOutcome, EditReply, LspEvent};
 use crate::rpc::{self, Incoming};
 use crate::transport;
 use crate::uri::{path_to_uri, uri_to_path};
+
+/// How long a server's `workspace/applyEdit` waits for the UI's answer.
+const APPLY_EDIT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Reads messages until EOF, an error, or termination.
 pub(crate) async fn read_loop<R>(shared: Arc<Shared>, mut reader: R)
@@ -70,19 +74,22 @@ pub(crate) async fn write_loop<W>(
     }
 }
 
-fn handle_message(shared: &Shared, progress: &mut ProgressTracker, text: &str) {
+fn handle_message(shared: &Arc<Shared>, progress: &mut ProgressTracker, text: &str) {
     match rpc::parse_incoming(text) {
         Ok(Incoming::Response { id, result }) => match rpc::numeric_id(&id) {
             Some(id) => shared.complete(id, result),
             None => log::debug!("[{}] response with foreign id {id}", shared.name),
         },
         Ok(Incoming::Request { id, method, params }) => {
-            let reply = match handle_request(shared, &method, params) {
-                Ok(result) => rpc::response_ok(&id, result),
-                Err((code, message)) => rpc::response_err(&id, code, &message),
-            };
-            if let Err(e) = shared.send_raw(reply) {
-                log::debug!("[{}] could not answer {method}: {e}", shared.name);
+            match handle_request(shared, &method, params) {
+                Reply::Now(result) => answer(shared, &id, &method, result),
+                Reply::Later(rx) => {
+                    let shared = shared.clone();
+                    tokio::spawn(async move {
+                        let outcome = tokio::time::timeout(APPLY_EDIT_TIMEOUT, rx).await;
+                        answer(&shared, &id, &method, Ok(edit_outcome(outcome)));
+                    });
+                }
             }
         }
         Ok(Incoming::Notification { method, params }) => {
@@ -97,12 +104,70 @@ fn handle_message(shared: &Shared, progress: &mut ProgressTracker, text: &str) {
 
 type ReplyResult = Result<Value, (i64, String)>;
 
+/// How a server request is answered.
+enum Reply {
+    /// Right away.
+    Now(ReplyResult),
+    /// When the UI decides (`workspace/applyEdit`).
+    Later(oneshot::Receiver<EditOutcome>),
+}
+
+fn answer(shared: &Shared, id: &Value, method: &str, result: ReplyResult) {
+    let reply = match result {
+        Ok(result) => rpc::response_ok(id, result),
+        Err((code, message)) => rpc::response_err(id, code, &message),
+    };
+    if let Err(e) = shared.send_raw(reply) {
+        log::debug!("[{}] could not answer {method}: {e}", shared.name);
+    }
+}
+
+/// The `ApplyWorkspaceEditResult` for what the UI answered (or did not).
+fn edit_outcome<E1, E2>(outcome: Result<Result<EditOutcome, E1>, E2>) -> Value {
+    let outcome = match outcome {
+        Ok(Ok(outcome)) => outcome,
+        Ok(Err(_)) => EditOutcome {
+            applied: false,
+            failure_reason: Some("the edit was not applied".into()),
+        },
+        Err(_) => EditOutcome {
+            applied: false,
+            failure_reason: Some("timed out waiting for the editor".into()),
+        },
+    };
+    match outcome.failure_reason {
+        Some(reason) if !outcome.applied => json!({ "applied": false, "failureReason": reason }),
+        _ => json!({ "applied": outcome.applied }),
+    }
+}
+
 fn parse<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, (i64, String)> {
     serde_json::from_value(params).map_err(|e| (INVALID_PARAMS, e.to_string()))
 }
 
 /// Answers a request sent by the server.
-fn handle_request(shared: &Shared, method: &str, params: Value) -> ReplyResult {
+fn handle_request(shared: &Shared, method: &str, params: Value) -> Reply {
+    if method == "workspace/applyEdit" {
+        let params: ApplyWorkspaceEditParams = match parse(params) {
+            Ok(params) => params,
+            Err(e) => return Reply::Now(Err(e)),
+        };
+        let (reply, rx) = EditReply::channel();
+        shared.events.send(LspEvent::ApplyEdit {
+            server: shared.name.clone(),
+            root: shared.root.clone(),
+            encoding: shared.encoding(),
+            label: params.label,
+            edit: params.edit,
+            reply,
+        });
+        return Reply::Later(rx);
+    }
+    Reply::Now(handle_plain_request(shared, method, params))
+}
+
+/// Requests answered right away.
+fn handle_plain_request(shared: &Shared, method: &str, params: Value) -> ReplyResult {
     match method {
         "workspace/configuration" => {
             let params: ConfigurationParams = parse(params)?;
@@ -117,7 +182,14 @@ fn handle_request(shared: &Shared, method: &str, params: Value) -> ReplyResult {
         "window/workDoneProgress/create"
         | "client/registerCapability"
         | "client/unregisterCapability" => Ok(Value::Null),
-        m if m.starts_with("workspace/") && m.ends_with("/refresh") => Ok(Value::Null),
+        m if refresh_feature(m).is_some() => {
+            shared.events.send(LspEvent::Refresh {
+                server: shared.name.clone(),
+                root: shared.root.clone(),
+                feature: refresh_feature(m).unwrap_or_default().to_string(),
+            });
+            Ok(Value::Null)
+        }
         "workspace/workspaceFolders" => {
             let name = shared
                 .root
@@ -125,16 +197,6 @@ fn handle_request(shared: &Shared, method: &str, params: Value) -> ReplyResult {
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
             Ok(json!([{ "uri": path_to_uri(&shared.root), "name": name }]))
-        }
-        "workspace/applyEdit" => {
-            let params: ApplyWorkspaceEditParams = parse(params)?;
-            shared.events.send(LspEvent::ApplyEdit {
-                server: shared.name.clone(),
-                edit: params.edit,
-            });
-            Ok(
-                json!({ "applied": false, "failureReason": "Arcode does not apply server edits yet" }),
-            )
         }
         "window/showMessageRequest" => {
             let params: ShowMessageParams = parse(params)?;
@@ -147,6 +209,14 @@ fn handle_request(shared: &Shared, method: &str, params: Value) -> ReplyResult {
         }
         _ => Err((METHOD_NOT_FOUND, format!("unhandled method {method}"))),
     }
+}
+
+/// `inlayHint` for `workspace/inlayHint/refresh`.
+fn refresh_feature(method: &str) -> Option<&str> {
+    method
+        .strip_prefix("workspace/")?
+        .strip_suffix("/refresh")
+        .filter(|f| !f.is_empty())
 }
 
 /// Looks up a configuration section in the initialization options.
@@ -272,6 +342,39 @@ impl ProgressTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refresh_methods_name_their_feature() {
+        assert_eq!(
+            refresh_feature("workspace/inlayHint/refresh"),
+            Some("inlayHint")
+        );
+        assert_eq!(
+            refresh_feature("workspace/semanticTokens/refresh"),
+            Some("semanticTokens")
+        );
+        assert_eq!(refresh_feature("workspace/refresh"), None);
+        assert_eq!(refresh_feature("workspace//refresh"), None);
+        assert_eq!(refresh_feature("window/inlayHint/refresh"), None);
+    }
+
+    #[test]
+    fn edit_outcomes_become_results() {
+        let ok: Result<Result<EditOutcome, ()>, ()> = Ok(Ok(EditOutcome {
+            applied: true,
+            failure_reason: None,
+        }));
+        assert_eq!(edit_outcome(ok), json!({ "applied": true }));
+        let dropped: Result<Result<EditOutcome, ()>, ()> = Ok(Err(()));
+        assert_eq!(edit_outcome(dropped)["applied"], false);
+        let late: Result<Result<EditOutcome, ()>, ()> = Err(());
+        assert!(
+            edit_outcome(late)["failureReason"]
+                .as_str()
+                .unwrap()
+                .contains("timed out")
+        );
+    }
 
     #[test]
     fn config_lookup() {

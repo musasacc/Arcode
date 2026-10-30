@@ -49,6 +49,18 @@
 //! the application. See [`hover`]. The hover closes when the window's
 //! focus moves elsewhere, so it never covers a picker or overlay.
 //!
+//! # Code actions, rename, formatting and inlay hints
+//!
+//! A [`LanguageServices`] provider (set with
+//! [`Editor::set_language_services`]) supplies inlay hints (drawn as
+//! virtual text, re-asked after edits and on [`Editor::refresh_inlay_hints`]),
+//! code actions (a light bulb in the gutter on the cursor line,
+//! [`ShowCodeActions`] / [`Refactor`] open a menu grouped by kind), rename
+//! ([`RenameSymbol`], an inline field at the symbol) and formatting
+//! ([`FormatDocument`], [`FormatSelection`], format on save with a
+//! timeout). Right click (or [`ShowContextMenu`]) opens the context menu.
+//! See [`lang`].
+//!
 //! A read-only editor ([`Editor::set_read_only`]) takes no edits, shows no
 //! completions and refuses [`Editor::save`].
 //!
@@ -75,8 +87,10 @@ mod ext_api;
 mod gutter;
 pub mod hover;
 mod input;
+pub mod lang;
 mod layout;
 mod layout_extras;
+mod menu;
 mod mouse;
 mod mouse_ext;
 mod paint;
@@ -101,6 +115,10 @@ pub use ext::{
     LensItem, LensPlacement, PopoverPlacement, VirtualText, VirtualTextPosition,
 };
 pub use hover::{HoverInfo, HoverProvider};
+pub use lang::{
+    CodeAction, InlayHint, InlayHintKind, InlayHintsToggle, LanguageServices, RenameTarget,
+    TextEdits, inlay_hints_enabled,
+};
 pub use style::EditorStyle;
 
 use gpui::App;
@@ -111,4 +129,5 @@ pub fn init(cx: &mut App) {
     actions::bind_keys(cx);
     ext::keys::init(cx);
     completion::init(cx);
+    lang::init(cx);
 }

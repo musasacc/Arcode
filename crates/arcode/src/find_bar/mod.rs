@@ -115,7 +115,9 @@ pub struct FindBar {
     capped: bool,
     current: Option<usize>,
     error: Option<SharedString>,
-    notice: Option<SharedString>,
+    /// A Replace All outcome, shown until the buffer changes from the
+    /// version it produced (or the bar moves to another editor).
+    notice: Option<(SharedString, u64)>,
     searched: Option<Searched>,
     /// Where to select the first match once the running search ends.
     pending_select: Option<Point>,

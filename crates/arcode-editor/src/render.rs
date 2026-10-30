@@ -17,6 +17,8 @@ impl Render for Editor {
             self.completion_blurred(cx);
         }
         self.hover_check_focus(window, cx);
+        self.lang_check_focus(window, cx);
+        self.inlay_sync(cx);
         div()
             .id("editor")
             .key_context(KEY_CONTEXT)
@@ -74,6 +76,19 @@ impl Render for Editor {
                 cx.listener(|e, _: &crate::ShowSignatureHelp, _, cx| e.show_signature_help(cx)),
             )
             .on_action(cx.listener(|e, _: &crate::ShowHover, _, cx| e.show_hover(cx)))
+            .on_action(
+                cx.listener(|e, _: &crate::ShowCodeActions, _, cx| e.show_code_actions(false, cx)),
+            )
+            .on_action(cx.listener(|e, _: &crate::Refactor, _, cx| e.show_code_actions(true, cx)))
+            .on_action(cx.listener(|e, _: &crate::RenameSymbol, _, cx| e.rename_symbol(cx)))
+            .on_action(cx.listener(|e, _: &crate::FormatDocument, _, cx| e.format_document(cx)))
+            .on_action(cx.listener(|e, _: &crate::FormatSelection, _, cx| e.format_selection(cx)))
+            .on_action(
+                cx.listener(|e, _: &crate::ToggleInlayHints, _, cx| e.toggle_inlay_hints(cx)),
+            )
+            .on_action(cx.listener(|e, _: &crate::ShowContextMenu, window, cx| {
+                e.show_context_menu(window, cx)
+            }))
             .on_modifiers_changed(cx.listener(|e, ev: &ModifiersChangedEvent, window, cx| {
                 e.hover_modifiers_changed(ev.modifiers, window, cx)
             }))

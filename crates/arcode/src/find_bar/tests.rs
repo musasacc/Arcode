@@ -83,12 +83,19 @@ fn replace_next_and_replace_all_are_undoable(cx: &mut TestAppContext) {
         text(&editor, cx),
         "let n = 1;\nprint(n);\nlet total = n + 2;\n"
     );
+    settle(cx);
+    bar.read_with(cx, |bar, _| assert!(bar.notice.is_some(), "outcome shown"));
     editor.update(cx, |e, cx| e.undo(cx));
     assert_eq!(
         text(&editor, cx),
         "let n = 1;\nprint(count);\nlet total = count + 2;\n",
         "replace all is one undo step"
     );
+    settle(cx);
+    bar.read_with(cx, |bar, _| {
+        assert_eq!(bar.notice, None, "the outcome goes once the text changes");
+        assert_eq!(bar.matches().len(), 2);
+    });
 }
 
 #[gpui::test]
@@ -140,4 +147,32 @@ fn edits_refresh_the_matches(cx: &mut TestAppContext) {
     });
     settle(cx);
     bar.read_with(cx, |bar, _| assert_eq!(bar.matches().len(), 4));
+}
+
+#[gpui::test]
+fn replace_all_with_merged_edits_keeps_the_cursor(cx: &mut TestAppContext) {
+    init(cx);
+    let original = text_of(600);
+    let editor = cx.new(|cx| Editor::new(Buffer::new(&original), cx));
+    let bar = cx.new(FindBar::new);
+    bar.update(cx, |bar, cx| {
+        bar.open(Some(editor.clone()), true, cx);
+        bar.set_query("needle", cx);
+        bar.set_replacement("pin", cx);
+    });
+    settle(cx);
+    let at = Point::new(300, 1);
+    editor.update(cx, |e, cx| e.select_ranges(vec![at..at], cx));
+    let n = bar.update(cx, |bar, cx| bar.replace_all(cx));
+    assert_eq!(n, 600);
+    editor.read_with(cx, |e, _| {
+        assert_eq!(e.cursor_position(), at, "the cursor stays where it was");
+        assert!(e.buffer().text().to_string().starts_with("0 pin\n1 pin\n"));
+    });
+    editor.update(cx, |e, cx| e.undo(cx));
+    assert_eq!(text(&editor, cx), original, "one undo step");
+}
+
+fn text_of(n: usize) -> String {
+    (0..n).map(|i| format!("{i} needle\n")).collect()
 }

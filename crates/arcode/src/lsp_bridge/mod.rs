@@ -9,6 +9,7 @@
 pub mod completion;
 pub mod completion_convert;
 pub mod convert;
+pub mod edits;
 mod events;
 pub mod highlights;
 pub mod hover;
@@ -16,6 +17,9 @@ pub mod nav_convert;
 #[cfg(test)]
 mod nav_convert_tests;
 pub mod navigation;
+pub mod services;
+pub mod services_convert;
+pub mod workspace_edit;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -47,6 +51,9 @@ pub enum LspBridgeEvent {
     StatusChanged,
     /// Something the user should see (server failure, `showMessage`).
     Message(SharedString),
+    /// A workspace edit to apply (from a code action, a rename or the
+    /// server's `workspace/applyEdit`); answer through its reply.
+    ApplyEdit(edits::EditHandle),
 }
 
 /// An editor known to the bridge.
@@ -201,9 +208,11 @@ impl LspBridge {
         if synced {
             let provider = completion::LspCompletionProvider::new(cx.entity().downgrade());
             let hover = hover::LspHoverProvider::new(cx.entity().downgrade());
-            editor.update(cx, |e, _| {
+            let language = services::services(cx.entity().downgrade());
+            editor.update(cx, |e, cx| {
                 e.set_completion_provider(Some(Rc::new(provider)));
                 e.set_hover_provider(Some(Rc::new(hover)));
+                e.set_language_services(Some(language), cx);
             });
         }
         let events = cx.subscribe(editor, |bridge, editor, event: &EditorEvent, cx| {
@@ -221,6 +230,35 @@ impl LspBridge {
             },
         );
         self.push_diagnostics(&path, cx);
+    }
+
+    /// The editor now shows another file (renamed or moved): the old
+    /// document is closed and the new one opened.
+    pub fn editor_path_changed(&mut self, editor: &Entity<Editor>, cx: &mut Context<Self>) {
+        self.forget(editor.entity_id());
+        self.register_editor(editor, cx);
+    }
+
+    /// Asks the editors served by `server` (every editor when `None`) for
+    /// their inlay hints again.
+    pub(crate) fn refresh_inlay_hints(&self, server: Option<&str>, cx: &mut App) {
+        let editors: Vec<Entity<Editor>> = self
+            .docs
+            .values()
+            .filter(|d| d.synced)
+            .filter_map(|d| d.editor.upgrade())
+            .collect();
+        for editor in editors {
+            let serves = server.is_none_or(|server| {
+                let language = editor.read(cx).language().id.to_lowercase();
+                settings(cx)
+                    .language(&language)
+                    .is_some_and(|l| l.servers.iter().any(|s| s == server))
+            });
+            if serves {
+                editor.update(cx, |e, cx| e.refresh_inlay_hints(cx));
+            }
+        }
     }
 
     fn forget(&mut self, id: EntityId) {

@@ -12,7 +12,7 @@ use arcode_search::{CancelToken, SearchError, SearchQuery, search_collect, searc
 use gpui::{AppContext, Context, Entity, PromptLevel, Window};
 
 use super::{ProjectSearch, ProjectSearchEvent};
-use crate::find_bar::bulk::{BulkReplace, MAX_EDITS, replace_all_edits};
+use crate::find_bar::bulk::{MAX_EDITS, replace_all_edits};
 
 /// Outcome of a replace run.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -93,11 +93,11 @@ pub fn replace_in_editor<T>(
     cx: &mut Context<T>,
 ) -> usize {
     let text = editor.read(cx).buffer().text().to_string();
-    let Ok(BulkReplace { edits, count }) = replace_all_edits(&text, query, replacement, MAX_EDITS)
-    else {
+    let Ok(bulk) = replace_all_edits(&text, query, replacement, MAX_EDITS) else {
         return 0;
     };
-    if count > 0 && !editor.update(cx, |e, cx| e.apply_edits(edits, cx)) {
+    let count = bulk.count;
+    if !bulk.apply(editor, cx) {
         return 0;
     }
     count

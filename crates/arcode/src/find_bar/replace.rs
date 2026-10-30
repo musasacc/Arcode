@@ -3,9 +3,9 @@
 
 use arcode_buffer::Point;
 use arcode_search::SearchQuery;
-use gpui::{Context, Focusable, Window};
+use gpui::{Context, Focusable, SharedString, Window};
 
-use super::bulk::{BulkReplace, MAX_EDITS, replace_all_edits};
+use super::bulk::{MAX_EDITS, replace_all_edits};
 use super::{FindBar, FocusNextField, logic};
 
 impl FindBar {
@@ -52,15 +52,14 @@ impl FindBar {
         let Ok(bulk) = replace_all_edits(&text, &query, &replacement, MAX_EDITS) else {
             return 0;
         };
-        let BulkReplace { edits, count } = bulk;
-        if count > 0 {
-            editor.update(cx, |e, cx| e.apply_edits(edits, cx));
-        }
-        self.notice = Some(match count {
+        let count = bulk.count;
+        bulk.apply(&editor, cx);
+        let text: SharedString = match count {
             0 => "Nothing to replace".into(),
             1 => "Replaced 1 occurrence".into(),
             n => format!("Replaced {n} occurrences").into(),
-        });
+        };
+        self.notice = Some((text, editor.read(cx).buffer().version()));
         self.research(None, None, cx);
         cx.notify();
         count

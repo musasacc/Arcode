@@ -1,8 +1,10 @@
 //! Events sent from language servers to the UI.
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use lsp_types::{Diagnostic, MessageType, WorkspaceEdit};
+use tokio::sync::oneshot;
 
 /// Lifecycle state of one server instance.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,12 +85,87 @@ pub enum LspEvent {
         message: String,
     },
     /// `workspace/applyEdit`: the server wants the client to edit files.
+    /// The server waits for the answer: call [`EditReply::send`] once the
+    /// edit was applied (or refused). Dropping every copy of `reply`
+    /// without sending answers "not applied".
     ApplyEdit {
         /// Server name.
         server: String,
+        /// Project root of the server instance.
+        root: PathBuf,
+        /// Position encoding the edit's ranges use.
+        encoding: PositionEncoding,
+        /// Optional label (e.g. for an undo entry).
+        label: Option<String>,
         /// The requested edit.
         edit: WorkspaceEdit,
+        /// Where the answer goes.
+        reply: EditReply,
     },
+    /// `workspace/<feature>/refresh` (e.g. `inlayHint`, `codeLens`,
+    /// `semanticTokens`): results of `feature` the client holds for this
+    /// server are stale and should be requested again.
+    Refresh {
+        /// Server name.
+        server: String,
+        /// Project root of the server instance.
+        root: PathBuf,
+        /// The feature, as in the method name (`"inlayHint"`).
+        feature: String,
+    },
+}
+
+/// The answer channel of a [`LspEvent::ApplyEdit`] request. Clones share
+/// one channel: the first [`EditReply::send`] wins.
+#[derive(Clone)]
+pub struct EditReply(Arc<Mutex<Option<oneshot::Sender<EditOutcome>>>>);
+
+/// What the client did with a server's edit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditOutcome {
+    /// Whether the whole edit was applied.
+    pub applied: bool,
+    /// Why not, shown by the server.
+    pub failure_reason: Option<String>,
+}
+
+impl EditReply {
+    /// A reply channel and the receiver its answer arrives on.
+    pub fn channel() -> (EditReply, oneshot::Receiver<EditOutcome>) {
+        let (tx, rx) = oneshot::channel();
+        (EditReply(Arc::new(Mutex::new(Some(tx)))), rx)
+    }
+
+    /// Answers the server. Later calls (on any clone) do nothing.
+    pub fn send(&self, applied: bool, failure_reason: Option<String>) {
+        let tx = self.0.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(tx) = tx {
+            let _ = tx.send(EditOutcome {
+                applied,
+                failure_reason,
+            });
+        }
+    }
+
+    /// Whether an answer was already sent.
+    pub fn is_sent(&self) -> bool {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).is_none()
+    }
+}
+
+impl std::fmt::Debug for EditReply {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EditReply")
+            .field("sent", &self.is_sent())
+            .finish()
+    }
+}
+
+/// Two replies are equal when they answer the same request.
+impl PartialEq for EditReply {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
 }
 
 /// Runtime-agnostic receiving end of the event channel (poll it from any
@@ -165,6 +242,21 @@ mod tests {
             level: MessageType::LOG,
             message: "m".into(),
         });
+    }
+
+    #[test]
+    fn edit_reply_answers_once() {
+        let (reply, mut rx) = EditReply::channel();
+        let copy = reply.clone();
+        assert_eq!(reply, copy);
+        assert!(!copy.is_sent());
+        copy.send(true, None);
+        reply.send(false, Some("late".into()));
+        assert!(reply.is_sent());
+        let outcome = rx.try_recv().unwrap();
+        assert!(outcome.applied && outcome.failure_reason.is_none());
+        let (other, _) = EditReply::channel();
+        assert_ne!(reply, other);
     }
 
     #[test]

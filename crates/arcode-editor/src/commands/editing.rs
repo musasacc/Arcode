@@ -218,8 +218,6 @@ impl Editor {
     }
 
     pub(crate) fn save_action(&mut self, _: &Save, _: &mut Window, cx: &mut Context<Self>) {
-        if let Err(err) = self.save(cx) {
-            log::error!("failed to save {}: {err}", self.title());
-        }
+        self.save_with_format(cx);
     }
 }

@@ -29,8 +29,10 @@ word_wrap = false
 keymap = "default"
 # Insert the closing bracket or quote automatically.
 auto_close_brackets = true
-# Format the file when saving.
+# Format the file with its language server when saving. Saving never
+# waits longer than format_on_save_timeout_ms for the formatter.
 format_on_save = false
+format_on_save_timeout_ms = 1500
 # Files this large (bytes or lines) keep no full syntax tree; only the
 # visible region is parsed for highlighting, which keeps memory low.
 large_file_bytes = 4194304
@@ -41,6 +43,11 @@ hover = true
 hover_delay_ms = 300
 # Highlight the other occurrences of the symbol under the cursor.
 occurrence_highlight = true
+# Show type and parameter hints from the language server inside the code
+# ("Editor: Toggle Inlay Hints" switches them for the session).
+inlay_hints = true
+# Show a light bulb in the gutter when code actions exist on the cursor line.
+code_action_lightbulb = true
 
 [editor.completion]
 # Open the completion popup while typing. When false, only Ctrl+Space

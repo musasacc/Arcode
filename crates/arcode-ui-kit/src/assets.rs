@@ -44,6 +44,7 @@ static FILES: &[(&str, &[u8])] = embedded![
     "icons/history.svg",
     "icons/info.svg",
     "icons/keyboard.svg",
+    "icons/lightbulb.svg",
     "icons/list-todo.svg",
     "icons/loader.svg",
     "icons/minus.svg",

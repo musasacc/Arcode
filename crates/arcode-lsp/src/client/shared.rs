@@ -5,14 +5,14 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::error::{LspError, Result};
-use crate::event::{EventSink, LspEvent, ServerStatus};
+use crate::event::{EventSink, LspEvent, PositionEncoding, ServerStatus};
 use crate::rpc;
 
 type PendingSender = oneshot::Sender<Result<Value>>;
@@ -33,6 +33,8 @@ pub(crate) struct Shared {
     pub(crate) root: PathBuf,
     pub(crate) events: EventSink,
     pub(crate) initialization_options: Option<Value>,
+    /// Negotiated position encoding, set once `initialize` answered.
+    encoding: OnceLock<PositionEncoding>,
     outgoing: mpsc::UnboundedSender<String>,
     state: Mutex<State>,
     next_id: AtomicI64,
@@ -54,6 +56,7 @@ impl Shared {
             root,
             events,
             initialization_options,
+            encoding: OnceLock::new(),
             outgoing: tx,
             state: Mutex::new(State {
                 alive: true,
@@ -67,6 +70,16 @@ impl Shared {
             terminated: watch::channel(false).0,
         });
         (shared, rx)
+    }
+
+    /// Records the encoding negotiated in `initialize`.
+    pub(crate) fn set_encoding(&self, encoding: PositionEncoding) {
+        let _ = self.encoding.set(encoding);
+    }
+
+    /// The negotiated encoding (UTF-16 before `initialize` answered).
+    pub(crate) fn encoding(&self) -> PositionEncoding {
+        self.encoding.get().copied().unwrap_or_default()
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
