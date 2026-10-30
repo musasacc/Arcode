@@ -43,14 +43,20 @@ jobs:
       - name: Install WASI SDK (clang + wasi-libc for plugins with C code)
         run: |
           name="wasi-sdk-${WASI_SDK_VERSION}.0-${{ matrix.wasi_sdk }}"
+          # GNU tar on Windows reads "D:\..." as a remote host, so download
+          # and unpack inside the folder using relative paths only.
+          sdk="$RUNNER_TEMP/wasi-sdk"
+          exe=""
+          if [ "$RUNNER_OS" = Windows ]; then sdk="$(cygpath -m "$RUNNER_TEMP")/wasi-sdk"; exe=".exe"; fi
+          mkdir -p "$sdk"
+          cd "$sdk"
           curl -sSfL -o wasi-sdk.tar.gz \
             "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/${name}.tar.gz"
-          mkdir -p "$RUNNER_TEMP/wasi-sdk"
-          tar -xzf wasi-sdk.tar.gz -C "$RUNNER_TEMP/wasi-sdk" --strip-components=1
-          sdk="$RUNNER_TEMP/wasi-sdk"
+          tar -xzf wasi-sdk.tar.gz --strip-components=1
+          rm wasi-sdk.tar.gz
           echo "WASI_INCLUDE=$sdk/share/wasi-sysroot/include/wasm32-wasip2" >> "$GITHUB_ENV"
-          echo "CC_wasm32_wasip2=$sdk/bin/clang" >> "$GITHUB_ENV"
-          echo "AR_wasm32_wasip2=$sdk/bin/llvm-ar" >> "$GITHUB_ENV"
+          echo "CC_wasm32_wasip2=$sdk/bin/clang$exe" >> "$GITHUB_ENV"
+          echo "AR_wasm32_wasip2=$sdk/bin/llvm-ar$exe" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
       - name: Format
         if: runner.os == 'Linux'
