@@ -168,7 +168,10 @@ mod tests {
 
         let (_tx, rx) = oneshot::<u8>();
         let timeout = Some(Duration::from_millis(20));
-        assert_eq!(rx.wait(&CancelToken::new(), timeout), Err(WaitError::TimedOut));
+        assert_eq!(
+            rx.wait(&CancelToken::new(), timeout),
+            Err(WaitError::TimedOut)
+        );
 
         let (_tx, rx) = oneshot::<u8>();
         let token = CancelToken::new();

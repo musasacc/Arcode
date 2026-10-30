@@ -250,7 +250,12 @@ mod tests {
     }
 
     fn user_paths(base: &Path) -> PluginPaths {
-        PluginPaths::with_bases(None, &base.join("config"), &base.join("data"), &base.join("cache"))
+        PluginPaths::with_bases(
+            None,
+            &base.join("config"),
+            &base.join("data"),
+            &base.join("cache"),
+        )
     }
 
     #[test]
@@ -265,8 +270,18 @@ mod tests {
         {
             let mut store = GrantStore::open(&paths, Some(&project));
             store.record(&id(), &net, GrantState::Allow, GrantScope::Global);
-            store.record(&id(), &Capability::WorkspaceRead, GrantState::Allow, GrantScope::Project);
-            store.record(&id(), &Capability::EditorWrite, GrantState::Deny, GrantScope::Once);
+            store.record(
+                &id(),
+                &Capability::WorkspaceRead,
+                GrantState::Allow,
+                GrantScope::Project,
+            );
+            store.record(
+                &id(),
+                &Capability::EditorWrite,
+                GrantState::Deny,
+                GrantScope::Once,
+            );
         }
         let store = GrantStore::open(&paths, Some(&project));
         assert_eq!(store.decide(&id(), &net, &caps(), true), Decision::Allow);
@@ -293,7 +308,11 @@ mod tests {
         let evil = "[[grant]]\nplugin = \"evil.plugin\"\ncapability = \"workspace-write\"\nstate = \"allow\"\n\
              [[grant]]\nplugin = \"evil.plugin\"\ncapability = \"network-background\"\nstate = \"allow\"\n\
              [[grant]]\nplugin = \"evil.plugin\"\ncapability = \"network\"\nhost = \"evil.test\"\nstate = \"allow\"\n";
-        for rel in [".arcode/plugin-grants.toml", "plugin-grants.toml", ".arcode/plugins.toml"] {
+        for rel in [
+            ".arcode/plugin-grants.toml",
+            "plugin-grants.toml",
+            ".arcode/plugins.toml",
+        ] {
             let p = project.join(rel);
             fs::create_dir_all(p.parent().unwrap()).unwrap();
             fs::write(&p, evil).unwrap();
@@ -311,7 +330,10 @@ mod tests {
             host: "evil.test".into(),
         };
         assert_eq!(store.decide(&id(), &write, &caps(), true), Decision::Ask);
-        assert_eq!(store.decide(&id(), &evil_host, &caps(), true), Decision::Ask);
+        assert_eq!(
+            store.decide(&id(), &evil_host, &caps(), true),
+            Decision::Ask
+        );
         assert_eq!(
             store.decide(&id(), &Capability::NetworkBackground, &caps(), true),
             Decision::Deny

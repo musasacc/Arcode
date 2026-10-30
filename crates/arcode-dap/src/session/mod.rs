@@ -1,10 +1,12 @@
 //! [`DebugSession`]: starting a session, and the UI-facing
 //! [`DebugSessionHandle`].
 
+mod breakpoints;
 mod control;
 mod core;
 mod execution;
 mod inbound;
+mod queue;
 mod runtime;
 mod startup;
 
@@ -21,18 +23,19 @@ use tokio::sync::oneshot;
 
 pub use control::STOP_TIMEOUT;
 use core::Core;
+use queue::Queue;
 pub use startup::{INITIALIZE_TIMEOUT, REQUEST_TIMEOUT};
 
 use crate::config::DebugConfig;
+use crate::connection::Connection;
 use crate::error::{DapError, Result};
 use crate::event::{EventReceiver, EventSink, SessionState};
 use crate::process::{BoxReader, BoxWriter};
 use crate::types::{
     Breakpoint, Capabilities, EvaluateArguments, EvaluateContext, EvaluateResponseBody,
-    FunctionBreakpoint, Scope, ScopesArguments, ScopesResponseBody, SetBreakpointsResponseBody,
-    SetFunctionBreakpointsArguments, SourceBreakpoint, StackFrame, StackTraceArguments,
-    StackTraceResponseBody, Thread, ThreadsResponseBody, Variable, VariablesArguments,
-    VariablesResponseBody,
+    FunctionBreakpoint, Scope, ScopesArguments, ScopesResponseBody, SourceBreakpoint, StackFrame,
+    StackTraceArguments, StackTraceResponseBody, Thread, ThreadsResponseBody, Variable,
+    VariablesArguments, VariablesResponseBody,
 };
 
 /// Entry point: starts debug sessions on the crate's own tokio runtime.
@@ -87,19 +90,23 @@ impl DebugSession {
 }
 
 /// Kills the adapter when the last handle clone is dropped.
-struct Lifetime(Arc<Core>);
+struct Lifetime {
+    core: Arc<Core>,
+    queue: Queue,
+}
 
 impl Drop for Lifetime {
     fn drop(&mut self) {
-        let generation = self.0.generation();
-        control::finish_stopped(&self.0, generation, "debug session dropped");
+        control::finish_dropped(&self.core);
     }
 }
 
 /// A cheap-to-clone handle to one debug session. Every method returns
 /// immediately; request futures are runtime-agnostic (await them on any
 /// executor), are sent even if never polled, and fail instead of hanging if
-/// the adapter dies. Dropping the last clone kills the adapter.
+/// the adapter dies. Requests reach the adapter in call order (across all
+/// clones of a handle called from one thread). Dropping the last clone
+/// kills the adapter.
 #[derive(Clone)]
 pub struct DebugSessionHandle {
     lifetime: Arc<Lifetime>,
@@ -115,13 +122,14 @@ impl std::fmt::Debug for DebugSessionHandle {
 
 impl DebugSessionHandle {
     fn new(core: Arc<Core>) -> Self {
+        let queue = Queue::spawn(&core);
         DebugSessionHandle {
-            lifetime: Arc::new(Lifetime(core)),
+            lifetime: Arc::new(Lifetime { core, queue }),
         }
     }
 
     fn core(&self) -> &Arc<Core> {
-        &self.lifetime.0
+        &self.lifetime.core
     }
 
     /// Current client-side state.
@@ -149,8 +157,43 @@ impl DebugSessionHandle {
         self.core().lock().exit_code
     }
 
-    /// Runs `work` on the session runtime; the returned future only waits
-    /// for its result.
+    /// Queues `work` behind all earlier requests: once the session is ready
+    /// (`configured`: configured), `work` runs on the dispatcher, must
+    /// enqueue its requests synchronously and returns a future for the
+    /// result, which runs on the session runtime.
+    fn submit<T, F>(
+        &self,
+        configured: bool,
+        work: impl FnOnce(&Arc<Core>, Arc<Connection>) -> F + Send + 'static,
+    ) -> impl Future<Output = Result<T>> + Send + 'static
+    where
+        T: Send + 'static,
+        F: Future<Output = Result<T>> + Send + 'static,
+    {
+        let (tx, rx) = oneshot::channel();
+        let job = move |core: &Arc<Core>, conn: Result<Arc<Connection>>| match conn {
+            Ok(conn) => {
+                let fut = work(core, conn);
+                // The dispatcher runs inside the session runtime.
+                drop(tokio::spawn(async move {
+                    let _ = tx.send(fut.await);
+                }));
+            }
+            Err(e) => {
+                let _ = tx.send(Err(e));
+            }
+        };
+        self.lifetime
+            .queue
+            .push(self.core(), configured, Box::new(job));
+        async move {
+            rx.await
+                .unwrap_or_else(|_| Err(DapError::SessionEnded("runtime shut down".into())))
+        }
+    }
+
+    /// Runs `work` on the session runtime, outside the request queue; the
+    /// returned future only waits for its result.
     fn spawn<T, F>(
         &self,
         work: impl FnOnce(Arc<Core>) -> F,
@@ -181,10 +224,8 @@ impl DebugSessionHandle {
         arguments: Option<Value>,
     ) -> impl Future<Output = Result<Option<Value>>> + Send + 'static {
         let command = command.into();
-        self.spawn(move |core| async move {
-            let conn = core.connection(false).await?;
+        self.submit(false, move |_, conn| {
             conn.request(&command, arguments, Some(REQUEST_TIMEOUT))
-                .await
         })
     }
 
@@ -204,14 +245,15 @@ impl DebugSessionHandle {
 
     /// Replaces the breakpoints of `path` (empty: remove all) and returns
     /// the adapter's view. Before configuration they are only stored and
-    /// sent with the startup sequence (the future resolves after that).
+    /// sent once, with the startup sequence (the future resolves with that
+    /// answer).
     pub fn set_breakpoints(
         &self,
         path: impl Into<PathBuf>,
         breakpoints: Vec<SourceBreakpoint>,
     ) -> impl Future<Output = Result<Vec<Breakpoint>>> + Send + 'static {
         let path = path.into();
-        {
+        let version = {
             let mut data = self.core().lock();
             if breakpoints.is_empty() {
                 data.config.breakpoints.remove(&path);
@@ -220,45 +262,69 @@ impl DebugSessionHandle {
                     .breakpoints
                     .insert(path.clone(), breakpoints.clone());
             }
-        }
-        self.spawn(move |core| async move {
-            let conn = core.connection(true).await?;
-            let generation = core.generation();
-            startup::set_breakpoints(&core, generation, &conn, path, breakpoints).await
+            data.book.bump(Some(path.clone()))
+        };
+        self.submit(true, move |core, conn| {
+            let sent = core.lock().book.sent_since(&Some(path.clone()), version);
+            let request = match sent {
+                Some(answer) => Err(answer),
+                None => Ok(breakpoints::send(
+                    core.clone(),
+                    core.generation(),
+                    &conn,
+                    path,
+                    breakpoints,
+                )),
+            };
+            async move {
+                match request {
+                    Ok(request) => request.await,
+                    Err(answer) => answer,
+                }
+            }
         })
     }
 
-    /// Replaces all function breakpoints.
+    /// Replaces all function breakpoints (like [`Self::set_breakpoints`]).
     pub fn set_function_breakpoints(
         &self,
         breakpoints: Vec<FunctionBreakpoint>,
     ) -> impl Future<Output = Result<Vec<Breakpoint>>> + Send + 'static {
-        self.core().lock().config.function_breakpoints = breakpoints.clone();
-        self.spawn(move |core| async move {
-            let conn = core.connection(true).await?;
-            if !core.capabilities().supports_function_breakpoints {
-                return Err(DapError::Unsupported("function breakpoints".into()));
+        let version = {
+            let mut data = self.core().lock();
+            data.config.function_breakpoints = breakpoints.clone();
+            data.book.bump(None)
+        };
+        self.submit(true, move |core, conn| {
+            let request = if !core.capabilities().supports_function_breakpoints {
+                Err(Err(DapError::Unsupported("function breakpoints".into())))
+            } else if let Some(answer) = core.lock().book.sent_since(&None, version) {
+                Err(answer)
+            } else {
+                Ok(breakpoints::send_functions(&conn, breakpoints))
+            };
+            async move {
+                match request {
+                    Ok(request) => request.await,
+                    Err(answer) => answer,
+                }
             }
-            let args = serde_json::to_value(SetFunctionBreakpointsArguments { breakpoints })?;
-            let body = conn
-                .request("setFunctionBreakpoints", Some(args), Some(REQUEST_TIMEOUT))
-                .await?;
-            parse_body::<SetBreakpointsResponseBody>(body).map(|b| b.breakpoints)
         })
     }
 
     /// Lists threads (and refreshes [`Self::known_threads`]).
     pub fn threads(&self) -> impl Future<Output = Result<Vec<Thread>>> + Send + 'static {
-        self.spawn(move |core| async move {
-            let conn = core.connection(false).await?;
-            let body = conn.request("threads", None, Some(REQUEST_TIMEOUT)).await?;
-            let threads = parse_body::<ThreadsResponseBody>(body)?.threads;
-            let generation = core.generation();
-            let mut data = core.lock();
-            if data.generation == generation {
-                data.threads = threads.iter().map(|t| (t.id, t.clone())).collect();
+        self.submit(false, move |core, conn| {
+            let request = conn.request("threads", None, Some(REQUEST_TIMEOUT));
+            let (core, generation) = (core.clone(), core.generation());
+            async move {
+                let threads = parse_body::<ThreadsResponseBody>(request.await?)?.threads;
+                let mut data = core.lock();
+                if data.generation == generation {
+                    data.threads = threads.iter().map(|t| (t.id, t.clone())).collect();
+                }
+                Ok(threads)
             }
-            Ok(threads)
         })
     }
 

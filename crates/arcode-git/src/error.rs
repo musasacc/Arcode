@@ -2,7 +2,7 @@
 
 use std::fmt;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Result alias for fallible git operations.
 pub type GitResult<T> = Result<T, GitError>;
@@ -16,6 +16,9 @@ pub enum GitError {
     GitNotFound,
     /// Spawning or talking to git failed.
     Io(io::Error),
+    /// The repository's working directory no longer exists (e.g. the
+    /// project folder was moved or deleted while open).
+    WorkdirMissing(PathBuf),
     /// The path is outside the working tree or not valid UTF-8.
     InvalidPath(PathBuf),
     /// git exited unsuccessfully; `stderr` holds its message (trimmed).
@@ -54,6 +57,9 @@ impl fmt::Display for GitError {
         match self {
             Self::GitNotFound => f.write_str("git is not installed or not on PATH"),
             Self::Io(err) => write!(f, "failed to run git: {err}"),
+            Self::WorkdirMissing(dir) => {
+                write!(f, "the folder {} no longer exists", dir.display())
+            }
             Self::InvalidPath(path) => write!(f, "invalid path: {}", path.display()),
             Self::Command { args, stderr, .. } if stderr.is_empty() => {
                 write!(f, "git {args} failed")
@@ -89,12 +95,23 @@ impl std::error::Error for GitError {
     }
 }
 
+impl GitError {
+    /// Maps an error from spawning git in `workdir`. `NotFound` means git is
+    /// missing only when the working directory exists: spawn reports a
+    /// missing `current_dir` with the same kind.
+    pub(crate) fn from_spawn(err: io::Error, workdir: &Path) -> Self {
+        match err.kind() {
+            io::ErrorKind::NotFound if !workdir.is_dir() => {
+                Self::WorkdirMissing(workdir.to_path_buf())
+            }
+            io::ErrorKind::NotFound => Self::GitNotFound,
+            _ => Self::Io(err),
+        }
+    }
+}
+
 impl From<io::Error> for GitError {
     fn from(err: io::Error) -> Self {
-        if err.kind() == io::ErrorKind::NotFound {
-            Self::GitNotFound
-        } else {
-            Self::Io(err)
-        }
+        Self::Io(err)
     }
 }

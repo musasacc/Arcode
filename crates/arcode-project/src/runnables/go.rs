@@ -4,7 +4,7 @@ use std::path::Path;
 
 use super::{RunnableKind, label};
 use crate::command::{RunCommand, RunKind, RunSource, args};
-use crate::fsutil;
+use crate::{fsutil, gofile};
 
 pub(super) fn command(
     file: &Path,
@@ -25,6 +25,11 @@ pub(super) fn command(
     };
     let pattern = anchored(name);
     let (list, run_kind) = match kind {
+        // `go run .` skips `//go:build ignore` files; name the file instead.
+        RunnableKind::Main if is_ignored_file(file) => (
+            args(&["run", &fsutil::rel_slash(file, &module)]),
+            RunKind::Run,
+        ),
         RunnableKind::Main => (args(&["run", &pkg]), RunKind::Run),
         RunnableKind::Test if !name.is_empty() => {
             (args(&["test", "-run", &pattern, &pkg]), RunKind::Test)
@@ -40,6 +45,10 @@ pub(super) fn command(
         RunCommand::new("go", list, &module, run_kind, RunSource::Go)
             .with_label(label(kind, shown)),
     )
+}
+
+fn is_ignored_file(file: &Path) -> bool {
+    std::fs::read_to_string(file).is_ok_and(|text| gofile::is_build_ignored(&text))
 }
 
 /// `TestA/sub case` → `^TestA$/^sub_case$` (go test turns spaces into `_`).

@@ -170,11 +170,14 @@ impl Vim {
             self.mode = Mode::Normal;
             return;
         };
-        if session.count > 1 && session.kind.is_some() && self.mode == Mode::Insert {
+        if session.count > 1 && session.kind.is_some() {
             self.insert = Some(InsertSession {
                 repeating: true,
                 ..session.clone()
             });
+            // The repetitions are not typed keys: keep them out of the `.`
+            // recording (it already ends with this `<Esc>`).
+            let replaying = std::mem::replace(&mut self.replaying, true);
             for _ in 1..session.count {
                 if matches!(session.kind, Some(InsertKind::Below | InsertKind::Above)) {
                     let cursors = self.open_lines(true, ed);
@@ -184,6 +187,7 @@ impl Vim {
                     self.insert_key(k, ed);
                 }
             }
+            self.replaying = replaying;
             self.insert = None;
         }
         self.registers.set(

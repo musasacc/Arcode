@@ -147,7 +147,33 @@ fn python_plan_uses_os_specific_interpreter() {
     assert_eq!(chosen.len(), 1);
     assert_eq!(
         chosen[0].step.command_line().as_deref(),
-        Some("python3 -m pip install --user python-lsp-server")
+        Some("pipx install python-lsp-server")
+    );
+    assert_eq!(chosen[0].requires, ["pipx"]);
+}
+
+/// Python CLI tools go through pipx (PEP 668 distro Pythons refuse
+/// `pip install --user`); debugpy, a library, keeps pip with a note on Unix.
+#[test]
+fn python_tools_avoid_pip_user_on_externally_managed_pythons() {
+    let py = pack_by_id("python").expect("python pack");
+    for os in Os::ALL {
+        let plan = install_plan(&py, os);
+        let ruff: Vec<_> = plan.iter().filter(|s| s.component == "ruff").collect();
+        assert_eq!(ruff.len(), 1);
+        assert_eq!(
+            ruff[0].step.command_line().as_deref(),
+            Some("pipx install ruff")
+        );
+        let debugpy: Vec<_> = plan.iter().filter(|s| s.component == "debugpy").collect();
+        let notes = debugpy.iter().filter(|s| s.step.is_manual()).count();
+        assert_eq!(notes, usize::from(os != Os::Windows), "{os:?}");
+    }
+    let cpp = pack_by_id("cpp").expect("cpp pack");
+    let clang_format = install_plan_for(&cpp, Os::Linux, &["clang-format"]);
+    assert_eq!(
+        clang_format[0].step.command_line().as_deref(),
+        Some("pipx install clang-format")
     );
 }
 
@@ -277,9 +303,10 @@ fn requirements_are_checked_once_each() {
         got,
         [
             ("npm".to_string(), ToolState::Installed),
+            ("pipx".to_string(), ToolState::Missing),
             ("python".to_string(), ToolState::Installed)
         ]
     );
     let got = check_requirements(&py, Os::Windows, &stub);
-    assert_eq!(got[1], ("python".to_string(), ToolState::Missing));
+    assert_eq!(got[2], ("python".to_string(), ToolState::Missing));
 }

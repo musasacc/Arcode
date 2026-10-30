@@ -19,6 +19,11 @@
 //! cursors). Use [`Vim::cursor_positions`] to know where to draw the block
 //! cursor in Visual modes. In Insert mode cursors are ordinary carets.
 //!
+//! As in Vim, a trailing line break ends the last line: the empty buffer
+//! line after it is not a Vim line (`G`, `j`, `dd`, `p` never land on it).
+//! Horizontal motions, `w`/`e`/`b`, `f`/`t`, `r` and `~` step over whole
+//! grapheme clusters, so a cursor never sits inside one.
+//!
 //! # Insert mode
 //!
 //! Vim handles text insertion itself (typed chars, Enter with auto-indent,

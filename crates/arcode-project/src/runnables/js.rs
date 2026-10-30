@@ -28,13 +28,18 @@ pub(super) fn command(
     let dir = fsutil::start_dir(file);
     let pkg_dir = node::nearest_package_dir(&dir, Some(root)).unwrap_or_else(|| root.to_path_buf());
     let json = fsutil::read_json(&pkg_dir.join("package.json")).unwrap_or(Value::Null);
-    let (pm, _) = node::node_package_manager(&pkg_dir, Some(root));
+    let (pm, pm_dir) = node::node_package_manager(&pkg_dir, Some(root));
+    // Monorepos usually declare test runners in the workspace root only.
+    let workspace_json = (pm_dir != pkg_dir)
+        .then(|| fsutil::read_json(&pm_dir.join("package.json")))
+        .flatten();
+    let manifests: Vec<&Value> = std::iter::once(&json).chain(&workspace_json).collect();
     let rel = fsutil::rel_slash(file, &pkg_dir);
     let (program, list, run_kind) = if kind == RunnableKind::Main {
-        let (program, list) = main_args(&json, pm, &rel);
+        let (program, list) = main_args(&manifests, pm, &rel);
         (program, list, RunKind::Run)
     } else {
-        let (program, list) = test_args(&json, pm, &rel, kind, name)?;
+        let (program, list) = test_args(&manifests, pm, &rel, kind, name)?;
         (program, list, RunKind::Test)
     };
     let shown = if kind == RunnableKind::Main { "" } else { name };
@@ -46,7 +51,7 @@ pub(super) fn command(
 
 /// Program and arguments for a test, test group or benchmark.
 fn test_args(
-    json: &Value,
+    manifests: &[&Value],
     pm: NodePackageManager,
     rel: &str,
     kind: RunnableKind,
@@ -66,7 +71,7 @@ fn test_args(
         list.extend(tail);
         (program.to_string(), list)
     };
-    let result = match framework(json, pm) {
+    let result = match framework(manifests, pm) {
         Framework::Vitest => {
             let mut tail = if bench {
                 args(&["vitest", "bench", "--run"])
@@ -101,13 +106,13 @@ fn test_args(
 /// `node <file>`; for TypeScript, `tsx`/`ts-node` when the package depends
 /// on one (modern Node runs `.ts` files directly otherwise); `bun <file>` in
 /// bun projects.
-fn main_args(json: &Value, pm: NodePackageManager, rel: &str) -> (String, Vec<String>) {
+fn main_args(manifests: &[&Value], pm: NodePackageManager, rel: &str) -> (String, Vec<String>) {
     let is_ts = [".ts", ".mts", ".cts", ".tsx"]
         .iter()
         .any(|e| rel.ends_with(e));
     let runner = ["tsx", "ts-node"]
         .into_iter()
-        .find(|r| is_ts && node::has_dependency(json, r));
+        .find(|r| is_ts && depends_on(manifests, r));
     match runner {
         Some(runner) => {
             let (program, mut list) = pm.exec_prefix();
@@ -119,14 +124,25 @@ fn main_args(json: &Value, pm: NodePackageManager, rel: &str) -> (String, Vec<St
     }
 }
 
-fn framework(json: &Value, pm: NodePackageManager) -> Framework {
-    if node::has_dependency(json, "vitest") {
-        Framework::Vitest
-    } else if node::has_dependency(json, "jest") {
-        Framework::Jest
-    } else if pm == NodePackageManager::Bun {
-        Framework::Bun
-    } else {
-        Framework::NodeTest
+/// Whether the package or its workspace root depends on `name`.
+fn depends_on(manifests: &[&Value], name: &str) -> bool {
+    manifests
+        .iter()
+        .any(|json| node::has_dependency(json, name))
+}
+
+/// The package's own runner wins over one declared in the workspace root.
+fn framework(manifests: &[&Value], pm: NodePackageManager) -> Framework {
+    let found = |name| {
+        manifests
+            .iter()
+            .position(|json| node::has_dependency(json, name))
+    };
+    match (found("vitest"), found("jest")) {
+        (Some(vitest), Some(jest)) if jest < vitest => Framework::Jest,
+        (Some(_), _) => Framework::Vitest,
+        (None, Some(_)) => Framework::Jest,
+        (None, None) if pm == NodePackageManager::Bun => Framework::Bun,
+        (None, None) => Framework::NodeTest,
     }
 }

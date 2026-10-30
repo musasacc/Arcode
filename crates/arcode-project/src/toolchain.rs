@@ -33,11 +33,26 @@ pub fn default_python() -> &'static str {
     if cfg!(windows) { "python" } else { "python3" }
 }
 
+impl PythonVenv {
+    /// Whether [`PythonVenv::python`] exists. It does not for a venv created
+    /// on another OS (e.g. a Windows venv opened from WSL), which cannot be
+    /// used here.
+    pub fn has_interpreter(&self) -> bool {
+        self.python.is_file()
+    }
+}
+
 /// Finds a virtual environment directly inside `root` (`.venv`, `venv`, `env`).
 ///
-/// A directory counts when it has a `pyvenv.cfg` or the interpreter exists.
+/// A directory counts when it has a `pyvenv.cfg` or the interpreter exists;
+/// check [`PythonVenv::has_interpreter`] before running its interpreter, or
+/// use [`find_usable_python_venv`].
 pub fn detect_python_venv(root: &Path) -> Option<PythonVenv> {
-    VENV_DIR_NAMES.iter().find_map(|name| {
+    venvs_in(root).next()
+}
+
+fn venvs_in(root: &Path) -> impl Iterator<Item = PythonVenv> + '_ {
+    VENV_DIR_NAMES.iter().filter_map(move |name| {
         let dir = root.join(name);
         let python = venv_python(&dir);
         (dir.join("pyvenv.cfg").is_file() || python.is_file()).then_some(PythonVenv { dir, python })
@@ -52,10 +67,18 @@ pub fn find_python_venv(start: &Path, boundary: Option<&Path>) -> Option<PythonV
         .find_map(|dir| detect_python_venv(dir))
 }
 
-/// The interpreter to run for files under `start`: the nearest virtual
-/// environment's interpreter, else [`default_python`].
+/// Like [`find_python_venv`], but only environments whose interpreter for
+/// this platform exists.
+pub fn find_usable_python_venv(start: &Path, boundary: Option<&Path>) -> Option<PythonVenv> {
+    fsutil::ancestors(start, boundary)
+        .iter()
+        .find_map(|dir| venvs_in(dir).find(PythonVenv::has_interpreter))
+}
+
+/// The interpreter to run for files under `start`: the nearest usable
+/// virtual environment's interpreter, else [`default_python`].
 pub fn python_program(start: &Path, boundary: Option<&Path>) -> String {
-    match find_python_venv(start, boundary) {
+    match find_usable_python_venv(start, boundary) {
         Some(venv) => venv.python.to_string_lossy().into_owned(),
         None => default_python().to_string(),
     }

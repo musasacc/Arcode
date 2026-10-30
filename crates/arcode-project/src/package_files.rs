@@ -215,7 +215,7 @@ fn pyproject_install(dir: &Path, boundary: Option<&Path>) -> InstallCommand {
 fn pip_install(dir: &Path, boundary: Option<&Path>, rest: Vec<String>) -> InstallCommand {
     let mut list = args(&["-m", "pip", "install"]);
     list.extend(rest);
-    match toolchain::find_python_venv(dir, boundary) {
+    match toolchain::find_usable_python_venv(dir, boundary) {
         Some(venv) => {
             let shown = fsutil::rel_slash(&venv.python, dir);
             make(&venv.python.to_string_lossy(), list, dir, Some(&shown))

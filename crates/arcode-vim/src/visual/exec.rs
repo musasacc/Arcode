@@ -60,10 +60,25 @@ impl Vim {
         }
         let old = ed.sels.primary().head;
         let mut jumped = false;
+        let vertical = matches!(
+            m,
+            Motion::Up
+                | Motion::Down
+                | Motion::HalfPageDown
+                | Motion::HalfPageUp
+                | Motion::PageDown
+                | Motion::PageUp
+        );
+        let block = self.mode == Mode::VisualBlock;
         for (r, t) in self.visual.regions.iter_mut().zip(targets) {
             if let Some(t) = t {
-                r.head = if m == Motion::LineEnd {
-                    t.pos
+                // `$` (and vertical moves after it) select through the
+                // line break.
+                let eol =
+                    m == Motion::LineEnd || (!block && vertical && t.goal == Some(usize::MAX));
+                r.head = if eol {
+                    let line = line_of(ed.b, t.pos);
+                    ed.b.line_end(line)
                 } else {
                     clamp_normal(ed.b, t.pos)
                 };
@@ -74,16 +89,7 @@ impl Vim {
         if jumped {
             self.marks.insert('\'', old);
         }
-        if self.mode == Mode::VisualBlock {
-            let vertical = matches!(
-                m,
-                Motion::Up
-                    | Motion::Down
-                    | Motion::HalfPageDown
-                    | Motion::HalfPageUp
-                    | Motion::PageDown
-                    | Motion::PageUp
-            );
+        if block {
             self.visual.eol = m == Motion::LineEnd || (self.visual.eol && vertical);
         }
         self.render_visual(ed);

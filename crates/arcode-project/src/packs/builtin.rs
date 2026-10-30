@@ -2,7 +2,7 @@
 
 use super::steps::{
     check, codelldb, comp, go_install, langservers_extracted_check, lldb_dap, note, npm_global,
-    optional, pack, pip_user, python_import_check, run, rustup_component,
+    optional, pack, pip_user, pipx, python_import_check, run, rustup_component,
 };
 use super::{ComponentKind, LanguagePack, Os};
 
@@ -62,8 +62,8 @@ fn python() -> LanguagePack {
                 ComponentKind::Lsp,
                 "python-lsp-server",
                 vec![check("pylsp", &["--version"])],
-                pip_user("python-lsp-server"),
-                &["python"],
+                vec![pipx("python-lsp-server")],
+                &["pipx"],
             )),
             comp(
                 ComponentKind::Debugger,
@@ -76,15 +76,15 @@ fn python() -> LanguagePack {
                 ComponentKind::Linter,
                 "ruff",
                 vec![check("ruff", &["--version"])],
-                pip_user("ruff"),
-                &["python"],
+                vec![pipx("ruff")],
+                &["pipx"],
             ),
             optional(comp(
                 ComponentKind::Formatter,
                 "black",
                 vec![check("black", &["--version"])],
-                pip_user("black"),
-                &["python"],
+                vec![pipx("black")],
+                &["pipx"],
             )),
         ],
     )
@@ -206,8 +206,8 @@ fn cpp() -> LanguagePack {
                 ComponentKind::Formatter,
                 "clang-format",
                 vec![check("clang-format", &["--version"])],
-                pip_user("clang-format"),
-                &["python"],
+                vec![pipx("clang-format")],
+                &["pipx"],
             ),
         ],
     )

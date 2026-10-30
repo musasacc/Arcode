@@ -93,9 +93,27 @@ fn markdown_outline_nests_sections() {
             o(1, Heading, "Install"),
             o(2, Heading, "From source"),
             o(1, Heading, "Usage"),
-            o(2, Heading, "Setext"),
+            // A level-2 setext heading is a sibling of `## Usage`.
+            o(1, Heading, "Setext"),
         ]
     );
+}
+
+#[test]
+fn markdown_setext_headings_open_sections() {
+    let src = "## Sub ##\n\ntext\n\nTop\n===\n\n### Deep\n\nNext\n----\n";
+    assert_eq!(
+        outline("markdown", src),
+        vec![
+            o(0, Heading, "Sub"),
+            o(0, Heading, "Top"),
+            o(1, Heading, "Deep"),
+            o(1, Heading, "Next"),
+        ]
+    );
+    let (text, syntax) = common::parse("markdown", src);
+    let ranges: Vec<_> = syntax.symbols(&text).into_iter().map(|i| i.range).collect();
+    assert_eq!(ranges, [0..4, 4..11, 7..9, 9..11]);
 }
 
 #[test]

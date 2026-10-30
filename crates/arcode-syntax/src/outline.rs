@@ -9,14 +9,22 @@
 //!   `(#set! join "...")` value (default `" "`), e.g. Rust
 //!   `impl Display for Point` becomes `Display for Point`.
 //! - when several patterns match the same `@item` node, the later one wins
-//!   (general patterns first, e.g. `function` before `method`).
+//!   (general patterns first, e.g. `function` before `method`). One pattern
+//!   matching the same `@item` with different names lists each name.
+//! - `(#set! level "n")` marks a heading of level `n`: the item spans from
+//!   the heading to the next heading of level `n` or lower (a section), so
+//!   sub-headings nest. `(#set! strip "atx_closing")` drops a Markdown
+//!   closing `##` sequence from the name.
 
 use std::ops::Range;
 
 use ropey::Rope;
 
 use crate::Syntax;
-use crate::query_match::{compact_text, matches, property};
+use crate::query_match::{matches, name_text, property};
+use crate::rope_text::line_span;
+
+mod headings;
 
 /// What kind of symbol an [`OutlineItem`] is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -78,11 +86,12 @@ impl OutlineKind {
 /// One symbol in the document outline.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OutlineItem {
-    /// Display name, whitespace collapsed (e.g. `"main"`, `"Display for Point"`).
+    /// Display name, whitespace collapsed (e.g. `"main"`, `"Display for Point"`);
+    /// string-literal names lose their quotes.
     pub name: String,
     /// What kind of symbol it is.
     pub kind: OutlineKind,
-    /// Zero-based lines the symbol spans, end exclusive
+    /// Zero-based rope lines the symbol spans, end exclusive
     /// (`start_line..last_line + 1`).
     pub range: Range<usize>,
     /// Nesting depth: the number of outline items that enclose this one.
@@ -94,6 +103,14 @@ pub struct OutlineItem {
     pub name_range: Range<usize>,
 }
 
+/// An outline item found by the query, before dedup and depths.
+struct Found {
+    pattern: usize,
+    /// Heading level for `(#set! level "n")` patterns (see [`headings`]).
+    level: Option<u8>,
+    item: OutlineItem,
+}
+
 impl Syntax {
     /// Lists the document's symbols in document order (parents before
     /// children), each with its nesting [`OutlineItem::depth`].
@@ -101,83 +118,106 @@ impl Syntax {
     /// Returns an empty `Vec` for languages without an outline query.
     /// Cost is linear in the file size (about 150 ms for 100k lines of Rust
     /// in release), so cache the result per parse and, for big files, call
-    /// it off the UI thread.
+    /// it off the UI thread. [`OutlineItem::range`] holds rope lines
+    /// (ropey's line breaks, like [`Syntax::highlight_lines`]).
     /// `text` must be the text this tree was last parsed from.
     pub fn symbols(&self, text: &Rope) -> Vec<OutlineItem> {
         let Some(query) = self.language().outline_query() else {
             return Vec::new();
         };
-        let mut found: Vec<(usize, OutlineItem)> = Vec::new();
+        let mut found: Vec<Found> = Vec::new();
         for matched in matches(query, self.tree().root_node(), text) {
             let Some(item) = matched.node("item") else {
                 continue;
             };
-            let Some(kind) =
-                property(query, matched.pattern, "kind").and_then(OutlineKind::from_query_name)
-            else {
+            let prop = |key| property(query, matched.pattern, key);
+            let Some(kind) = prop("kind").and_then(OutlineKind::from_query_name) else {
                 continue;
             };
             let names: Vec<_> = matched.nodes("name").collect();
             let (Some(first), Some(last)) = (names.first(), names.last()) else {
                 continue;
             };
-            let join = property(query, matched.pattern, "join").unwrap_or(" ");
-            let name = names
+            let mut name = names
                 .iter()
-                .map(|node| compact_text(text, *node))
+                .map(|node| name_text(text, *node))
                 .collect::<Vec<_>>()
-                .join(join);
+                .join(prop("join").unwrap_or(" "));
+            if prop("strip") == Some("atx_closing") {
+                name = headings::strip_atx_closing(&name).to_string();
+            }
             if name.is_empty() {
                 continue;
             }
-            let end = item.end_position();
-            // A node ending at column 0 ends on the previous line's break.
-            let last_line = if end.column == 0 && end.row > item.start_position().row {
-                end.row - 1
-            } else {
-                end.row
-            };
-            found.push((
-                matched.pattern,
-                OutlineItem {
+            found.push(Found {
+                pattern: matched.pattern,
+                level: prop("level").and_then(|level| level.parse().ok()),
+                item: OutlineItem {
                     name,
                     kind,
-                    range: item.start_position().row..last_line + 1,
+                    range: 0..0,
                     depth: 0,
                     byte_range: item.byte_range(),
                     name_range: first.start_byte()..last.end_byte(),
                 },
-            ));
+            });
         }
-        found.sort_by(|(pa, a), (pb, b)| {
-            (a.byte_range.start, b.byte_range.end, pa).cmp(&(
-                b.byte_range.start,
-                a.byte_range.end,
-                pb,
-            ))
+        headings::extend_sections(&mut found, text.len_bytes());
+        found.sort_by_key(|f| {
+            let range = &f.item.byte_range;
+            (
+                range.start,
+                std::cmp::Reverse(range.end),
+                f.pattern,
+                f.item.name_range.start,
+            )
         });
-        let mut items: Vec<OutlineItem> = Vec::with_capacity(found.len());
-        for (_, next) in found {
-            match items.last_mut() {
-                Some(last) if last.byte_range == next.byte_range => *last = next,
-                _ => items.push(next),
-            }
-        }
+        let mut items = dedup(found);
         assign_depths(&mut items);
+        for item in &mut items {
+            item.range = line_span(text, item.byte_range.clone());
+        }
         items
     }
 }
 
+/// Removes duplicates of one `@item` node: a later pattern replaces every
+/// earlier one; the same pattern keeps each distinct name (Go
+/// `const a, b = 1, 2` yields `a` and `b`). `found` must be sorted.
+fn dedup(found: Vec<Found>) -> Vec<OutlineItem> {
+    let mut kept: Vec<Found> = Vec::with_capacity(found.len());
+    for next in found {
+        let same_node = |f: &Found| f.item.byte_range == next.item.byte_range;
+        match kept.last() {
+            Some(last) if same_node(last) && last.pattern != next.pattern => {
+                while kept.last().is_some_and(same_node) {
+                    kept.pop();
+                }
+            }
+            Some(last) if same_node(last) && last.item.name_range == next.item.name_range => {
+                continue;
+            }
+            _ => {}
+        }
+        kept.push(next);
+    }
+    kept.into_iter().map(|found| found.item).collect()
+}
+
 /// Sets each item's depth from range nesting. `items` must be sorted by
-/// start ascending, end descending, with no duplicate ranges.
+/// start ascending, end descending; items with the same range are
+/// siblings.
 fn assign_depths(items: &mut [OutlineItem]) {
-    let mut open: Vec<usize> = Vec::new();
+    let mut open: Vec<Range<usize>> = Vec::new();
     for item in items {
-        while open.last().is_some_and(|&end| end <= item.byte_range.start) {
+        while open
+            .last()
+            .is_some_and(|r| r.end <= item.byte_range.start || *r == item.byte_range)
+        {
             open.pop();
         }
         item.depth = open.len();
-        open.push(item.byte_range.end);
+        open.push(item.byte_range.clone());
     }
 }
 
@@ -208,6 +248,14 @@ mod tests {
         assign_depths(&mut items);
         let depths: Vec<_> = items.iter().map(|i| i.depth).collect();
         assert_eq!(depths, [0, 1, 2, 1, 0]);
+    }
+
+    #[test]
+    fn same_range_items_are_siblings() {
+        let mut items = vec![item(0..100), item(10..20), item(10..20), item(30..40)];
+        assign_depths(&mut items);
+        let depths: Vec<_> = items.iter().map(|i| i.depth).collect();
+        assert_eq!(depths, [0, 1, 1, 1]);
     }
 
     #[test]

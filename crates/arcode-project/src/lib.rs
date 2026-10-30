@@ -22,6 +22,7 @@
 mod cargo;
 mod command;
 mod fsutil;
+mod gofile;
 mod install_state;
 mod node;
 mod package_files;

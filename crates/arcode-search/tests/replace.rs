@@ -87,6 +87,17 @@ fn file_replace_writes_and_rejects_bad_files() {
     )
     .unwrap_err();
     assert!(matches!(err, SearchError::Binary(_)));
+
+    // UTF-16 with a BOM is text in a foreign encoding, not binary.
+    let mut wide = vec![0xFE, 0xFF];
+    for unit in "one\n".encode_utf16() {
+        wide.extend(unit.to_be_bytes());
+    }
+    let wide_path = dir.path().join("wide.txt");
+    std::fs::write(&wide_path, &wide).unwrap();
+    let err = replace_in_file(&wide_path, &SearchQuery::new("one"), "x", None).unwrap_err();
+    assert!(matches!(err, SearchError::NotUtf8(_)));
+    assert_eq!(std::fs::read(&wide_path).unwrap(), wide);
 }
 
 #[test]

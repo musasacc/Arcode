@@ -1,6 +1,6 @@
 //! Char finds (`f t F T`), bracket matching (`%`) and paragraphs (`{ }`).
 
-use arcode_buffer::Buffer;
+use arcode_buffer::{Buffer, movement};
 
 use crate::text::{ch, last_line, line_empty, line_of};
 
@@ -22,8 +22,9 @@ impl FindSpec {
     }
 }
 
-/// The `count`-th occurrence of the find on the current line. `repeat`
-/// (for `;`/`,`) skips a `t`/`T` target right next to the cursor.
+/// The `count`-th occurrence of the find on the current line, stepping
+/// over grapheme clusters (`t` stops before the target's cluster).
+/// `repeat` (for `;`/`,`) skips a `t`/`T` target right next to the cursor.
 pub(crate) fn find_char(
     b: &Buffer,
     pos: usize,
@@ -33,32 +34,41 @@ pub(crate) fn find_char(
 ) -> Option<usize> {
     let line = line_of(b, pos);
     let (start, end) = (b.line_start(line), b.line_end(line));
-    let skip = usize::from(spec.till && repeat);
+    let skip = spec.till && repeat;
     let mut found = 0;
     if spec.forward {
-        let mut j = pos + 1 + skip;
+        let mut j = movement::right(b, pos);
+        if skip {
+            j = movement::right(b, j);
+        }
         while j < end {
             if ch(b, j) == spec.ch {
                 found += 1;
                 if found == count {
-                    return Some(if spec.till { j - 1 } else { j });
+                    return Some(if spec.till { movement::left(b, j) } else { j });
                 }
             }
-            j += 1;
+            j = movement::right(b, j).max(j + 1);
         }
     } else {
-        let mut j = pos.checked_sub(1 + skip)?;
-        while j >= start {
+        if pos <= start || (skip && movement::left(b, pos) <= start) {
+            return None;
+        }
+        let mut j = movement::left(b, pos);
+        if skip {
+            j = movement::left(b, j);
+        }
+        loop {
             if ch(b, j) == spec.ch {
                 found += 1;
                 if found == count {
-                    return Some(if spec.till { j + 1 } else { j });
+                    return Some(if spec.till { movement::right(b, j) } else { j });
                 }
             }
-            if j == 0 {
+            if j <= start {
                 break;
             }
-            j -= 1;
+            j = movement::left(b, j);
         }
     }
     None
@@ -116,7 +126,7 @@ pub(crate) fn find_open(b: &Buffer, before: usize, open: char, close: char) -> O
 }
 
 /// `}`: start of the `count`-th empty line after the current paragraph,
-/// or the buffer end.
+/// or the end of the last line.
 pub(crate) fn paragraph_forward(b: &Buffer, pos: usize, count: usize) -> usize {
     let last = last_line(b);
     let mut line = line_of(b, pos);
@@ -128,7 +138,7 @@ pub(crate) fn paragraph_forward(b: &Buffer, pos: usize, count: usize) -> usize {
             line += 1;
         }
         if line > last {
-            return b.len_chars();
+            return b.line_end(last);
         }
     }
     b.line_start(line)
@@ -179,9 +189,12 @@ mod tests {
         assert_eq!(match_pair(&b, 11), Some(1));
         assert_eq!(match_pair(&b, 3), Some(5));
         assert_eq!(paragraph_forward(&b, 0, 1), 13);
-        assert_eq!(paragraph_forward(&b, 0, 2), 19);
-        assert_eq!(paragraph_forward(&b, 0, 3), b.len_chars());
+        // The trailing `\n` ends line `y`; it does not start a paragraph.
+        assert_eq!(paragraph_forward(&b, 0, 2), 18);
+        assert_eq!(paragraph_forward(&b, 0, 3), 18);
         assert_eq!(paragraph_backward(&b, 17, 1), 14);
         assert_eq!(paragraph_backward(&b, 17, 2), 0);
+        let b = Buffer::new("a\n\nb");
+        assert_eq!(paragraph_forward(&b, 3, 1), b.len_chars());
     }
 }

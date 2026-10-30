@@ -263,32 +263,44 @@ impl Permissions {
             let write = store.decide(id, &Capability::WorkspaceWrite, caps, network_enabled);
             (read, write)
         };
-        let (read, write) = if read == Decision::Ask || (read == Decision::Allow && write == Decision::Ask) {
-            let kind = ConsentKind::Workspace {
-                write: wants_write,
-                network: caps.network.is_some(),
-            };
-            let answer = self.provider.ask(&request(manifest, Some(project), kind), cancel);
-            let mut store = lock(&self.store);
-            match answer {
-                ConsentAnswer::Allow { scope, write: w } => {
-                    store.record(id, &Capability::WorkspaceRead, GrantState::Allow, scope);
-                    let w = w && wants_write;
-                    if wants_write {
-                        let state = if w { GrantState::Allow } else { GrantState::Deny };
-                        store.record(id, &Capability::WorkspaceWrite, state, scope);
+        let (read, write) =
+            if read == Decision::Ask || (read == Decision::Allow && write == Decision::Ask) {
+                let kind = ConsentKind::Workspace {
+                    write: wants_write,
+                    network: caps.network.is_some(),
+                };
+                let answer = self
+                    .provider
+                    .ask(&request(manifest, Some(project), kind), cancel);
+                let mut store = lock(&self.store);
+                match answer {
+                    ConsentAnswer::Allow { scope, write: w } => {
+                        store.record(id, &Capability::WorkspaceRead, GrantState::Allow, scope);
+                        let w = w && wants_write;
+                        if wants_write {
+                            let state = if w {
+                                GrantState::Allow
+                            } else {
+                                GrantState::Deny
+                            };
+                            store.record(id, &Capability::WorkspaceWrite, state, scope);
+                        }
+                        (true, w)
                     }
-                    (true, w)
+                    ConsentAnswer::Deny => {
+                        store.record(
+                            id,
+                            &Capability::WorkspaceRead,
+                            GrantState::Deny,
+                            GrantScope::Project,
+                        );
+                        (false, false)
+                    }
+                    ConsentAnswer::Dismissed => (false, false),
                 }
-                ConsentAnswer::Deny => {
-                    store.record(id, &Capability::WorkspaceRead, GrantState::Deny, GrantScope::Project);
-                    (false, false)
-                }
-                ConsentAnswer::Dismissed => (false, false),
-            }
-        } else {
-            (read == Decision::Allow, write == Decision::Allow)
-        };
+            } else {
+                (read == Decision::Allow, write == Decision::Allow)
+            };
         match (read, write) {
             (true, true) => FileGrant::ReadWrite,
             (true, false) => FileGrant::Read,

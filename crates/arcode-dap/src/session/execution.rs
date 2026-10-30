@@ -56,22 +56,25 @@ impl DebugSessionHandle {
     where
         T: DeserializeOwned + Default + Send + 'static,
     {
-        self.spawn(move |core| async move {
-            let args = args?;
-            let conn = core.connection(false).await?;
-            let generation = core.generation();
-            let previous =
-                core.transition(generation, SessionState::is_stopped, SessionState::Running);
-            let result = conn
-                .request(command, Some(args), Some(REQUEST_TIMEOUT))
-                .await;
-            if result.is_err()
-                && let Some(previous) = previous
-            {
-                core.transition(generation, |s| *s == SessionState::Running, previous);
-            }
-            parse_body(result?)
-        })
+        let fut = args.map(|args| {
+            self.submit(false, move |core, conn| {
+                let generation = core.generation();
+                let previous =
+                    core.transition(generation, SessionState::is_stopped, SessionState::Running);
+                let request = conn.request(command, Some(args), Some(REQUEST_TIMEOUT));
+                let core = core.clone();
+                async move {
+                    let result = request.await;
+                    if result.is_err()
+                        && let Some(previous) = previous
+                    {
+                        core.transition(generation, |s| *s == SessionState::Running, previous);
+                    }
+                    parse_body(result?)
+                }
+            })
+        });
+        async move { fut?.await }
     }
 
     /// Asks the adapter to pause `thread_id`; a `stopped` event follows.

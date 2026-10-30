@@ -24,11 +24,13 @@ pub(crate) struct Ed<'a> {
 }
 
 /// A clipboard paste waiting for [`Vim::paste_clipboard`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PendingPaste {
     pub before: bool,
     pub cursor_after: bool,
     pub count: usize,
+    /// The `.` recording of the paste command, kept once the paste edits.
+    pub dot: Option<DotRec>,
 }
 
 /// Vim mode state for one editor (see the crate docs).

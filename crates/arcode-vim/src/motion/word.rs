@@ -1,8 +1,26 @@
 //! Word motions: `w W e E b B ge gE`.
+//!
+//! The motions step over whole grapheme clusters and classify a cluster
+//! by its base char, so a combining mark never splits a word.
 
-use arcode_buffer::Buffer;
+use arcode_buffer::{Buffer, movement};
 
 use crate::text::{Class, ch, class, is_empty_line_at};
+
+/// Start of the grapheme after the one at `i`.
+fn nx(b: &Buffer, i: usize) -> usize {
+    movement::right(b, i).max(i + 1)
+}
+
+/// Start of the grapheme before `i`.
+fn pv(b: &Buffer, i: usize) -> usize {
+    movement::left(b, i).min(i.saturating_sub(1))
+}
+
+/// Class of the grapheme starting at `i`.
+fn cls(b: &Buffer, i: usize, big: bool) -> Class {
+    class(ch(b, i), big)
+}
 
 /// Start of the next word (`w`). An empty line counts as a word. With
 /// `stop_eol` (the last step of an operator's `w`), stops at the end of the
@@ -13,10 +31,10 @@ pub(crate) fn next_word_start(b: &Buffer, pos: usize, big: bool, stop_eol: bool)
         return n;
     }
     let mut i = pos;
-    let c0 = class(ch(b, i), big);
+    let c0 = cls(b, i, big);
     if c0 != Class::Space {
-        while i < n && class(ch(b, i), big) == c0 {
-            i += 1;
+        while i < n && cls(b, i, big) == c0 {
+            i = nx(b, i);
         }
     }
     while i < n {
@@ -25,38 +43,43 @@ pub(crate) fn next_word_start(b: &Buffer, pos: usize, big: bool, stop_eol: bool)
             if stop_eol && i > pos {
                 return i;
             }
-            i += 1;
+            i = nx(b, i);
             if stop_eol || i >= n || ch(b, i) == '\n' {
-                return i;
+                return i.min(n);
             }
             continue;
         }
         if !c.is_whitespace() {
             break;
         }
-        i += 1;
+        i = nx(b, i);
     }
-    i
+    i.min(n)
 }
 
-/// End of the current or next word (`e`); always moves at least one char.
+/// End of the current or next word (`e`); always moves at least one
+/// grapheme. Returns the start of the word's last grapheme.
 pub(crate) fn next_word_end(b: &Buffer, pos: usize, big: bool) -> usize {
     let n = b.len_chars();
     if n == 0 {
         return 0;
     }
-    let mut i = pos + 1;
-    while i < n && class(ch(b, i), big) == Class::Space {
-        i += 1;
+    let mut i = nx(b, pos);
+    while i < n && cls(b, i, big) == Class::Space {
+        i = nx(b, i);
     }
     if i >= n {
-        return n - 1;
+        return pv(b, n);
     }
-    let c = class(ch(b, i), big);
-    while i + 1 < n && class(ch(b, i + 1), big) == c {
-        i += 1;
+    let c = cls(b, i, big);
+    loop {
+        let j = nx(b, i);
+        if j < n && cls(b, j, big) == c {
+            i = j;
+        } else {
+            return i;
+        }
     }
-    i
 }
 
 /// Start of the current or previous word (`b`). Stops at empty lines.
@@ -64,16 +87,20 @@ pub(crate) fn prev_word_start(b: &Buffer, pos: usize, big: bool) -> usize {
     if pos == 0 {
         return 0;
     }
-    let mut i = pos - 1;
-    while class(ch(b, i), big) == Class::Space {
+    let mut i = pv(b, pos);
+    while cls(b, i, big) == Class::Space {
         if is_empty_line_at(b, i) || i == 0 {
             return i;
         }
-        i -= 1;
+        i = pv(b, i);
     }
-    let c = class(ch(b, i), big);
-    while i > 0 && class(ch(b, i - 1), big) == c {
-        i -= 1;
+    let c = cls(b, i, big);
+    while i > 0 {
+        let j = pv(b, i);
+        if cls(b, j, big) != c {
+            break;
+        }
+        i = j;
     }
     i
 }
@@ -81,21 +108,25 @@ pub(crate) fn prev_word_start(b: &Buffer, pos: usize, big: bool) -> usize {
 /// End of the previous word (`ge`). Stops at empty lines.
 pub(crate) fn prev_word_end(b: &Buffer, pos: usize, big: bool) -> usize {
     let mut i = pos;
-    let c0 = class(ch(b, pos), big);
+    let c0 = cls(b, pos, big);
     if c0 != Class::Space {
-        while i > 0 && class(ch(b, i - 1), big) == c0 {
-            i -= 1;
+        while i > 0 {
+            let j = pv(b, i);
+            if cls(b, j, big) != c0 {
+                break;
+            }
+            i = j;
         }
     }
     if i == 0 {
         return 0;
     }
-    i -= 1;
+    i = pv(b, i);
     loop {
-        if class(ch(b, i), big) != Class::Space || is_empty_line_at(b, i) || i == 0 {
+        if cls(b, i, big) != Class::Space || is_empty_line_at(b, i) || i == 0 {
             return i;
         }
-        i -= 1;
+        i = pv(b, i);
     }
 }
 
@@ -122,5 +153,16 @@ mod tests {
         assert_eq!(prev_word_end(&b, 13, false), 11);
         assert_eq!(prev_word_end(&b, 9, false), 6);
         assert_eq!(prev_word_end(&b, 4, false), 3);
+    }
+
+    #[test]
+    fn combining_marks_stay_in_their_word() {
+        let b = Buffer::new("cafe\u{301} x\u{301}y");
+        assert_eq!(next_word_start(&b, 0, false, false), 6);
+        assert_eq!(next_word_end(&b, 0, false), 3);
+        assert_eq!(next_word_end(&b, 3, false), 8);
+        assert_eq!(prev_word_start(&b, 6, false), 0);
+        assert_eq!(prev_word_end(&b, 6, false), 3);
+        assert_eq!(prev_word_start(&b, 9, false), 6);
     }
 }

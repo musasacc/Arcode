@@ -5,7 +5,9 @@ use arcode_buffer::{Buffer, SelectionSet, movement};
 use crate::normal::status;
 use crate::ops::Region;
 use crate::registers::is_clipboard;
-use crate::text::{char_at_display_col, display_col, first_non_blank, last_line, line_of};
+use crate::text::{
+    char_at_display_col, display_col, first_non_blank, has_line_break, last_line, line_of,
+};
 use crate::types::{Register, RegisterKind, VimAction, VimContext};
 use crate::vim::{Ed, PendingPaste, Vim};
 
@@ -30,10 +32,14 @@ impl Vim {
     ) -> VimAction {
         let name = reg.unwrap_or('"');
         if is_clipboard(name) {
+            // The edit happens later, in `paste_clipboard`, which keeps
+            // the `.` recording once the buffer changed.
+            let dot = self.dot.take();
             self.pending_paste = Some(PendingPaste {
                 before,
                 cursor_after,
                 count,
+                dot,
             });
             return VimAction::PasteRequest;
         }
@@ -80,6 +86,11 @@ impl Vim {
             self.put(&r, p.before, p.cursor_after, p.count, &mut ed);
         }
         ed.b.break_undo_group();
+        if let Some(d) = p.dot
+            && ed.b.version() != d.version
+        {
+            self.last_change = Some(d);
+        }
     }
 
     /// Pastes `r` `count` times at every cursor.
@@ -97,7 +108,6 @@ impl Vim {
         }
         let heads = Self::heads(ed);
         let distribute = heads.len() > 1 && r.pieces.len() == heads.len();
-        let last = last_line(ed.b);
         let mut edits = Vec::new();
         let mut skip = Vec::new();
         for (i, &p) in heads.iter().enumerate() {
@@ -113,7 +123,7 @@ impl Vim {
                     t.push('\n');
                 }
                 let t = t.repeat(count);
-                if before || line < last {
+                if before || has_line_break(ed.b, line) {
                     let at = ed.b.line_start(if before { line } else { line + 1 });
                     edits.push((at..at, t));
                     skip.push(0);
@@ -194,7 +204,12 @@ impl Vim {
         }
         if !extra.is_empty() {
             let at = ed.b.len_chars();
-            edits.push((at..at, format!("\n{}", extra.join("\n"))));
+            let text = if has_line_break(ed.b, last) {
+                format!("{}\n", extra.join("\n"))
+            } else {
+                format!("\n{}", extra.join("\n"))
+            };
+            edits.push((at..at, text));
         }
         let first_pad = edits
             .first()

@@ -39,6 +39,7 @@ fn package_from_table(dir: &Path, table: &Table) -> Option<CargoPackage> {
         .get("default-run")
         .and_then(Value::as_str)
         .map(str::to_string);
+    let discovered = auto_bins(dir, &name);
     let mut bins: Vec<(String, String)> = Vec::new();
     for bin in table
         .get("bin")
@@ -53,7 +54,7 @@ fn package_from_table(dir: &Path, table: &Table) -> Option<CargoPackage> {
             .get("path")
             .and_then(Value::as_str)
             .map(str::to_string)
-            .unwrap_or_else(|| format!("src/bin/{bin_name}.rs"));
+            .unwrap_or_else(|| inferred_bin_path(&discovered, bin_name));
         bins.push((bin_name.to_string(), path));
     }
     let autobins = package
@@ -61,7 +62,7 @@ fn package_from_table(dir: &Path, table: &Table) -> Option<CargoPackage> {
         .and_then(Value::as_bool)
         .unwrap_or(true);
     if autobins {
-        for (bin_name, path) in auto_bins(dir, &name) {
+        for (bin_name, path) in discovered {
             let taken = bins.iter().any(|(n, p)| *n == bin_name || *p == path);
             if !taken {
                 bins.push((bin_name, path));
@@ -74,6 +75,18 @@ fn package_from_table(dir: &Path, table: &Table) -> Option<CargoPackage> {
         bins,
         default_run,
     })
+}
+
+/// The source of a `[[bin]]` without `path`, as Cargo infers it: the
+/// discovered target of that name (`src/main.rs` when it is named like the
+/// package, `src/bin/<name>.rs`, `src/bin/<name>/main.rs`), else
+/// `src/bin/<name>.rs`.
+fn inferred_bin_path(discovered: &[(String, String)], bin_name: &str) -> String {
+    discovered
+        .iter()
+        .find(|(n, _)| n == bin_name)
+        .map(|(_, p)| p.clone())
+        .unwrap_or_else(|| format!("src/bin/{bin_name}.rs"))
 }
 
 /// `src/main.rs`, `src/bin/*.rs` and `src/bin/*/main.rs`.

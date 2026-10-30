@@ -131,6 +131,16 @@ fn run_op(state: &mut Echo, args: &Value) -> Result<()> {
             kv::delete(scope, "never-set");
             json!({"set": set.err(), "get": got, "keys": keys})
         }
+        "kv-get" => {
+            let scope = if args["project"].as_bool() == Some(true) {
+                kv::Scope::Project
+            } else {
+                kv::Scope::Global
+            };
+            let got = kv::get(scope, str_arg(args, "key"))
+                .map(|v| String::from_utf8_lossy(&v).into_owned());
+            json!({"get": got, "keys": kv::keys(scope, "")})
+        }
         "root-name" => json!(workspace::root_name()),
         "find-files" => {
             match workspace::find_files(str_arg(args, "glob"), u32_arg(args, "limit")) {

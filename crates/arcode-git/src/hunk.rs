@@ -126,17 +126,25 @@ pub fn diff_against_index(repo: &Repo, rel_path: &Path, current_text: &str) -> V
 }
 
 /// Hunks staged for `rel_path`: `HEAD` (old) against the index (new).
-/// Pass them to [`crate::unstage_hunk`].
+/// Pass them to [`crate::unstage_hunk`]. A staged deletion is one
+/// [`ChangeKind::Deleted`] hunk (when the `HEAD` file is not empty); a path
+/// with unresolved conflicts has no staged hunks.
 pub fn staged_hunks(repo: &Repo, rel_path: &Path) -> GitResult<Vec<Hunk>> {
     let path = repo_path(repo, rel_path)?;
     let text = |base| match base {
-        Base::Text(text) => Ok(text),
+        Base::Text(text) => Ok(Some(text)),
         Base::Binary => Err(crate::GitError::Binary(path.rel.clone())),
-        Base::Missing => Ok(String::new()),
+        Base::Missing => Ok(None),
     };
-    let head = text(blob_text(repo, rel_path, "HEAD:"))?;
     let index = text(blob_text(repo, rel_path, ":0:"))?;
-    Ok(diff_hunks(&head, &index))
+    if index.is_none() && crate::stage::is_unmerged(repo, &path)? {
+        return Ok(Vec::new());
+    }
+    let head = text(blob_text(repo, rel_path, "HEAD:"))?;
+    Ok(diff_hunks(
+        head.as_deref().unwrap_or_default(),
+        index.as_deref().unwrap_or_default(),
+    ))
 }
 
 /// True when the path is inside the working tree and not ignored. Ignored

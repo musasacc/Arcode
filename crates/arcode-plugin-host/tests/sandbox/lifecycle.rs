@@ -11,7 +11,12 @@ use serde_json::json;
 use crate::common::*;
 
 fn echo_services(app: &App) -> arcode_plugin_host::Services {
-    services(app, Arc::new(DenyAll), Arc::new(FakeEditor::default()), Arc::new(FakeHttp::default()))
+    services(
+        app,
+        Arc::new(DenyAll),
+        Arc::new(FakeEditor::default()),
+        Arc::new(FakeHttp::default()),
+    )
 }
 
 #[test]
@@ -29,15 +34,24 @@ fn second_load_deserializes_without_compiling() {
         if round == 0 {
             assert_eq!((compiles, hits), (1, 0), "first load compiles");
         } else {
-            assert_eq!((compiles, hits), (0, 1), "second load comes from the .cwasm");
+            assert_eq!(
+                (compiles, hits),
+                (0, 1),
+                "second load comes from the .cwasm"
+            );
         }
     }
-    let entries: Vec<_> = std::fs::read_dir(cache.path().join("cwasm")).unwrap().collect();
+    let entries: Vec<_> = std::fs::read_dir(cache.path().join("cwasm"))
+        .unwrap()
+        .collect();
     assert_eq!(entries.len(), 1);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(cache.path().join("cwasm")).unwrap().permissions().mode();
+        let mode = std::fs::metadata(cache.path().join("cwasm"))
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o777, 0o700);
     }
 }
@@ -78,22 +92,39 @@ fn idle_instance_thread_is_blocked_on_its_mailbox() {
     let app = App::start(None);
     let (rt, _cache) = runtime(|_| {});
     let h = handle(&rt, fixture("echo"), echo_services(&app), None);
-    assert_eq!(command(&h, "echo", json!({"op": "cancelled"}), false), Ok(CallOutput::Done));
+    assert_eq!(
+        command(&h, "echo", json!({"op": "cancelled"}), false),
+        Ok(CallOutput::Done)
+    );
     std::thread::sleep(Duration::from_millis(50));
     let wakeups = h.stats().wakeups.load(Ordering::SeqCst);
     let ticks = rt.ticker().unwrap().increments();
     std::thread::sleep(Duration::from_millis(500));
-    assert_eq!(h.stats().wakeups.load(Ordering::SeqCst), wakeups, "the thread did not wake up");
-    assert_eq!(rt.ticker().unwrap().increments(), ticks, "no epoch ticks while idle");
+    assert_eq!(
+        h.stats().wakeups.load(Ordering::SeqCst),
+        wakeups,
+        "the thread did not wake up"
+    );
+    assert_eq!(
+        rt.ticker().unwrap().increments(),
+        ticks,
+        "no epoch ticks while idle"
+    );
     assert!(h.thread_running() && h.stats().loaded.load(Ordering::SeqCst));
     #[cfg(target_os = "linux")]
     {
         // Thread names are cut to 15 bytes by the kernel. Other tests run
         // echo instances in parallel, so ours is one of possibly several.
         let states = plugin_thread_states("plugin-test.ech");
-        assert!(states.iter().any(|s| s == "S"), "a sleeping instance thread: {states:?}");
+        assert!(
+            states.iter().any(|s| s == "S"),
+            "a sleeping instance thread: {states:?}"
+        );
         let tickers = plugin_thread_states("plugin-epoch");
-        assert!(tickers.iter().any(|s| s == "S"), "a parked ticker: {tickers:?}");
+        assert!(
+            tickers.iter().any(|s| s == "S"),
+            "a parked ticker: {tickers:?}"
+        );
     }
 }
 
@@ -102,19 +133,34 @@ fn idle_unload_calls_deactivate_and_restarts_on_demand() {
     let app = App::start(None);
     let (rt, _cache) = runtime(|c| c.idle_timeout = Duration::from_millis(200));
     let h = handle(&rt, fixture("echo"), echo_services(&app), None);
-    assert_eq!(command(&h, "echo", json!({"op": "cancelled"}), false), Ok(CallOutput::Done));
+    assert_eq!(
+        command(&h, "echo", json!({"op": "cancelled"}), false),
+        Ok(CallOutput::Done)
+    );
     let start = Instant::now();
-    assert!(h.wait_stopped(Duration::from_secs(5)), "unloaded after the idle timeout");
+    assert!(
+        h.wait_stopped(Duration::from_secs(5)),
+        "unloaded after the idle timeout"
+    );
     assert!(start.elapsed() >= Duration::from_millis(150));
-    assert_eq!(json_lines(&h).last().unwrap(), &json!({"export": "deactivate"}));
+    assert_eq!(
+        json_lines(&h).last().unwrap(),
+        &json!({"export": "deactivate"})
+    );
     assert!(!h.stats().loaded.load(Ordering::SeqCst));
     assert!(app.wait_for(|o| matches!(o, PluginOutput::Unloaded { .. })));
 
     // The next call starts a new thread and activates with `restore`.
-    assert_eq!(command(&h, "echo", json!({"op": "cancelled"}), false), Ok(CallOutput::Done));
+    assert_eq!(
+        command(&h, "echo", json!({"op": "cancelled"}), false),
+        Ok(CallOutput::Done)
+    );
     assert_eq!(h.stats().threads.load(Ordering::SeqCst), 2);
     assert_eq!(h.stats().instantiations.load(Ordering::SeqCst), 2);
-    assert_eq!(last_with(&h, "export", "activate")["reason"], "Restore");
+    assert_eq!(
+        last_with(&h, "export", "activate")["reason"],
+        "Activation::Restore"
+    );
 }
 
 #[test]

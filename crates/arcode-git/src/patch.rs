@@ -4,7 +4,9 @@
 //! breaks lines at `\n`. The patch therefore widens a hunk to whole `\n`
 //! lines (e.g. to include an unterminated last line that gains a newline)
 //! and emits those lines verbatim, with `\ No newline at end of file`
-//! markers where needed.
+//! markers where needed. Widening follows the diff alignment: it steps over
+//! unchanged line pairs and absorbs whole neighbouring hunks, so hunks that
+//! share a `\n` line are staged together rather than mismatched.
 
 use std::fmt::Write as _;
 use std::ops::Range;
@@ -15,16 +17,20 @@ use crate::diff::{line_span, line_starts};
 /// Lines of unchanged context around the hunk; checked by `git apply`.
 const CONTEXT: usize = 3;
 
+/// A changed block as `(base lines, target lines)` in editor lines.
+pub(crate) type Block = (Range<usize>, Range<usize>);
+
 /// A patch for one hunk turning lines `old` of `base` into lines `new` of
-/// `target` (editor line ranges). The patch applies to `base`.
+/// `target` (editor line ranges). The patch applies to `base`. `blocks` are
+/// all changed blocks between `base` and `target`, used to widen the hunk.
 pub(crate) fn hunk_patch(
     git_path: &str,
     base: &str,
     target: &str,
-    old: Range<usize>,
-    new: Range<usize>,
+    (old, new): Block,
+    blocks: &[Block],
 ) -> Result<String, GitError> {
-    let (ob, nb) = align(base, target, old, new)?;
+    let (ob, nb) = align(base, target, old, new, blocks)?;
     let start = base[..ob.start].matches('\n').count();
     let removed: Vec<&str> = base[ob.clone()].split_inclusive('\n').collect();
     let added: Vec<&str> = target[nb].split_inclusive('\n').collect();
@@ -48,6 +54,22 @@ pub(crate) fn hunk_patch(
     Ok(out)
 }
 
+/// `base` with one hunk (widened like [`hunk_patch`]) taken from `target`.
+pub(crate) fn apply_hunk(
+    base: &str,
+    target: &str,
+    (old, new): Block,
+    blocks: &[Block],
+) -> Result<String, GitError> {
+    let (ob, nb) = align(base, target, old, new, blocks)?;
+    Ok(format!(
+        "{}{}{}",
+        &base[..ob.start],
+        &target[nb],
+        &base[ob.end..]
+    ))
+}
+
 /// A patch adding the untracked file `git_path` with content `text`.
 pub(crate) fn new_file_patch(git_path: &str, text: &str, executable: bool) -> String {
     let quoted = quote(&format!("b/{git_path}"));
@@ -67,11 +89,16 @@ pub(crate) fn new_file_patch(git_path: &str, text: &str, executable: bool) -> St
 
 /// Widens editor line ranges until both byte ranges start and end on `\n`
 /// line boundaries; returns the byte ranges.
+///
+/// The ranges move between positions where `base` and `target` are in
+/// sync: past an unchanged line pair one line at a time, past a changed
+/// block (from `blocks`) to its other end.
 fn align(
     base: &str,
     target: &str,
     mut old: Range<usize>,
     mut new: Range<usize>,
+    blocks: &[Block],
 ) -> Result<(Range<usize>, Range<usize>), GitError> {
     let (bs, ts) = (line_starts(base), line_starts(target));
     // `starts` has one entry per line plus the end.
@@ -83,21 +110,30 @@ fn align(
     loop {
         let (ob, nb) = (line_span(&bs, &old), line_span(&ts, &new));
         if !starts_line(base, ob.start) || !starts_line(target, nb.start) {
-            if old.start == 0 || new.start == 0 {
-                return Err(GitError::StaleHunk);
+            match changed(blocks).find(|(o, n)| o.end == old.start && n.end == new.start) {
+                Some((o, n)) => (old.start, new.start) = (o.start, n.start),
+                None if old.start == 0 || new.start == 0 => return Err(GitError::StaleHunk),
+                None => (old.start, new.start) = (old.start - 1, new.start - 1),
             }
-            old.start -= 1;
-            new.start -= 1;
         } else if !ends_line(base, ob.end) || !ends_line(target, nb.end) {
-            if old.end >= base_lines || new.end >= target_lines {
-                return Err(GitError::StaleHunk);
+            match changed(blocks).find(|(o, n)| o.start == old.end && n.start == new.end) {
+                Some((o, n)) => (old.end, new.end) = (o.end, n.end),
+                None if old.end >= base_lines || new.end >= target_lines => {
+                    return Err(GitError::StaleHunk);
+                }
+                None => (old.end, new.end) = (old.end + 1, new.end + 1),
             }
-            old.end += 1;
-            new.end += 1;
         } else {
             return Ok((ob, nb));
         }
     }
+}
+
+/// Blocks that change at least one line.
+fn changed(blocks: &[Block]) -> impl Iterator<Item = &Block> {
+    blocks
+        .iter()
+        .filter(|(o, n)| !(o.is_empty() && n.is_empty()))
 }
 
 /// True when byte `pos` begins a `\n`-terminated line (or the empty end of

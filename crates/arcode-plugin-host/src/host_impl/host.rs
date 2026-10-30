@@ -27,7 +27,10 @@ impl host::Host for HostState {
     }
 
     fn log(&mut self, level: Level, message: String) -> wasmtime::Result<()> {
-        self.ctx.shared.log.push(level, &cap(message, MAX_LOG_BYTES));
+        self.ctx
+            .shared
+            .log
+            .push(level, &cap(message, MAX_LOG_BYTES));
         Ok(())
     }
 
@@ -42,10 +45,10 @@ impl host::Host for HostState {
                 times.pop_front();
             }
             if times.len() >= NOTIFY_LIMIT {
-                self.ctx
-                    .shared
-                    .log
-                    .push(Level::Warn, "notification dropped (rate limit: 5 per minute)");
+                self.ctx.shared.log.push(
+                    Level::Warn,
+                    "notification dropped (rate limit: 5 per minute)",
+                );
                 return Ok(());
             }
             times.push_back(now);
@@ -58,7 +61,11 @@ impl host::Host for HostState {
         Ok(())
     }
 
-    fn set_status(&mut self, text: Option<String>, command: Option<String>) -> wasmtime::Result<()> {
+    fn set_status(
+        &mut self,
+        text: Option<String>,
+        command: Option<String>,
+    ) -> wasmtime::Result<()> {
         let manifest = &self.ctx.manifest;
         // Only a contributed command may be bound to the item.
         let command = command
@@ -95,7 +102,7 @@ impl host::Host for HostState {
     }
 
     fn settings(&mut self) -> wasmtime::Result<String> {
-        Ok(self.ctx.settings.clone())
+        Ok(lock(&self.ctx.shared.settings).clone())
     }
 
     fn cancelled(&mut self) -> wasmtime::Result<bool> {
@@ -114,6 +121,7 @@ impl host::Host for HostState {
                 plugin: self.ctx.manifest.id().clone(),
                 call: self.call.id,
                 title: cap(title, MAX_MESSAGE_BYTES),
+                cancel: self.call.cancel.clone(),
             });
         }
         Ok(true)

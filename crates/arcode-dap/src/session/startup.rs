@@ -7,17 +7,14 @@ use std::time::Duration;
 use serde_json::json;
 use tokio::sync::{oneshot, watch};
 
+use super::breakpoints;
 use super::core::{Core, Phase};
 use super::inbound;
 use crate::connection::Connection;
 use crate::error::{DapError, Result};
 use crate::event::{DebugEvent, SessionState};
 use crate::process::{self, BoxReader, BoxWriter};
-use crate::types::{
-    Breakpoint, Capabilities, InitializeRequestArguments, SetBreakpointsArguments,
-    SetBreakpointsResponseBody, SetExceptionBreakpointsArguments, SetFunctionBreakpointsArguments,
-    Source, SourceBreakpoint,
-};
+use crate::types::{Capabilities, InitializeRequestArguments, SetExceptionBreakpointsArguments};
 
 /// Limit for `initialize`.
 pub const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -188,32 +185,14 @@ pub(crate) async fn configure(
     generation: u64,
     conn: &Arc<Connection>,
 ) -> Result<()> {
-    let (breakpoints, functions, filters, caps) = {
+    breakpoints::configure(core, generation, conn).await;
+    let (filters, caps) = {
         let data = core.lock();
-        let c = &data.config;
         (
-            c.breakpoints.clone(),
-            c.function_breakpoints.clone(),
-            c.exception_filters.clone(),
+            data.config.exception_filters.clone(),
             data.capabilities.clone().unwrap_or_default(),
         )
     };
-    for (path, bps) in breakpoints {
-        if let Err(e) = set_breakpoints(core, generation, conn, path.clone(), bps).await {
-            log::warn!("setBreakpoints for {} failed: {e}", path.display());
-        }
-    }
-    if caps.supports_function_breakpoints && !functions.is_empty() {
-        let args = serde_json::to_value(SetFunctionBreakpointsArguments {
-            breakpoints: functions,
-        })?;
-        if let Err(e) = conn
-            .request("setFunctionBreakpoints", Some(args), Some(REQUEST_TIMEOUT))
-            .await
-        {
-            log::warn!("setFunctionBreakpoints failed: {e}");
-        }
-    }
     if caps.exception_breakpoint_filters.is_some() {
         let args = serde_json::to_value(SetExceptionBreakpointsArguments { filters })?;
         if let Err(e) = conn
@@ -228,41 +207,4 @@ pub(crate) async fn configure(
             .await?;
     }
     Ok(())
-}
-
-/// Sends `setBreakpoints` for one file and reports the result as
-/// [`DebugEvent::BreakpointsSet`].
-pub(crate) async fn set_breakpoints(
-    core: &Core,
-    generation: u64,
-    conn: &Arc<Connection>,
-    path: std::path::PathBuf,
-    breakpoints: Vec<SourceBreakpoint>,
-) -> Result<Vec<Breakpoint>> {
-    let args = SetBreakpointsArguments {
-        source: Source {
-            name: path.file_name().map(|n| n.to_string_lossy().into_owned()),
-            path: Some(path.to_string_lossy().into_owned()),
-            source_reference: None,
-        },
-        breakpoints,
-    };
-    let body = conn
-        .request(
-            "setBreakpoints",
-            Some(serde_json::to_value(args)?),
-            Some(REQUEST_TIMEOUT),
-        )
-        .await?;
-    let body: SetBreakpointsResponseBody = match body {
-        Some(v) if !v.is_null() => serde_json::from_value(v)?,
-        _ => SetBreakpointsResponseBody::default(),
-    };
-    if core.is_current(generation) {
-        core.events.send(DebugEvent::BreakpointsSet {
-            path,
-            breakpoints: body.breakpoints.clone(),
-        });
-    }
-    Ok(body.breakpoints)
 }

@@ -8,10 +8,12 @@ members = [
     "crash",
     "echo",
     "fs-escape",
+    "net",
     "sockets",
     "spin",
     "spin-cancellable",
     "stdout-flood",
+    "ui-big",
     "undeclared-import",
     "wasi-http",
 ]

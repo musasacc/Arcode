@@ -45,9 +45,9 @@ pub mod workspace {
 /// `arcode:plugin/ui`
 pub mod ui {
     pub use super::arcode::plugin::ui::{
-        Axis, BadgeProps, ButtonProps, CheckboxProps, Cell, CodeProps, Column, Event, EventKind,
-        InputProps, Location, Node, Patch, RowPage, SelectProps, SplitProps, StackProps, TableProps,
-        TabsProps, TextProps, Tone, TreeItem, UiError, View, Widget,
+        Axis, BadgeProps, ButtonProps, Cell, CheckboxProps, CodeProps, Column, Event, EventKind,
+        InputProps, Location, Node, Patch, RowPage, SelectProps, SplitProps, StackProps,
+        TableProps, TabsProps, TextProps, Tone, TreeItem, UiError, View, Widget,
     };
 }
 

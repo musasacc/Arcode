@@ -4,7 +4,7 @@
 mod common;
 
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use arcode_dap::*;
 use common::setup::{config, is_stopped};
@@ -130,7 +130,7 @@ async fn review_tcp_connect_timeout_bounds_a_hanging_attempt() {
         install_hint: None,
         configure_before_launch: false,
     };
-    let started = Instant::now();
+    let started = std::time::Instant::now();
     let (_session, rx) = DebugSession::start(DebugConfig::new(
         spec,
         DebugRequest::Attach,

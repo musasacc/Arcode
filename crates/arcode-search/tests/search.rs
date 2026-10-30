@@ -206,6 +206,38 @@ fn max_results_truncates() {
 }
 
 #[test]
+fn max_results_cuts_inside_one_line() {
+    let dir = tree(&[(
+        "a.txt",
+        b"x x x x x
+",
+    )]);
+    let mut query = q("x");
+    query.max_results = 3;
+    let (files, stats) = run(dir.path(), &query);
+    assert!(stats.truncated);
+    assert_eq!(files[0].matches[0].ranges, vec![0..1, 2..3, 4..5]);
+    assert_eq!(files[0].matches[0].columns.len(), 3);
+
+    // Exactly at the cap is not truncation.
+    query.max_results = 5;
+    let (files, stats) = run(dir.path(), &query);
+    assert!(!stats.truncated);
+    assert_eq!(files[0].match_count(), 5);
+
+    // search_text applies the same cap.
+    query.max_results = 2;
+    let lines = search_text(
+        "x x
+x
+", &query,
+    )
+    .unwrap();
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].ranges, vec![0..1, 2..3]);
+}
+
+#[test]
 fn long_lines_truncated_with_correct_ranges() {
     let line = format!(
         "{}Ünïcödé{}needle{}\n",

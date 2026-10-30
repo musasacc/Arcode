@@ -17,9 +17,22 @@ pub(crate) fn line_of(b: &Buffer, pos: usize) -> usize {
     b.char_to_line(pos)
 }
 
-/// Index of the last line.
+/// Index of the last Vim line. A trailing line break ends the last line
+/// rather than starting an empty one, so the empty buffer line after it
+/// does not count (as in Vim, which treats `\n` as a line terminator).
 pub(crate) fn last_line(b: &Buffer) -> usize {
-    b.line_count().saturating_sub(1)
+    let n = b.line_count().saturating_sub(1);
+    if n > 0 && b.line_len(n) == 0 {
+        n - 1
+    } else {
+        n
+    }
+}
+
+/// True if a line break follows `line` (always the case before the
+/// last buffer line, including the empty one after a trailing `\n`).
+pub(crate) fn has_line_break(b: &Buffer, line: usize) -> bool {
+    line + 1 < b.line_count()
 }
 
 /// Char column of `pos` within its line.
@@ -49,7 +62,8 @@ pub(crate) fn last_char(b: &Buffer, line: usize) -> usize {
 /// Clamps `pos` to a valid Normal-mode cursor position.
 pub(crate) fn clamp_normal(b: &Buffer, pos: usize) -> usize {
     let pos = b.clamp_char(pos);
-    pos.min(last_char(b, b.char_to_line(pos)))
+    let line = b.char_to_line(pos).min(last_line(b));
+    pos.min(last_char(b, line))
 }
 
 /// First non-blank char of `line` (clamped to a Normal-mode position).
@@ -111,11 +125,11 @@ pub(crate) fn indent_of(b: &Buffer, line: usize) -> String {
 }
 
 /// The range to delete for lines `first..=last`: whole lines with their
-/// line breaks; for a block ending at the last line, the preceding line
-/// break instead.
+/// line breaks; for a block ending at a last line without a line break,
+/// the preceding line break instead.
 pub(crate) fn line_delete_range(b: &Buffer, first: usize, last: usize) -> Range<usize> {
     let last = last.min(last_line(b));
-    if last < last_line(b) {
+    if has_line_break(b, last) {
         b.line_start(first)..b.line_start(last + 1)
     } else if first > 0 {
         b.line_end(first - 1)..b.len_chars()
@@ -206,5 +220,21 @@ mod tests {
         assert_eq!(lines_of_range(&b, &(0..3)), (0, 0));
         assert_eq!(map_case("aB", toggle), "Ab");
         assert_eq!(char_at_display_col(&b, 0, 5, 4), None);
+    }
+
+    #[test]
+    fn trailing_line_break_ends_the_last_line() {
+        let b = Buffer::new("a\nb\n");
+        assert_eq!(last_line(&b), 1);
+        assert_eq!(clamp_normal(&b, 4), 2);
+        assert_eq!(line_delete_range(&b, 1, 1), 2..4);
+        assert_eq!(line_delete_range(&b, 0, 1), 0..4);
+        assert_eq!(lines_text(&b, 1, 1), "b\n");
+        let b = Buffer::new("\n");
+        assert_eq!(last_line(&b), 0);
+        assert_eq!(line_delete_range(&b, 0, 0), 0..1);
+        let b = Buffer::new("a\n\n");
+        assert_eq!(last_line(&b), 1);
+        assert_eq!(clamp_normal(&b, 3), 2);
     }
 }

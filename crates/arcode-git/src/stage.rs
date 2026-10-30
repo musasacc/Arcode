@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::exec::{RepoPath, exec, exec_text, repo_path};
 use crate::hunk::{Base, blob_text, diff_hunks};
-use crate::patch::{hunk_patch, new_file_patch};
+use crate::patch::{Block, apply_hunk, hunk_patch, new_file_patch};
 use crate::{GitError, GitResult, Head, Hunk, Repo};
 
 /// Stages one gutter hunk (from [`crate::diff_against_index`]) of
@@ -12,23 +12,26 @@ use crate::{GitError, GitResult, Head, Hunk, Repo};
 ///
 /// Builds a one-hunk unified diff against the index and applies it with
 /// `git apply --cached --unidiff-zero`; the working tree file is not read
-/// or written. For an untracked file the buffer is staged as a new file.
+/// or written. For an untracked file the buffer is staged as a new file;
+/// for a tracked file missing from the index (`git rm --cached`) the hunk
+/// is applied to the `HEAD` version, which is staged as a new file.
 /// When git converts line endings for the path (`text`/`eol` attributes or
 /// `core.autocrlf`), CRLF in the buffer is staged as LF.
+///
+/// git only splits lines at `\n`: when the hunk shares such a line with a
+/// neighbouring hunk (a lone `\r` or U+2028 in the text), both are staged.
 ///
 /// Fails with [`GitError::StaleHunk`] when `hunk` is not one of the hunks
 /// between the current index and `current_text` (recompute and retry).
 pub fn stage_hunk(repo: &Repo, rel_path: &Path, hunk: &Hunk, current_text: &str) -> GitResult<()> {
     let path = repo_path(repo, rel_path)?;
-    let index = match blob_text(repo, rel_path, ":0:") {
-        Base::Text(text) => Some(text),
-        Base::Binary => return Err(GitError::Binary(path.rel)),
-        Base::Missing => None,
+    let index = text_of(repo, &path, ":0:")?;
+    let head = match index {
+        Some(_) => None,
+        None if is_unmerged(repo, &path)? => return Err(GitError::UnmergedPaths(vec![path.rel])),
+        None => text_of(repo, &path, "HEAD:")?,
     };
-    if index.is_none() && is_unmerged(repo, &path)? {
-        return Err(GitError::UnmergedPaths(vec![path.rel]));
-    }
-    let base = index.as_deref().unwrap_or_default();
+    let base = index.as_deref().or(head.as_deref()).unwrap_or_default();
     let normalized;
     let target =
         if !base.contains('\r') && current_text.contains("\r\n") && converts_eol(repo, &path)? {
@@ -37,47 +40,68 @@ pub fn stage_hunk(repo: &Repo, rel_path: &Path, hunk: &Hunk, current_text: &str)
         } else {
             current_text
         };
-    if !diff_hunks(base, target).contains(hunk) {
+    let all = diff_hunks(base, target);
+    if !all.contains(hunk) {
         return Err(GitError::StaleHunk);
     }
-    let patch = match index {
-        Some(_) => hunk_patch(&path.git, base, target, hunk.old_range(), hunk.new_range())?,
-        None => new_file_patch(&path.git, target, is_executable(repo, &path)),
+    let blocks: Vec<Block> = all.iter().map(|h| (h.old_range(), h.new_range())).collect();
+    let this = (hunk.old_range(), hunk.new_range());
+    let patch = if index.is_some() {
+        hunk_patch(&path.git, base, target, this, &blocks)?
+    } else {
+        let text = match head {
+            Some(_) => apply_hunk(base, target, this, &blocks)?,
+            None => target.to_owned(),
+        };
+        new_file_patch(&path.git, &text, is_executable(repo, &path))
     };
     apply_cached(repo, &patch)
 }
 
 /// Unstages one hunk from [`crate::staged_hunks`] (`HEAD` against the
-/// index), restoring the `HEAD` lines in the index only.
+/// index), restoring the `HEAD` lines in the index only. Unstaging a
+/// staged new file or a staged deletion restores the path's `HEAD` state
+/// (like [`unstage_file`]).
 pub fn unstage_hunk(repo: &Repo, rel_path: &Path, hunk: &Hunk) -> GitResult<()> {
     let path = repo_path(repo, rel_path)?;
-    let index = match blob_text(repo, rel_path, ":0:") {
-        Base::Text(text) => text,
-        Base::Binary => return Err(GitError::Binary(path.rel)),
-        _ => return Err(GitError::NotInIndex(path.rel)),
-    };
-    let head = match blob_text(repo, rel_path, "HEAD:") {
-        Base::Text(text) => Some(text),
-        Base::Binary => return Err(GitError::Binary(path.rel)),
-        Base::Missing => None,
-    };
-    let head_text = head.as_deref().unwrap_or_default();
-    let hunks = diff_hunks(head_text, &index);
+    let index = text_of(repo, &path, ":0:")?;
+    if index.is_none() && is_unmerged(repo, &path)? {
+        return Err(GitError::UnmergedPaths(vec![path.rel]));
+    }
+    let head = text_of(repo, &path, "HEAD:")?;
+    if index.is_none() && head.is_none() {
+        return Err(GitError::NotInIndex(path.rel));
+    }
+    let (head_text, index_text) = (
+        head.as_deref().unwrap_or_default(),
+        index.as_deref().unwrap_or_default(),
+    );
+    let hunks = diff_hunks(head_text, index_text);
     if !hunks.contains(hunk) {
         return Err(GitError::StaleHunk);
     }
-    if head.is_none() && hunks.len() == 1 {
-        // The whole new file: drop it from the index instead of emptying it.
+    if index.is_none() || (head.is_none() && hunks.len() == 1) {
+        // A staged deletion, or the whole new file: restore the HEAD entry
+        // (or drop the path) instead of patching text.
         return unstage_file(repo, rel_path);
     }
-    let patch = hunk_patch(
-        &path.git,
-        &index,
-        head_text,
-        hunk.new_range(),
-        hunk.old_range(),
-    )?;
+    // Reversed: the patch turns the index back into HEAD.
+    let blocks: Vec<Block> = hunks
+        .iter()
+        .map(|h| (h.new_range(), h.old_range()))
+        .collect();
+    let this = (hunk.new_range(), hunk.old_range());
+    let patch = hunk_patch(&path.git, index_text, head_text, this, &blocks)?;
     apply_cached(repo, &patch)
+}
+
+/// The UTF-8 blob `<prefix><path>`, `None` when missing.
+fn text_of(repo: &Repo, path: &RepoPath, prefix: &str) -> GitResult<Option<String>> {
+    match blob_text(repo, &path.rel, prefix) {
+        Base::Text(text) => Ok(Some(text)),
+        Base::Binary => Err(GitError::Binary(path.rel.clone())),
+        Base::Missing => Ok(None),
+    }
 }
 
 /// Stages the working tree state of `rel_path` (`git add -A -- <path>`),
@@ -119,7 +143,7 @@ fn apply_cached(repo: &Repo, patch: &str) -> GitResult<()> {
 }
 
 /// True when the index holds conflict stages for the path.
-fn is_unmerged(repo: &Repo, path: &RepoPath) -> GitResult<bool> {
+pub(crate) fn is_unmerged(repo: &Repo, path: &RepoPath) -> GitResult<bool> {
     let args = [
         "--literal-pathspecs",
         "ls-files",

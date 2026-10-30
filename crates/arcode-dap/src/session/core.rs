@@ -12,6 +12,7 @@ use std::time::Duration;
 use tokio::runtime::Handle;
 use tokio::sync::{oneshot, watch};
 
+use super::breakpoints::Book;
 use crate::config::DebugConfig;
 use crate::connection::Connection;
 use crate::error::{DapError, Result};
@@ -46,6 +47,10 @@ pub(crate) struct Data {
     pub(crate) ended: bool,
     /// The user asked to stop; the adapter going away is expected.
     pub(crate) stopping: bool,
+    /// The last handle is gone: no generation may start any more.
+    pub(crate) dropped: bool,
+    /// Breakpoint versions and what configuration sent.
+    pub(crate) book: Book,
     /// Startup waits on this for the first `initialized` event.
     pub(crate) initialized_tx: Option<oneshot::Sender<()>>,
     pub(crate) log_tail: VecDeque<String>,
@@ -84,6 +89,8 @@ impl Core {
                 conn: None,
                 ended: false,
                 stopping: false,
+                dropped: false,
+                book: Book::default(),
                 initialized_tx: None,
                 log_tail: VecDeque::new(),
                 logs_done: None,
@@ -156,10 +163,16 @@ impl Core {
         }
     }
 
-    /// Starts a new generation (restart): resets per-adapter state.
-    pub(crate) fn next_generation(&self) -> u64 {
+    /// Starts a new generation (restart): resets per-adapter state and
+    /// clears `stopping`. `None` once the session was dropped.
+    pub(crate) fn next_generation(&self) -> Option<u64> {
         let mut data = self.lock();
+        if data.dropped {
+            return None;
+        }
         data.generation += 1;
+        data.stopping = false;
+        data.book.reset_sent();
         data.conn = None;
         data.ended = false;
         data.initialized_tx = None;
@@ -168,7 +181,7 @@ impl Core {
         data.logs_done = None;
         data.exit_code = None;
         self.phase.send_replace(Phase::Starting);
-        data.generation
+        Some(data.generation)
     }
 
     /// Waits until requests can be sent (`configured`: until breakpoints
@@ -218,14 +231,15 @@ impl Core {
     }
 
     /// Ends `generation` once: phase `Ended`, state `Terminated`, then
-    /// `event` (built from the adapter's recent log lines), so the UI sees
+    /// `event` (built from the session data, e.g. the adapter's recent log
+    /// lines and whether a stop was requested), so the UI sees
     /// a consistent handle when the event arrives. Returns the connection
     /// to dispose of; `None` if the generation already ended or is stale.
     pub(crate) fn end_generation(
         &self,
         generation: u64,
         reason: String,
-        event: impl FnOnce(&VecDeque<String>) -> DebugEvent,
+        event: impl FnOnce(&Data) -> DebugEvent,
     ) -> Option<Option<Arc<Connection>>> {
         let (event, conn) = {
             let mut data = self.lock();
@@ -234,7 +248,7 @@ impl Core {
             }
             data.ended = true;
             self.phase.send_replace(Phase::Ended(reason));
-            (event(&data.log_tail), data.conn.take())
+            (event(&data), data.conn.take())
         };
         self.set_state(generation, SessionState::Terminated);
         self.events.send(event);
@@ -242,11 +256,16 @@ impl Core {
     }
 
     /// Ends the generation with [`DebugEvent::AdapterFailed`] (once, after
-    /// waiting briefly for the adapter's last log lines) and kills it.
+    /// waiting briefly for the adapter's last log lines) and kills it. A
+    /// failure caused by a requested stop is reported as
+    /// [`DebugEvent::AdapterExited`] instead.
     pub(crate) async fn fail(&self, generation: u64, message: String) {
         self.wait_logs(generation).await;
-        let ended = self.end_generation(generation, message.clone(), |tail| {
-            let message = with_tail(message, tail);
+        let ended = self.end_generation(generation, message.clone(), |data| {
+            if data.stopping {
+                return DebugEvent::AdapterExited(message);
+            }
+            let message = with_tail(message, &data.log_tail);
             log::warn!("debug session failed: {message}");
             DebugEvent::AdapterFailed(message)
         });

@@ -40,7 +40,9 @@ pub enum ImportError {
 impl fmt::Display for ImportError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotAllowed(name) => write!(f, "plugin imports `{name}`, which Arcode does not provide"),
+            Self::NotAllowed(name) => {
+                write!(f, "plugin imports `{name}`, which Arcode does not provide")
+            }
             Self::NewerApi { import, version } => write!(
                 f,
                 "plugin requires a newer Arcode (plugin API {version}, import `{import}`)"
@@ -218,7 +220,10 @@ mod tests {
     #[test]
     fn newer_api_says_so() {
         let err = check_imports(["arcode:plugin/host@0.2.0"], &with_network()).unwrap_err();
-        assert!(err.to_string().contains("requires a newer Arcode (plugin API 0.2"));
+        assert!(
+            err.to_string()
+                .contains("requires a newer Arcode (plugin API 0.2")
+        );
         assert!(matches!(
             check_imports(["arcode:plugin/host@1.0.0"], &with_network()),
             Err(ImportError::NewerApi { .. })

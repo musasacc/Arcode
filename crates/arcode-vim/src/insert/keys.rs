@@ -62,15 +62,23 @@ impl Vim {
         ed: &mut Ed,
         f: impl Fn(&arcode_buffer::Buffer, usize) -> Range<usize>,
     ) {
-        let edits = ed
+        let edits: Vec<(Range<usize>, String)> = ed
             .sels
             .iter()
             .map(|s| (f(ed.b, s.head), String::new()))
             .collect();
+        // Chars deleted before the primary cursor leave the `.` register.
+        let primary = ed.sels.primary();
+        let backward = edits
+            .get(ed.sels.primary_index())
+            .filter(|(r, _)| r.end == primary.head)
+            .map_or(0, |(r, _)| r.len());
         let out = self.apply_edits(ed, edits);
         self.set_insert_cursors(ed, out.into_iter().map(|(s, _)| s).collect());
         if let Some(s) = &mut self.insert {
-            s.text.pop();
+            for _ in 0..backward {
+                s.text.pop();
+            }
         }
     }
 
@@ -127,9 +135,16 @@ impl Vim {
                 };
                 (s.range(), text)
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let typed = edits
+            .get(ed.sels.primary_index())
+            .map(|(_, t)| t.clone())
+            .unwrap_or_default();
         let out = self.apply_edits(ed, edits);
         self.set_insert_cursors(ed, out.into_iter().map(|(_, e)| e).collect());
+        if let Some(s) = &mut self.insert {
+            s.text.push_str(&typed);
+        }
     }
 
     pub(super) fn backspace(&mut self, ed: &mut Ed) {
@@ -155,6 +170,9 @@ impl Vim {
             };
             let out = self.apply_edits(ed, edits);
             self.set_insert_cursors(ed, out.into_iter().map(|(s, _)| s).collect());
+            if let Some(s) = &mut self.insert {
+                s.text.pop();
+            }
             return;
         }
         let soft = match ed.ctx.indent {

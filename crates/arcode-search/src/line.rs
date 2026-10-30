@@ -55,6 +55,14 @@ impl LineMatch {
     pub fn match_count(&self) -> usize {
         self.columns.len()
     }
+
+    /// Keep only the first `n` matches. `ranges[i]` always maps
+    /// `columns[i]`: the cut window starts at or before the first match, so
+    /// visible ranges are a prefix of the columns.
+    pub(crate) fn truncate_matches(&mut self, n: usize) {
+        self.columns.truncate(n);
+        self.ranges.truncate(n);
+    }
 }
 
 /// Strip a trailing `\n` or `\r\n`.
@@ -180,5 +188,17 @@ mod tests {
         assert_eq!(lm.columns.len(), 2);
         assert_eq!(lm.ranges, vec![0..1]);
         assert!(!lm.line_text.starts_with(ELLIPSIS));
+    }
+
+    #[test]
+    fn truncate_matches_keeps_ranges_aligned() {
+        let line = format!("{}X X{}X", "a".repeat(500), "b".repeat(2000));
+        let m = RegexMatcher::new("X").unwrap();
+        let mut lm = LineMatch::build(&m, 0, line.as_bytes(), usize::MAX).unwrap();
+        assert_eq!((lm.columns.len(), lm.ranges.len()), (3, 2));
+        lm.truncate_matches(1);
+        assert_eq!(lm.columns, vec![500..501]);
+        assert_eq!(lm.ranges.len(), 1);
+        assert_eq!(chars(&lm.line_text, &lm.ranges[0]), "X");
     }
 }

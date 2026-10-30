@@ -265,3 +265,47 @@ fn unsupported_language() {
     let p = Project::new();
     assert_eq!(line(&p, "cobol", "a.cob", RunnableKind::Main, ""), None);
 }
+
+/// `go run .` skips a `//go:build ignore` file, so its main is run by name.
+#[test]
+fn go_main_in_build_ignored_file_runs_the_file() {
+    let p = Project::new();
+    p.write("go.mod", "module example.com/lib\n\ngo 1.22\n");
+    let file = p.write(
+        "tools/gen.go",
+        "//go:build ignore\n\npackage main\n\nfunc main() {}\n",
+    );
+    let cmd =
+        command_for_runnable("go", &file, p.root(), RunnableKind::Main, "main").expect("command");
+    assert_eq!(cmd.command_line(), "go run tools/gen.go");
+}
+
+/// A package's own jest wins over vitest declared in the workspace root.
+#[test]
+fn js_package_runner_wins_over_workspace_root() {
+    let p = Project::new();
+    p.write(
+        "package.json",
+        r#"{"private":true,"workspaces":["packages/*"],"devDependencies":{"vitest":"^2"}}"#,
+    );
+    p.write("package-lock.json", "{}");
+    p.write(
+        "packages/a/package.json",
+        r#"{"name":"a","devDependencies":{"jest":"^29"}}"#,
+    );
+    let file = p.write("packages/a/x.test.js", "");
+    let cmd = command_for_runnable("javascript", &file, p.root(), RunnableKind::Test, "adds")
+        .expect("command");
+    assert_eq!(
+        cmd.command_line(),
+        "npx --no-install jest x.test.js -t adds"
+    );
+    assert_eq!(cmd.cwd, p.path("packages/a"));
+
+    // Hoisted vitest, npm workspace.
+    p.write("packages/b/package.json", r#"{"name":"b"}"#);
+    let file = p.write("packages/b/y.test.ts", "");
+    let cmd = command_for_runnable("typescript", &file, p.root(), RunnableKind::Test, "")
+        .expect("command");
+    assert_eq!(cmd.command_line(), "npx --no-install vitest run y.test.ts");
+}

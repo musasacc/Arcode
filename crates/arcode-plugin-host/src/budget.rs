@@ -8,7 +8,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::cancel::{CancelToken, lock};
 
@@ -68,7 +68,7 @@ impl std::error::Error for Interrupt {}
 
 /// "2 s", "100 ms".
 pub fn human(d: Duration) -> String {
-    if d.as_millis() >= 1000 && d.as_millis() % 1000 == 0 {
+    if d.as_millis() >= 1000 && d.as_millis().is_multiple_of(1000) {
         format!("{} s", d.as_secs())
     } else {
         format!("{} ms", d.as_millis())
@@ -188,19 +188,35 @@ impl Drop for Ticker {
     }
 }
 
+/// Ticks on a fixed schedule (no drift from sleep overshoot), so N slices
+/// are close to N periods of wall time while the guest runs.
 fn run(inner: &TickerInner, engine: &wasmtime::Engine) {
     let mut state = lock(&inner.state);
+    let mut next: Option<Instant> = None;
     loop {
+        if state.in_flight == 0 {
+            next = None;
+        }
         while state.in_flight == 0 && !state.shutdown {
-            state = inner.wake.wait(state).unwrap_or_else(PoisonError::into_inner);
+            state = inner
+                .wake
+                .wait(state)
+                .unwrap_or_else(PoisonError::into_inner);
         }
         if state.shutdown {
             return;
         }
         drop(state);
-        std::thread::sleep(inner.period);
+        let now = Instant::now();
+        let due = match next {
+            // Fell behind (e.g. the machine was suspended): restart the schedule.
+            Some(due) if due + inner.period > now => due,
+            _ => now + inner.period,
+        };
+        std::thread::sleep(due.saturating_duration_since(now));
         engine.increment_epoch();
         inner.increments.fetch_add(1, Ordering::SeqCst);
+        next = Some(due + inner.period);
         state = lock(&inner.state);
     }
 }
@@ -233,7 +249,10 @@ mod tests {
             b.charge(&token, Duration::from_secs(2)),
             Err(Interrupt::Budget(Duration::from_millis(100)))
         );
-        assert_eq!(Interrupt::Budget(Duration::from_secs(2)).to_string(), "exceeded 2 s CPU");
+        assert_eq!(
+            Interrupt::Budget(Duration::from_secs(2)).to_string(),
+            "exceeded 2 s CPU"
+        );
     }
 
     #[test]

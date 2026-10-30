@@ -12,6 +12,7 @@ use arcode_plugin_host::bridge::{DocSnapshot, EditorBridge, HttpTransport, Proje
 use arcode_plugin_host::cancel::CancelToken;
 use arcode_plugin_host::consent::{ConsentProvider, Permissions};
 use arcode_plugin_host::grant_store::GrantStore;
+use arcode_plugin_host::host_impl::kv::KvFiles;
 use arcode_plugin_host::manifest::UserLimits;
 use arcode_plugin_host::registry::load;
 use arcode_plugin_host::{
@@ -23,7 +24,8 @@ use serde_json::Value;
 /// Serialises tests whose timing would suffer from parallel CPU load.
 pub fn timing_lock() -> MutexGuard<'static, ()> {
     static LOCK: Mutex<()> = Mutex::new(());
-    LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    LOCK.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// `target/test-plugins` (or `$ARCODE_TEST_PLUGINS`).
@@ -60,10 +62,13 @@ pub fn runtime(tweak: impl FnOnce(&mut RuntimeConfig)) -> (Arc<Runtime>, tempfil
     (Arc::new(Runtime::new(config)), cache)
 }
 
+/// Quick picks seen by the app: (title, items).
+pub type Picks = Arc<Mutex<Vec<(String, Vec<String>)>>>;
+
 /// The headless app: answers quick picks and records every other output.
 pub struct App {
     pub outputs: Arc<Mutex<Vec<PluginOutput>>>,
-    pub picks: Arc<Mutex<Vec<(String, Vec<String>)>>>,
+    pub picks: Picks,
     pub sender: OutputSender,
 }
 
@@ -72,7 +77,7 @@ impl App {
     pub fn start(pick: Option<u32>) -> Self {
         let (sender, rx) = OutputSender::channel();
         let outputs = Arc::new(Mutex::new(Vec::new()));
-        let picks = Arc::new(Mutex::new(Vec::new()));
+        let picks: Picks = Arc::default();
         let (o, p) = (outputs.clone(), picks.clone());
         std::thread::spawn(move || {
             while let Ok(out) = rx.recv_blocking() {
@@ -126,6 +131,24 @@ pub fn services(
     }
 }
 
+/// The spec `handle` uses: project named "proj", two user settings (one
+/// undeclared), kv in memory.
+pub fn spec(plugin: RegisteredPlugin, services: Services, project: Option<&Path>) -> InstanceSpec {
+    let mut user_settings = serde_json::Map::new();
+    user_settings.insert("greeting".into(), Value::from("hi"));
+    user_settings.insert("not-declared".into(), Value::from(1));
+    InstanceSpec {
+        plugin,
+        project: project.map(|root| ProjectContext {
+            root: root.to_owned(),
+            name: "proj".into(),
+        }),
+        user_settings,
+        kv: KvFiles::none(),
+        services,
+    }
+}
+
 /// An instance handle for `plugin`.
 pub fn handle(
     runtime: &Arc<Runtime>,
@@ -133,19 +156,7 @@ pub fn handle(
     services: Services,
     project: Option<&Path>,
 ) -> InstanceHandle {
-    let mut user_settings = serde_json::Map::new();
-    user_settings.insert("greeting".into(), Value::from("hi"));
-    user_settings.insert("not-declared".into(), Value::from(1));
-    let spec = InstanceSpec {
-        plugin,
-        project: project.map(|root| ProjectContext {
-            root: root.to_owned(),
-            name: "proj".into(),
-        }),
-        user_settings,
-        services,
-    };
-    InstanceHandle::new(runtime.clone(), spec)
+    InstanceHandle::new(runtime.clone(), spec(plugin, services, project))
 }
 
 /// Runs the manifest command `run`/`echo` with JSON args and waits.
@@ -182,8 +193,14 @@ pub fn last_with(h: &InstanceHandle, key: &str, value: &str) -> Value {
 /// Ranks and their texts, as in arcode-buffer.
 pub fn range(sl: u32, sc: u32, el: u32, ec: u32) -> Range {
     Range {
-        start: Position { line: sl, column: sc },
-        end: Position { line: el, column: ec },
+        start: Position {
+            line: sl,
+            column: sc,
+        },
+        end: Position {
+            line: el,
+            column: ec,
+        },
     }
 }
 
@@ -204,8 +221,16 @@ impl EditorBridge for FakeEditor {
     fn focused(&self) -> Option<DocId> {
         self.focused
     }
-    fn apply_edits(&self, doc: DocId, expected: u64, edits: Vec<TextEdit>) -> Result<u64, EditorError> {
-        let current = self.snapshot(doc).ok_or(EditorError::NoSuchDocument)?.version;
+    fn apply_edits(
+        &self,
+        doc: DocId,
+        expected: u64,
+        edits: Vec<TextEdit>,
+    ) -> Result<u64, EditorError> {
+        let current = self
+            .snapshot(doc)
+            .ok_or(EditorError::NoSuchDocument)?
+            .version;
         if current != expected {
             return Err(EditorError::VersionMismatch(current));
         }

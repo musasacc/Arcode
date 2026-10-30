@@ -15,7 +15,11 @@ impl wit::Host for HostState {
         Ok(self.ctx.project.as_ref().map(|p| p.name.clone()))
     }
 
-    fn find_files(&mut self, glob: String, limit: u32) -> wasmtime::Result<Result<Vec<String>, FsError>> {
+    fn find_files(
+        &mut self,
+        glob: String,
+        limit: u32,
+    ) -> wasmtime::Result<Result<Vec<String>, FsError>> {
         if self.ctx.project.is_none() || self.ctx.files == FileGrant::None {
             return Ok(Err(FsError::Denied));
         }

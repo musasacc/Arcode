@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use arcode_buffer::{Buffer, movement};
 
-use crate::search::find_match;
+use crate::search::{find_match, word_under};
 use crate::text::{
     clamp_normal, display_col, first_non_blank, last_char, last_line, line_of, pos_at_col,
 };
@@ -235,7 +235,7 @@ pub(crate) fn eval(
         }
         Motion::MatchPair => match count {
             Some(c) if c <= 100 => {
-                let lines = b.line_count();
+                let lines = last_line(b) + 1;
                 let target = (c * lines).div_ceil(100).saturating_sub(1);
                 jump(first_non_blank(b, target), Linewise)
             }
@@ -259,11 +259,17 @@ pub(crate) fn eval(
             let down = matches!(m, Motion::HalfPageDown | Motion::PageDown);
             vertical(b, pos, goal, if down { lines } else { -lines }, env)
         }
-        Motion::SearchWord { .. } => None,
-        Motion::SearchNext(reverse) => {
+        Motion::SearchNext(_) | Motion::SearchWord { .. } => {
             let q = env.search?;
-            let forward = q.forward != reverse;
-            let mut p = pos;
+            let (forward, mut p) = match m {
+                // `*` / `#` search from the start of the word under the
+                // cursor, so `#` skips the word itself.
+                Motion::SearchWord { forward, .. } => {
+                    (forward, word_under(b, pos).map_or(pos, |r| r.start))
+                }
+                Motion::SearchNext(reverse) => (q.forward != reverse, pos),
+                _ => (true, pos),
+            };
             for _ in 0..n {
                 p = find_match(b, q, p, forward)?.start;
             }

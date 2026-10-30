@@ -90,6 +90,18 @@ pub(crate) fn finish_stopped(core: &Core, generation: u64, reason: &str) {
     }
 }
 
+/// The last handle was dropped: forbids new generations, then ends the
+/// current one and kills its adapter.
+pub(crate) fn finish_dropped(core: &Core) {
+    let generation = {
+        let mut data = core.lock();
+        data.dropped = true;
+        data.generation
+    };
+    // The generation cannot change any more (`next_generation` refuses).
+    finish_stopped(core, generation, "debug session dropped");
+}
+
 /// Restarts with the adapter's `restart` request if supported, otherwise
 /// by disconnecting and starting a fresh adapter with the same config
 /// (and the current breakpoints).
@@ -130,8 +142,10 @@ pub(crate) async fn restart(core: Arc<Core>) -> Result<()> {
                 .into(),
         ));
     }
-    let generation = core.next_generation();
-    core.lock().stopping = false;
+    // Refused once the last handle is gone: nobody could stop the new one.
+    let Some(generation) = core.next_generation() else {
+        return Err(DapError::SessionEnded("debug session dropped".into()));
+    };
     core.set_state(generation, SessionState::Initializing);
     if let Some(old) = conn {
         shutdown(&core, old, false, true).await;

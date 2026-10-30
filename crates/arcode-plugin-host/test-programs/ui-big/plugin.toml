@@ -1,0 +1,18 @@
+# Fixture manifest (docs/PLUGINS.md §14): big tables and trees near the UI caps.
+[plugin]
+id = "test.ui-big"
+name = "UI Big"
+version = "0.1.0"
+api = "0.1"
+entry = "plugin.wasm"
+description = "A million-row table and oversized trees."
+
+[[contributes.panels]]
+id = "big"
+title = "Big"
+location = "bottom"
+icon = "table"
+
+[[contributes.commands]]
+id = "render"
+title = "UI Big: Render"

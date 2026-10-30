@@ -74,10 +74,7 @@ impl Vim {
                     forward,
                 });
                 self.highlight = true;
-                return Ok((
-                    Motion::SearchNext(false),
-                    VimAction::Command(VimCommand::Search(pattern)),
-                ));
+                return Ok((m, VimAction::Command(VimCommand::Search(pattern))));
             }
             Motion::SearchNext(_) => {
                 if self.search.is_none() {
@@ -101,7 +98,7 @@ impl Vim {
     /// The message for a failed motion (search misses), else `None`.
     pub(crate) fn motion_failed(&self, m: Motion) -> VimAction {
         match (m, &self.search) {
-            (Motion::SearchNext(_), Some(q)) => {
+            (Motion::SearchNext(_) | Motion::SearchWord { .. }, Some(q)) => {
                 status(&format!("E486: Pattern not found: {}", q.pattern))
             }
             _ => VimAction::None,
@@ -232,7 +229,7 @@ impl Vim {
                     if op == Op::Change && !ch(b, pos).is_whitespace() =>
                 {
                     let end = change_word_end(b, pos, big, n);
-                    Region::Chars(pos..(end + 1).min(b.len_chars()))
+                    Region::Chars(pos..movement::right(b, end))
                 }
                 Target::Motion(m) => {
                     let t = eval(b, pos, s.goal_column, m, count, &env)?;
@@ -250,7 +247,8 @@ impl Vim {
 fn change_word_end(b: &Buffer, pos: usize, big: bool, n: usize) -> usize {
     let mut p = pos;
     for i in 0..n {
-        let at_end = ch(b, p + 1) == '\n' || class(ch(b, p + 1), big) != class(ch(b, p), big);
+        let next = ch(b, movement::right(b, p));
+        let at_end = next == '\n' || class(next, big) != class(ch(b, p), big);
         let on_space = class(ch(b, p), big) == Class::Space;
         if !(i == 0 && at_end && !on_space) {
             p = next_word_end(b, p, big);

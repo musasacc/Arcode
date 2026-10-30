@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::command::{RunCommand, RunKind, RunSource, args};
-use crate::fsutil;
+use crate::{fsutil, gofile};
 
 /// `go run .` (if the root is a `main` package), `go run ./cmd/<x>` for each
 /// main package under `cmd/`, then `go test ./...` and `go build ./...`.
@@ -26,7 +26,9 @@ pub(super) fn detect(root: &Path) -> Vec<RunCommand> {
     out
 }
 
-/// Whether any non-test `.go` file in `dir` declares `package main`.
+/// Whether any non-test `.go` file in `dir` declares `package main`,
+/// ignoring files excluded by an `ignore` build constraint (`go:generate`
+/// helpers), which `go run .` does not see.
 pub(crate) fn is_main_package(dir: &Path) -> bool {
     let files = fsutil::list_dir(dir, |p| p.is_file());
     files
@@ -34,10 +36,7 @@ pub(crate) fn is_main_package(dir: &Path) -> bool {
         .filter(|n| n.ends_with(".go") && !n.ends_with("_test.go"))
         .any(|n| {
             fs::read_to_string(dir.join(n)).is_ok_and(|text| {
-                text.lines()
-                    .map(str::trim)
-                    .find(|l| l.starts_with("package "))
-                    .is_some_and(|l| l.split_whitespace().nth(1) == Some("main"))
+                gofile::package_name(&text) == Some("main") && !gofile::is_build_ignored(&text)
             })
         })
 }

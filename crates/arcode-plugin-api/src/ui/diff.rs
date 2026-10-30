@@ -55,22 +55,16 @@ pub fn apply(view: &mut FlatView, patches: &[Patch]) {
             Patch::Upsert(node) => {
                 view.nodes.insert(node.id, node.clone());
             }
-            Patch::Remove(id) => remove_subtree(view, *id),
+            Patch::Remove(id) => {
+                view.nodes.remove(id);
+            }
             Patch::SetRoot(id) => view.root = *id,
             Patch::RowsChanged(_) => {}
         }
     }
-    // `remove` drops descendants only when nothing references them any more.
+    // `remove` drops the node; its descendants go only if nothing reachable
+    // references them any more (the host's `PanelTree` does the same).
     collect_garbage(view);
-}
-
-fn remove_subtree(view: &mut FlatView, id: NodeId) {
-    let mut stack = vec![id];
-    while let Some(id) = stack.pop() {
-        if let Some(node) = view.nodes.remove(&id) {
-            stack.extend(node.children);
-        }
-    }
 }
 
 fn collect_garbage(view: &mut FlatView) {

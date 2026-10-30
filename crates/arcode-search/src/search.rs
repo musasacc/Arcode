@@ -68,6 +68,7 @@ pub fn search(
     let root = absolute_root(root)?;
     let halt = Halt::new(cancel);
     let budget = Budget::new(query.max_results);
+    let cap = budget.cap();
     let mut stats = SearchStats::default();
 
     let walked = walk(
@@ -79,14 +80,16 @@ pub fn search(
             let mut searcher = new_searcher();
             let (halt, budget) = (&halt, &budget);
             move |path: &Path, relative: &Path| {
-                let mut sink = LineSink::new(&matcher, halt, budget);
+                let mut sink = LineSink::new(&matcher, halt, cap);
                 if let Err(err) = searcher.search_path(&matcher, path, &mut sink) {
                     log::debug!("search: {}: {err}", path.display());
+                    return None;
                 }
-                (!sink.binary && !sink.lines.is_empty()).then(|| FileMatches {
+                let matches = sink.finish(budget);
+                (!matches.is_empty()).then(|| FileMatches {
                     path: path.to_path_buf(),
                     relative: relative.to_path_buf(),
-                    matches: sink.lines,
+                    matches,
                 })
             }
         },
@@ -127,14 +130,14 @@ pub fn search_text(text: &str, query: &SearchQuery) -> Result<Vec<LineMatch>> {
     let token = CancelToken::new();
     let halt = Halt::new(&token);
     let budget = Budget::new(query.max_results);
-    let mut sink = LineSink::new(&matcher, &halt, &budget);
+    let mut sink = LineSink::new(&matcher, &halt, budget.cap());
     let mut searcher = new_searcher();
     searcher.set_binary_detection(BinaryDetection::none());
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     if let Err(err) = searcher.search_slice(&matcher, text.as_bytes(), &mut sink) {
         log::debug!("search_text: {err}");
     }
-    Ok(sink.lines)
+    Ok(sink.finish(&budget))
 }
 
 pub(crate) fn new_searcher() -> Searcher {
@@ -147,18 +150,26 @@ pub(crate) fn new_searcher() -> Searcher {
         .build()
 }
 
-/// Shared cap on the number of matches.
+/// Shared cap on the number of delivered matches.
 struct Budget {
+    max: usize,
     remaining: AtomicUsize,
     exhausted: AtomicBool,
 }
 
 impl Budget {
     fn new(max: usize) -> Self {
+        let max = if max == 0 { usize::MAX } else { max };
         Self {
-            remaining: AtomicUsize::new(if max == 0 { usize::MAX } else { max }),
+            max,
+            remaining: AtomicUsize::new(max),
             exhausted: AtomicBool::new(false),
         }
+    }
+
+    /// Most matches one file can ever be granted.
+    fn cap(&self) -> usize {
+        self.max
     }
 
     /// Reserve up to `n` matches; returns how many were granted.
@@ -177,25 +188,71 @@ impl Budget {
     }
 }
 
-/// Collects [`LineMatch`]es of one file.
+/// Collects the [`LineMatch`]es of one file. Nothing is charged to the
+/// [`Budget`] until [`LineSink::finish`], i.e. until the whole file was
+/// scanned and is known not to be binary (a NUL byte can appear after the
+/// matches, so the searcher must never be stopped early on the budget).
 struct LineSink<'a> {
     matcher: &'a RegexMatcher,
     halt: &'a Halt<'a>,
-    budget: &'a Budget,
+    /// Matches worth keeping (the whole budget); later ones are only counted.
+    cap: usize,
     lines: Vec<LineMatch>,
+    /// Matches in `lines`.
+    kept: usize,
+    /// More matches exist than were kept.
+    overflow: bool,
     binary: bool,
+    /// Stopped before the end of the file (cancel or global stop).
+    aborted: bool,
 }
 
 impl<'a> LineSink<'a> {
-    fn new(matcher: &'a RegexMatcher, halt: &'a Halt<'a>, budget: &'a Budget) -> Self {
+    fn new(matcher: &'a RegexMatcher, halt: &'a Halt<'a>, cap: usize) -> Self {
         Self {
             matcher,
             halt,
-            budget,
+            cap,
             lines: Vec::new(),
+            kept: 0,
+            overflow: false,
             binary: false,
+            aborted: false,
         }
     }
+
+    /// Charge this file's matches to `budget` and return what was granted.
+    /// Binary or incompletely scanned files yield nothing and cost nothing.
+    fn finish(mut self, budget: &Budget) -> Vec<LineMatch> {
+        if self.binary || self.aborted || self.lines.is_empty() {
+            return Vec::new();
+        }
+        let wanted = self.kept.saturating_add(usize::from(self.overflow));
+        let granted = budget.take(wanted);
+        if granted < wanted {
+            self.halt.stop();
+        }
+        keep_matches(&mut self.lines, granted);
+        self.lines
+    }
+}
+
+/// Keep only the first `n` matches of `lines`.
+fn keep_matches(lines: &mut Vec<LineMatch>, n: usize) {
+    let mut left = n;
+    let mut keep = 0;
+    for line in lines.iter_mut() {
+        if left == 0 {
+            break;
+        }
+        let count = line.match_count();
+        if count > left {
+            line.truncate_matches(left);
+        }
+        left -= count.min(left);
+        keep += 1;
+    }
+    lines.truncate(keep);
 }
 
 impl Sink for LineSink<'_> {
@@ -203,26 +260,24 @@ impl Sink for LineSink<'_> {
 
     fn matched(&mut self, _: &Searcher, mat: &SinkMatch<'_>) -> Result<bool, Self::Error> {
         if self.halt.should_stop() {
+            self.aborted = true;
             return Ok(false);
         }
         let first = mat.line_number().unwrap_or(1).saturating_sub(1) as usize;
         for (i, raw) in mat.lines().enumerate() {
-            let number = first + i;
-            let Some(line) = LineMatch::build(self.matcher, number, raw, usize::MAX) else {
-                continue;
-            };
-            let wanted = line.match_count();
-            let granted = self.budget.take(wanted);
-            if granted == wanted {
+            let room = self.cap.saturating_sub(self.kept);
+            if room == 0 {
+                // Keep scanning (without collecting) so a later NUL byte
+                // still marks the file as binary.
+                self.overflow = true;
+                break;
+            }
+            // One extra match tells us the line overflows the cap.
+            let limit = room.saturating_add(1);
+            if let Some(line) = LineMatch::build(self.matcher, first + i, raw, limit) {
+                self.kept += line.match_count();
                 self.lines.push(line);
-                continue;
             }
-            if granted > 0 {
-                self.lines
-                    .extend(LineMatch::build(self.matcher, number, raw, granted));
-            }
-            self.halt.stop();
-            return Ok(false);
         }
         Ok(true)
     }
@@ -230,5 +285,37 @@ impl Sink for LineSink<'_> {
     fn binary_data(&mut self, _: &Searcher, _offset: u64) -> Result<bool, Self::Error> {
         self.binary = true;
         Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use grep_regex::RegexMatcher;
+
+    fn line(m: &RegexMatcher, n: usize, text: &str) -> LineMatch {
+        LineMatch::build(m, n, text.as_bytes(), usize::MAX).expect("match")
+    }
+
+    #[test]
+    fn keep_matches_cuts_lines_and_partial_line() {
+        let m = RegexMatcher::new("x").expect("regex");
+        let mut lines = vec![line(&m, 0, "x x"), line(&m, 1, "x x x"), line(&m, 2, "x")];
+        keep_matches(&mut lines, 3);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[1].columns, vec![0..1]);
+        assert_eq!(lines[1].ranges, vec![0..1]);
+        keep_matches(&mut lines, 0);
+        assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn budget_take_and_exhaustion() {
+        let b = Budget::new(3);
+        assert_eq!(b.take(2), 2);
+        assert!(!b.exhausted.load(Ordering::Relaxed));
+        assert_eq!(b.take(2), 1);
+        assert!(b.exhausted.load(Ordering::Relaxed));
+        assert_eq!(Budget::new(0).cap(), usize::MAX);
     }
 }

@@ -1,6 +1,6 @@
 //! Transform parsing: `/regex/format/flags`.
 
-use super::Parser;
+use super::{Parser, stop_table};
 use crate::snippet::ast::{CaseOp, FormatItem, Transform};
 
 impl Parser {
@@ -124,14 +124,14 @@ impl Parser {
             return self.eat('}').then_some(FormatItem::Case(group, op));
         }
         let (if_text, else_text) = if self.eat('+') {
-            (self.read_format_text(&['}'])?, String::new())
+            (self.read_format_text('}')?, String::new())
         } else if self.eat('?') {
-            let if_text = self.read_format_text(&[':'])?;
+            let if_text = self.read_format_text(':')?;
             self.pos += 1;
-            (if_text, self.read_format_text(&['}'])?)
+            (if_text, self.read_format_text('}')?)
         } else {
             self.eat('-');
-            (String::new(), self.read_format_text(&['}'])?)
+            (String::new(), self.read_format_text('}')?)
         };
         self.pos += 1; // '}'
         Some(FormatItem::Conditional {
@@ -141,12 +141,28 @@ impl Parser {
         })
     }
 
-    /// Text up to (not including) an unescaped char from `stops`.
-    fn read_format_text(&mut self, stops: &[char]) -> Option<String> {
+    /// Text up to (not including) an unescaped `stop` (`}` or `:`).
+    /// Fails in O(1) when there is none, so unclosed items stay linear.
+    fn read_format_text(&mut self, stop: char) -> Option<String> {
+        let chars = &self.chars;
+        let (close, colon) = self.format_stops.get_or_insert_with(|| {
+            (
+                stop_table(chars, '}', |_| true),
+                stop_table(chars, ':', |_| true),
+            )
+        });
+        let table = if stop == '}' { close } else { colon };
+        if table
+            .get(self.pos)
+            .is_none_or(|&end| end >= self.chars.len())
+        {
+            self.pos = self.chars.len();
+            return None;
+        }
         let mut out = String::new();
         loop {
             let c = self.peek()?;
-            if stops.contains(&c) {
+            if c == stop {
                 return Some(out);
             }
             self.pos += 1;

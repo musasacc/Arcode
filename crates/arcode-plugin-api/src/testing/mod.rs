@@ -14,6 +14,7 @@
 //! ```
 
 pub(crate) mod imports;
+pub mod random;
 mod text;
 
 use std::cell::RefCell;
