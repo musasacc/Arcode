@@ -381,7 +381,9 @@ impl Render for Pane {
             }))
             .on_action(cx.listener(|pane, _: &FindPrevious, _, cx| pane.find_step(false, cx)))
             .on_any_mouse_down(cx.listener(|pane, _, window, _| {
-                if pane.items.is_empty() {
+                // A click that already focused something inside the pane
+                // (a text field on a page) keeps that focus.
+                if pane.items.is_empty() && !window.default_prevented() {
                     window.focus(&pane.focus_handle);
                 }
             }))

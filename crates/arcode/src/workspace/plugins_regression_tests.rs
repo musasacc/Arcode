@@ -1,18 +1,26 @@
-//! Plugin runtime wiring: lens clicks after an edit and plugin tabs after
-//! "Plugins: Reload". Each test pins a bug that was fixed.
+//! Plugin runtime wiring: lens clicks after an edit, plugin tabs after
+//! "Plugins: Reload" and typing into panel inputs. Each test pins a bug
+//! that was fixed.
 
 use std::fs;
 use std::path::Path;
 
 use arcode_buffer::Point;
+use arcode_plugin_host::bindings::NodeId;
 use arcode_plugin_host::bindings::guest;
+use arcode_plugin_host::bindings::ui::{
+    Axis, ButtonProps, InputProps, Node, StackProps, View, Widget,
+};
+use arcode_plugin_host::ui_tree::PanelTree;
 use arcode_plugin_host::{PluginId, QualifiedId};
 use arcode_ui_kit::IconName;
-use gpui::{TestAppContext, VisualTestContext};
+use gpui::{Modifiers, TestAppContext, VisualTestContext, point, px};
 
 use super::tests::{open, project_dir};
 use super::*;
+use crate::activity_bar::Activity;
 use crate::plugins::lenses::{LENS_SET, build};
+use crate::plugins::{PanelView, Placement};
 
 const MANIFEST: &str = r#"
 [plugin]
@@ -41,6 +49,12 @@ languages = ["http"]
 id = "view"
 title = "Acme View"
 location = "editor"
+
+[[contributes.panels]]
+id = "side"
+title = "Acme Side"
+location = "sidebar"
+icon = "info"
 "#;
 
 /// Loads a manifest-only plugin (no engine is ever created) from temp
@@ -234,5 +248,123 @@ fn apply_edits_after_the_plugin_gave_up(cx: &mut TestAppContext) {
     assert_eq!(
         text, "GET /a\n",
         "an edit the plugin was told was denied must not be applied"
+    );
+}
+
+/// A row like the example plugin's: an input that grows, then a button.
+/// `input` is the input's node id.
+fn name_row(input: NodeId) -> View {
+    let stack = |id, axis, children| {
+        let props = StackProps {
+            axis,
+            gap: 2,
+            padding: 3,
+        };
+        Node {
+            id,
+            widget: Widget::Stack(props),
+            children,
+            grow: false,
+        }
+    };
+    let name = Node {
+        id: input,
+        widget: Widget::Input(InputProps {
+            value: String::new(),
+            placeholder: "Your name".into(),
+            multiline: false,
+            language: None,
+            submit_on_enter: true,
+            notify_changes: false,
+        }),
+        children: vec![],
+        grow: true,
+    };
+    let greet = Node {
+        id: input + 1,
+        widget: Widget::Button(ButtonProps {
+            label: "Greet".into(),
+            icon: None,
+            primary: true,
+            enabled: true,
+        }),
+        children: vec![],
+        grow: false,
+    };
+    View {
+        root: 1,
+        nodes: vec![
+            stack(1, Axis::Vertical, vec![2]),
+            stack(2, Axis::Horizontal, vec![input, input + 1]),
+            name,
+            greet,
+        ],
+    }
+}
+
+/// Shows [`name_row`] in `view`, clicks input `id` (drawn as `selector`)
+/// and types `text`; returns what the input holds afterwards.
+fn type_into(
+    view: &Entity<PanelView>,
+    (id, selector): (NodeId, &'static str),
+    text: &str,
+    cx: &mut VisualTestContext,
+) -> Option<String> {
+    let (snapshot, changes) = PanelTree::new().render(name_row(id)).expect("valid tree");
+    view.update(cx, |v, cx| v.apply(snapshot, changes, cx));
+    cx.run_until_parked();
+    let input = cx.debug_bounds(selector).expect("the input is drawn");
+    // Off the middle line: a 0 px tall field there still counts as hit.
+    let at = point(input.center().x, input.top() + px(8.));
+    cx.simulate_click(at, Modifiers::none());
+    cx.simulate_input(text);
+    view.read_with(cx, |v, cx| v.input_text(id, cx))
+}
+
+/// A plugin panel's single-line input took no clicks or text: the field
+/// was drawn 0 px tall (so no placeholder either), clicks fell through to
+/// the panel, which took focus for itself, and in an editor pane without
+/// editor tabs the pane took it as well. Typing must reach the field both
+/// in a page tab and in the sidebar.
+#[gpui::test]
+fn panel_inputs_take_typed_text(cx: &mut TestAppContext) {
+    let dir = project_dir();
+    let root = fs::canonicalize(dir.path()).expect("canonical");
+    let plugin_dir = tempfile::tempdir().expect("tempdir");
+    let (ws, cx) = open(cx);
+    ws.update_in(cx, |ws, window, cx| {
+        ws.open_project(root.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    load_plugins(&ws, plugin_dir.path(), cx);
+    let plugin = PluginId::parse("acme.tools").expect("id");
+
+    // A page tab in a pane with no editor tabs.
+    let page_key = (plugin.clone(), 1);
+    let page = ws.update_in(cx, |ws, window, cx| {
+        assert!(ws.editors(cx).is_empty());
+        ws.plugin_add_page(&page_key, "Acme".into(), IconName::Rows, false, window, cx);
+        ws.plugins.panels[&page_key].view.upgrade().expect("view")
+    });
+    assert_eq!(
+        type_into(&page, (3, "plugin-input-3"), "Ada", cx).as_deref(),
+        Some("Ada")
+    );
+
+    // The sidebar panel.
+    let side_key = (plugin, 2);
+    let side = ws.update_in(cx, |ws, _, cx| {
+        let entry = ws.plugins.contributions.sidebar[0].clone();
+        let view = ws.plugin_new_view(&side_key, Placement::Sidebar(entry.id.clone()), cx);
+        ws.plugins.sidebar_views.insert(entry.id, view.clone());
+        ws.plugins.sidebar_active = Some(0);
+        ws.activity = Activity::Extension;
+        ws.sidebar_visible = true;
+        cx.notify();
+        view
+    });
+    assert_eq!(
+        type_into(&side, (13, "plugin-input-13"), "Grace", cx).as_deref(),
+        Some("Grace")
     );
 }

@@ -192,12 +192,24 @@ impl PanelView {
         };
         let multiline = p.multiline;
         let submit = p.submit_on_enter;
+        // A text field fills the box it is given and has no height of its
+        // own, so the box around it gets a definite one: the 28 px row, or
+        // one line per visible row of a multi-line field.
+        let field_height = match &state.kind {
+            InputKind::Field(f) if multiline => {
+                Some(window.line_height() * f.read(cx).visible_rows() as f32 + px(10.))
+            }
+            _ => None,
+        };
         let (content, focus) = match &state.kind {
             InputKind::Field(f) => (
                 div()
+                    .flex()
                     .flex_1()
+                    .min_w_0()
+                    .h_full()
                     .px_2()
-                    .py_1()
+                    .when(multiline, |el| el.py_1())
                     .child(f.clone())
                     .into_any_element(),
                 f.focus_handle(cx),
@@ -231,13 +243,19 @@ impl PanelView {
             .w_full()
             .when(code, |el| el.h(px(150.)))
             .when(!code && !multiline, |el| el.h(px(28.)).items_center())
+            .when_some(field_height, |el, h| el.h(h))
             .rounded_md()
             .border_1()
             .border_color(if focused { c.border_focused } else { c.border })
             .bg(c.surface)
             .overflow_hidden()
+            .debug_selector(move || format!("plugin-input-{id}"))
+            // A click on the padding around the text focuses the field too.
+            // Marking the event handled keeps the panel, which tracks a
+            // focus handle of its own, from taking focus back.
             .on_mouse_down(MouseButton::Left, move |_, window, _| {
-                window.focus(&click_focus)
+                window.focus(&click_focus);
+                window.prevent_default();
             })
             .capture_key_down(cx.listener(move |view, e: &KeyDownEvent, _, cx| {
                 let k = &e.keystroke;

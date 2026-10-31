@@ -9,8 +9,10 @@ your own. It is small, but it uses the pieces most plugins need:
   comment in Rust, Python, JavaScript, TypeScript, Go, C, C++, Java and
   Markdown files. Clicking it runs a command with the lens's arguments.
 - **A panel.** A "Hello" entry in the activity bar opens a sidebar panel
-  with a text input, a Greet button and some text. The number of greetings
-  is kept in the plugin's key-value storage, so it survives restarts.
+  with a text input, a Greet button and some text. Greet (or Enter in the
+  input) greets the name typed in the input, or "world" while it is
+  empty. The number of greetings is kept in the plugin's key-value
+  storage, so it survives restarts.
 - **A setting** (`greeting`, default "Hello") read with
   `host::settings_as`.
 - **Unit tests** that run natively with `cargo test`, against the SDK's
@@ -57,8 +59,9 @@ Then:
 1. Open a source file with a `// TODO: ...` comment: a lens appears above
    it. Click it.
 2. Run **Hello: Say Hello** from the command palette.
-3. Click the info icon in the activity bar to open the panel, type a name
-   and press Greet.
+3. Click the info icon in the activity bar to open the panel. Click the
+   "Your name" input, type a name and press Greet or Enter: the panel
+   shows "Hello, <name>!" and counts the greeting.
 
 ## Test
 

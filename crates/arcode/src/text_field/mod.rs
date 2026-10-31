@@ -97,6 +97,12 @@ impl TextField {
         }
     }
 
+    /// Where the text was painted last (`None` before the first paint).
+    #[cfg(test)]
+    pub(crate) fn painted_bounds(&self) -> Option<Bounds<Pixels>> {
+        self.layout.as_ref().map(|(_, bounds)| *bounds)
+    }
+
     /// The current text.
     pub fn text(&self) -> &str {
         &self.text

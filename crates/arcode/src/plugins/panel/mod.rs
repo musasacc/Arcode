@@ -155,6 +155,12 @@ impl PanelView {
         &self.snapshot
     }
 
+    /// The text in input `id`, as typed so far.
+    #[cfg(test)]
+    pub fn input_text(&self, id: NodeId, cx: &App) -> Option<String> {
+        self.inputs.get(&id).map(|s| s.text(cx))
+    }
+
     /// Applies a validated change from the plugin thread and redraws once.
     pub fn apply(
         &mut self,

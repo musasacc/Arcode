@@ -1,10 +1,10 @@
 use arcode_plugin_host::bindings::ui::{
-    Cell, Column, InputProps, Node, Patch, RowPage, StackProps, TableProps, TabsProps, TextProps,
-    Tone, View,
+    ButtonProps, Cell, Column, InputProps, Node, Patch, RowPage, StackProps, TableProps, TabsProps,
+    TextProps, Tone, View,
 };
 use arcode_plugin_host::rows::PageRequest;
 use arcode_plugin_host::ui_tree::PanelTree;
-use gpui::{Entity, TestAppContext, VisualTestContext};
+use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext, point, px, size};
 
 use super::cells::{cell_text, column_width, index_width};
 use super::table::TableState;
@@ -145,6 +145,123 @@ fn edited_inputs_ride_along_and_plugin_values_overwrite(cx: &mut TestAppContext)
         assert_eq!(v.inputs[&5].text(cx), "select 9");
         assert!(v.take_values(cx).is_empty());
     });
+}
+
+/// The example plugin's row in a sidebar-wide panel: an empty input that
+/// grows, next to a button. The field gets a line of height (so its
+/// placeholder shows), and a click on it or on the padding around it
+/// focuses the field rather than the panel, so typed text reaches it.
+#[gpui::test]
+fn a_clicked_input_takes_focus_and_text(cx: &mut TestAppContext) {
+    crate::test_support::init(cx);
+    let (client, _requests) = PluginClient::new();
+    let plugin = PluginId::parse("acme.tools").unwrap();
+    let stack = |id, axis, children| {
+        let props = StackProps {
+            axis,
+            gap: 2,
+            padding: 3,
+        };
+        node(id, Widget::Stack(props), children)
+    };
+    let mut name = node(
+        3,
+        Widget::Input(InputProps {
+            value: String::new(),
+            placeholder: "Your name".into(),
+            multiline: false,
+            language: None,
+            submit_on_enter: true,
+            notify_changes: false,
+        }),
+        vec![],
+    );
+    name.grow = true;
+    let greet = Widget::Button(ButtonProps {
+        label: "Greet".into(),
+        icon: None,
+        primary: true,
+        enabled: true,
+    });
+    let view = View {
+        root: 1,
+        nodes: vec![
+            stack(1, Axis::Vertical, vec![2]),
+            stack(2, Axis::Horizontal, vec![3, 4]),
+            name,
+            node(4, greet, vec![]),
+        ],
+    };
+    let mut tree = PanelTree::new();
+    let (snapshot, changes) = tree.render(view).unwrap();
+    let (view, cx) = cx.add_window_view(|_, cx| PanelView::new(client, plugin, 1, None, cx));
+    cx.simulate_resize(size(px(240.), px(600.)));
+    view.update_in(cx, |v, window, cx| {
+        v.apply(snapshot, changes, cx);
+        window.focus(&v.focus);
+    });
+    cx.run_until_parked();
+    let field = view.read_with(cx, |v, _| match &v.inputs[&3].kind {
+        form::InputKind::Field(f) => f.clone(),
+        form::InputKind::Code(_) => panic!("single-line input"),
+    });
+    let line = cx.update(|window, _| window.line_height());
+    let painted = field
+        .read_with(cx, |f, _| f.painted_bounds())
+        .expect("the field paints");
+    assert!(painted.size.height >= line, "{painted:?}");
+    assert!(painted.size.width > px(40.), "{painted:?}");
+    let input = cx.debug_bounds("plugin-input-3").expect("the input box");
+    let focused = |cx: &mut VisualTestContext| {
+        let focus = field.read_with(cx, |f, cx| f.focus_handle(cx));
+        cx.update(|window, _| focus.is_focused(window))
+    };
+    // On the padding left of the text.
+    cx.simulate_click(
+        point(input.left() + px(3.), input.center().y),
+        Modifiers::none(),
+    );
+    assert!(focused(cx), "a click on the padding focuses the field");
+    view.update_in(cx, |v, window, _| window.focus(&v.focus));
+    assert!(!focused(cx));
+    // On the text, off the middle line (a 0 px tall field there would
+    // still count as hit).
+    let text = point(input.center().x, input.top() + px(8.));
+    cx.simulate_click(text, Modifiers::none());
+    assert!(focused(cx), "a click on the text focuses the field");
+    cx.simulate_input("Ada");
+    view.update(cx, |v, cx| {
+        assert_eq!(v.inputs[&3].text(cx), "Ada");
+        assert_eq!(v.take_values(cx), vec![(3, "Ada".to_owned())]);
+    });
+}
+
+/// A multi-line input without a language is as tall as its visible rows.
+#[gpui::test]
+fn a_multiline_input_shows_its_rows(cx: &mut TestAppContext) {
+    crate::test_support::init(cx);
+    let (client, _requests) = PluginClient::new();
+    let plugin = PluginId::parse("acme.tools").unwrap();
+    let notes = Widget::Input(InputProps {
+        value: "one\ntwo\nthree\nfour".into(),
+        placeholder: "Notes".into(),
+        multiline: true,
+        language: None,
+        submit_on_enter: false,
+        notify_changes: false,
+    });
+    let view = View {
+        root: 1,
+        nodes: vec![node(1, notes, vec![])],
+    };
+    let mut tree = PanelTree::new();
+    let (snapshot, changes) = tree.render(view).unwrap();
+    let (view, cx) = cx.add_window_view(|_, cx| PanelView::new(client, plugin, 1, None, cx));
+    view.update(cx, |v, cx| v.apply(snapshot, changes, cx));
+    cx.run_until_parked();
+    let line = cx.update(|window, _| window.line_height());
+    let input = cx.debug_bounds("plugin-input-1").expect("the input box");
+    assert!(input.size.height >= line * 4., "{input:?}");
 }
 
 #[gpui::test]

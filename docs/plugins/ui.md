@@ -137,6 +137,12 @@ Details:
 - **Axis** is `Axis::Horizontal` or `Axis::Vertical`.
 - **Icons** (`button(...).icon("play")`) use the names listed in
   [The manifest](manifest.md#contributespanels).
+- **`input`** is one line tall and as wide as its parent stack lets it
+  be: in an `hstack` next to a button, give it `.grow()` so it takes the
+  free width. It shows the placeholder while it is empty, and a click
+  anywhere in its box puts the cursor in it, whether the panel is in the
+  sidebar, the bottom panel or the editor area. With `.multiline()` it
+  shows 3 to 12 lines, growing with the text.
 - **`input` with `.multiline().language("sql")`** becomes a small code
   editor with syntax highlighting for that language id.
 - **`code(text, Some("rust".into()))`** is a read-only editor, so it
