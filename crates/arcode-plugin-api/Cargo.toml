@@ -1,0 +1,16 @@
+[package]
+name = "arcode-plugin-api"
+description = "Arcode plugin API: WIT definitions and the guest SDK for plugin authors."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+# Plugin authors write `use arcode_plugin::prelude::*;` (docs/PLUGINS.md §8).
+name = "arcode_plugin"
+
+[dependencies]
+wit-bindgen.workspace = true
+serde.workspace = true
+serde_json.workspace = true

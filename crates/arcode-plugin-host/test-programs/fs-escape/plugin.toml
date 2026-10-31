@@ -1,0 +1,15 @@
+# Fixture manifest (docs/PLUGINS.md §14): Tries to escape the /project preopen.
+[plugin]
+id = "test.fs-escape"
+name = "FS Escape"
+version = "0.1.0"
+api = "0.1"
+entry = "plugin.wasm"
+description = "Tries to escape the /project preopen."
+
+[capabilities]
+workspace = "read-write"
+
+[[contributes.commands]]
+id = "run"
+title = "FS Escape: Run"

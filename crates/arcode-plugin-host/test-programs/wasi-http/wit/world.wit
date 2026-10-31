@@ -1,0 +1,8 @@
+package test:wasi-http;
+
+/// Imports an interface from the `wasi:http` package. Only its name
+/// matters: the host's import check refuses it before instantiation.
+world fixture {
+  import wasi:http/outgoing-handler@0.3.0;
+  export run: func() -> u32;
+}

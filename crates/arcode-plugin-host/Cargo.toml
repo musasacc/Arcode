@@ -1,0 +1,37 @@
+[package]
+name = "arcode-plugin-host"
+description = "Sandboxed WASM plugin host (wasmtime). No GPUI."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+globset.workspace = true
+dirs.workspace = true
+# `call-hook`: host imports are charged to the CPU budget (budget.rs).
+wasmtime = { workspace = true, features = ["call-hook"] }
+wasmtime-wasi.workspace = true
+sha2.workspace = true
+bytes.workspace = true
+ropey.workspace = true
+async-channel.workspace = true
+ignore.workspace = true
+ureq.workspace = true
+# Only for the `AsyncWrite` trait wasmtime-wasi requires on stdout streams.
+tokio.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+# The guest SDK, natively: property tests feed its diff output to PanelTree.
+arcode-plugin-api.workspace = true
+# examples/plugin_bench.rs (RSS of an instance).
+memory-stats.workspace = true

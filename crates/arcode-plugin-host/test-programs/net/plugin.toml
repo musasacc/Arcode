@@ -1,0 +1,21 @@
+# Fixture manifest (docs/PLUGINS.md §14): sends HTTP requests to loopback servers.
+[plugin]
+id = "test.net"
+name = "Net"
+version = "0.1.0"
+api = "0.1"
+entry = "plugin.wasm"
+description = "Sends HTTP requests through the http import."
+
+[capabilities]
+network = { hosts = ["127.0.0.1", "localhost"] }
+
+[[contributes.commands]]
+id = "send"
+title = "Net: Send"
+
+[[contributes.settings]]
+key = "activate-url"
+type = "string"
+default = ""
+description = "If set, activate() sends a GET here (must fail: no gesture)."
