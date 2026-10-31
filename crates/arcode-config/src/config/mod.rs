@@ -169,9 +169,10 @@ impl Config {
     }
 
     /// A commented, valid TOML template documenting every option. Parsing it
-    /// yields [`Config::default`].
+    /// yields [`Config::default`]. Always uses `\n` line endings, even when
+    /// the source file was checked out with CRLF.
     pub fn default_toml() -> String {
-        DEFAULT_TOML.to_owned()
+        DEFAULT_TOML.replace("\r\n", "\n")
     }
 
     /// Writes [`Config::default_toml`] to `path` unless the file exists.
@@ -180,7 +181,7 @@ impl Config {
         if path.try_exists()? {
             return Ok(false);
         }
-        write_atomic(path, DEFAULT_TOML.as_bytes())?;
+        write_atomic(path, Self::default_toml().as_bytes())?;
         Ok(true)
     }
 

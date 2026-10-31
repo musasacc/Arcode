@@ -43,7 +43,7 @@ fn ask() -> (ConsentAsk, ReplyReceiver<ConsentAnswer>) {
 fn review_an_app_prompt_over_the_consent_dialog_wedges_consent(cx: &mut TestAppContext) {
     let (ws, cx) = open(cx);
     // The app's own themed prompts, as on Linux.
-    cx.update(|_, cx| crate::prompt::init(cx));
+    cx.update(|_, cx| crate::prompt::init_themed(cx));
     let (first, first_answer) = ask();
     ws.update_in(cx, |ws, window, cx| ws.plugin_ask(first, window, cx));
     cx.run_until_parked();

@@ -41,10 +41,21 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # The toolchain pinned in rust-toolchain.toml, so CI and local builds
+      # agree on the compiler and its lints.
+      - name: Read the pinned toolchain
+        id: toolchain
+        run: |
+          channel="$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+          if [ -z "$channel" ]; then echo "no channel in rust-toolchain.toml" >&2; exit 1; fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
           components: clippy, rustfmt
           targets: wasm32-wasip2
+      - name: Show the toolchain
+        run: rustc --version && cargo --version && cargo clippy --version
       # GPUI tests run on GPUI's headless test platform, so no display
       # (Xvfb) is needed.
       - name: Install Linux dependencies

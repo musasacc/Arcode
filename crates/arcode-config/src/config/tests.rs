@@ -45,6 +45,13 @@ fn default_toml_round_trips_to_defaults() {
     assert_eq!(config, Config::default());
 }
 
+/// The template is written with `\n` line endings even from a checkout
+/// with CRLF ones (Windows without `.gitattributes`).
+#[test]
+fn default_toml_uses_lf_line_endings() {
+    assert!(!Config::default_toml().contains('\r'));
+}
+
 #[test]
 fn default_toml_documents_every_option() {
     let template = Config::default_toml();

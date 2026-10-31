@@ -54,8 +54,9 @@ pub enum AdapterChoice {
     Known(KnownAdapter),
     /// The first installed adapter for a language id.
     Language(String),
-    /// A user-defined adapter process.
-    Custom(AdapterSpec),
+    /// A user-defined adapter process (boxed: it is much larger than the
+    /// other variants).
+    Custom(Box<AdapterSpec>),
 }
 
 /// One `[[configuration]]`.
@@ -164,7 +165,7 @@ pub fn parse_launch_file(text: &str) -> (Vec<LaunchEntry>, Vec<String>) {
 
 fn convert(raw: RawEntry) -> Result<LaunchEntry, String> {
     let adapter = match (raw.adapter_command, raw.adapter, raw.language) {
-        (Some(custom), _, _) => AdapterChoice::Custom(custom_spec(&raw.name, custom)?),
+        (Some(custom), _, _) => AdapterChoice::Custom(Box::new(custom_spec(&raw.name, custom)?)),
         (None, Some(name), _) => AdapterChoice::Known(
             KnownAdapter::from_name(&name).ok_or_else(|| format!("unknown adapter `{name}`"))?,
         ),

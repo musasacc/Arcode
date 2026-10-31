@@ -13,8 +13,11 @@ use gpui::{
     Window, WindowId, div, prelude::*, px,
 };
 
-/// Marks that [`init`] chose the app's prompts (see [`restore`]).
-struct AppPrompts;
+/// Marks that [`init`] chose the app's prompts (see [`restore`]); `themed`
+/// is whether they are the in-window dialog rather than native ones.
+struct AppPrompts {
+    themed: bool,
+}
 
 impl gpui::Global for AppPrompts {}
 
@@ -35,8 +38,23 @@ pub fn open_in(window: &Window, cx: &App) -> Option<Entity<PromptDialog>> {
 /// Installs the themed prompt (Linux and other non-macOS/Windows Unixes;
 /// macOS and Windows keep their native dialogs).
 pub fn init(cx: &mut App) {
-    cx.set_global(AppPrompts);
-    if cfg!(not(any(target_os = "macos", target_os = "windows"))) {
+    install(
+        cx,
+        cfg!(not(any(target_os = "macos", target_os = "windows"))),
+    );
+}
+
+/// The themed in-window prompts on every platform, as on Linux. For tests
+/// of how other dialogs share GPUI's prompt slot with the app's prompts:
+/// with native prompts (macOS, Windows) there is no shared slot.
+#[cfg(test)]
+pub fn init_themed(cx: &mut App) {
+    install(cx, true);
+}
+
+fn install(cx: &mut App, themed: bool) {
+    cx.set_global(AppPrompts { themed });
+    if themed {
         cx.set_prompt_builder(build);
     }
 }
@@ -45,8 +63,8 @@ pub fn init(cx: &mut App) {
 /// after a one-off custom prompt such as the plugin consent dialog.
 pub fn restore(cx: &mut App) {
     cx.reset_prompt_builder();
-    if cx.has_global::<AppPrompts>() {
-        init(cx);
+    if let Some(themed) = cx.try_global::<AppPrompts>().map(|p| p.themed) {
+        install(cx, themed);
     }
 }
 

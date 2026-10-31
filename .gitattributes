@@ -1,0 +1,24 @@
+# Check out text files with LF on every platform (Windows included), so
+# embedded templates, fixtures and snapshots compare byte for byte.
+* text=auto eol=lf
+
+# Binary files: never convert line endings or diff as text.
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.wasm binary
+*.db binary
+*.db-wal binary
+*.db-shm binary
+*.sqlite binary
+*.whl binary
+*.pyc binary
+*.zip binary
+*.gz binary

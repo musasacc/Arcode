@@ -49,8 +49,8 @@ fn the_tour_blocks_workspace_shortcuts(cx: &mut TestAppContext) {
     cx.run_until_parked();
     ws.update_in(cx, |ws, window, cx| ws.start_tour(window, cx));
     cx.run_until_parked();
-    cx.simulate_keystrokes("ctrl-p");
-    cx.simulate_keystrokes("ctrl-shift-p");
+    cx.simulate_keystrokes("secondary-p");
+    cx.simulate_keystrokes("secondary-shift-p");
     cx.run_until_parked();
     ws.read_with(cx, |ws, _| {
         assert!(ws.tour().is_some());
@@ -60,7 +60,7 @@ fn the_tour_blocks_workspace_shortcuts(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("escape");
     cx.run_until_parked();
     ws.read_with(cx, |ws, _| assert!(ws.tour().is_none()));
-    cx.simulate_keystrokes("ctrl-p");
+    cx.simulate_keystrokes("secondary-p");
     cx.run_until_parked();
     ws.read_with(cx, |ws, _| assert!(ws.finder.is_some()));
 }
