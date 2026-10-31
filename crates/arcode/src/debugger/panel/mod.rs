@@ -49,6 +49,9 @@ pub struct DebugPanel {
     debugger: Entity<Debugger>,
     repl: Entity<TextField>,
     console_scroll: UniformListScrollHandle,
+    /// Height of the console's list area, measured when drawn (the list
+    /// shows whole lines only, see `console_view::whole_lines`).
+    console_h: Option<gpui::Pixels>,
     stack_scroll: ScrollHandle,
     vars_scroll: ScrollHandle,
     seen_console: u64,
@@ -84,6 +87,7 @@ impl DebugPanel {
             debugger,
             repl: cx.new(|cx| TextField::new("Evaluate an expression", cx)),
             console_scroll: UniformListScrollHandle::new(),
+            console_h: None,
             stack_scroll: ScrollHandle::new(),
             vars_scroll: ScrollHandle::new(),
             seen_console: 0,

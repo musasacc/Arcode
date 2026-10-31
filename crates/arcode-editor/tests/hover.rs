@@ -141,7 +141,7 @@ fn keyboard_hover_shows_at_once_and_closes_on_cursor_move(cx: &mut TestAppContex
     editor.update(cx, |e, cx| {
         e.select_ranges(vec![Point::new(0, 14)..Point::new(0, 14)], cx)
     });
-    cx.simulate_keystrokes("ctrl-k ctrl-i");
+    cx.simulate_keystrokes("secondary-k secondary-i");
     cx.run_until_parked();
     let text = docs(&editor, cx).expect("keyboard hover");
     assert!(text.contains("Docs of other."), "{text}");
@@ -250,7 +250,7 @@ fn keyboard_hover_follows_its_line_and_closes_when_it_leaves_the_view(cx: &mut T
     editor.update(cx, |e, cx| {
         e.select_ranges(vec![Point::new(0, 14)..Point::new(0, 14)], cx)
     });
-    cx.simulate_keystrokes("ctrl-k ctrl-i");
+    cx.simulate_keystrokes("secondary-k secondary-i");
     cx.run_until_parked();
     assert!(docs(&editor, cx).is_some());
     // Scrolling a little keeps it (attached to its moved line); scrolling

@@ -87,25 +87,37 @@ impl Render for DocsView {
         };
         let colors = &theme(cx).colors;
         let mono = SharedString::from(settings(cx).editor.font_family.clone());
+        // The padding sits outside the scrolling part, so text scrolled
+        // past the bottom ends 8 px above the edge instead of being cut
+        // right at the border.
         popover(cx)
             .id("completion-docs")
             .occlude()
             .w(px(DOCS_WIDTH))
             .max_h(self.list_height.max(px(MIN_MAX_HEIGHT)))
-            .overflow_y_scroll()
-            .px(px(10.))
+            .px(px(0.))
             .py(px(8.))
-            .gap(px(4.))
             .font_family(ui_font_family(cx))
             .text_size(type_scale(cx).body)
             .text_color(colors.text)
-            .children(docs.detail.clone().map(|d| {
+            .child(
                 div()
-                    .font_family(mono)
-                    .text_color(colors.text_muted)
-                    .child(d)
-            }))
-            .children(render_blocks(&docs.blocks, cx))
+                    .id("completion-docs-scroll")
+                    .flex()
+                    .flex_col()
+                    .flex_initial()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .px(px(10.))
+                    .gap(px(4.))
+                    .children(docs.detail.clone().map(|d| {
+                        div()
+                            .font_family(mono)
+                            .text_color(colors.text_muted)
+                            .child(d)
+                    }))
+                    .children(render_blocks(&docs.blocks, cx)),
+            )
             .into_any_element()
     }
 }

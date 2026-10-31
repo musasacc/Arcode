@@ -1,16 +1,34 @@
-//! The Vim entry of the status bar: a mode pill, then the command line
-//! being typed, the pending keys of an unfinished command, the macro
-//! being recorded and the last message.
+//! The Vim entry of the footer: a mode pill, then the command line being
+//! typed, the pending keys of an unfinished command, the macro being
+//! recorded and the last message.
+//!
+//! The pill follows the footer pills of docs/DESIGN.md 6.10: 20 tall,
+//! radius 5, a solid `pill` fill, the mode in sentence case (Inter 12
+//! Medium, `text`) after a 7 px status dot in the mode's colour.
 
-use arcode_ui_kit::theme;
-use gpui::{
-    AnyElement, App, FontWeight, Hsla, IntoElement, ParentElement, Styled, div, prelude::*, px,
-};
+use arcode_ui_kit::metrics::WEIGHT_MEDIUM;
+use arcode_ui_kit::{status_dot, theme};
+use gpui::{AnyElement, App, Hsla, IntoElement, ParentElement, Styled, div, prelude::*, px};
 
 use super::VimStatus;
 use arcode_vim::Mode;
 
-/// The theme color of a mode's pill.
+/// The footer label of a mode, in sentence case (Vim's own labels are
+/// upper case, which the footer never uses).
+fn pill_label(mode: Mode) -> &'static str {
+    match mode {
+        Mode::Normal => "Normal",
+        Mode::Insert => "Insert",
+        Mode::Replace => "Replace",
+        Mode::Visual => "Visual",
+        Mode::VisualLine => "Visual line",
+        Mode::VisualBlock => "Visual block",
+        Mode::OperatorPending => "Operator",
+        Mode::CommandLine => "Command",
+    }
+}
+
+/// The theme color of a mode's status dot.
 fn mode_color(mode: Mode, cx: &App) -> Hsla {
     let c = &theme(cx).colors;
     match mode {
@@ -61,13 +79,18 @@ pub fn status_element(status: &VimStatus, cx: &App) -> AnyElement {
     let mono = arcode_ui_kit::settings(cx).editor.font_family.clone();
     let pill = div()
         .id("vim-mode")
-        .px(px(6.))
-        .rounded(px(4.))
-        .bg(color.opacity(0.18))
-        .text_color(color)
-        .font_weight(FontWeight::BOLD)
+        .flex()
         .flex_none()
-        .child(status.mode);
+        .items_center()
+        .gap(px(5.))
+        .h(px(20.))
+        .px(px(6.))
+        .rounded(px(5.))
+        .bg(colors.pill)
+        .text_color(colors.text)
+        .font_weight(WEIGHT_MEDIUM)
+        .child(status_dot(color))
+        .child(pill_label(status.kind));
     let typed = status
         .command_line
         .as_deref()
@@ -79,8 +102,7 @@ pub fn status_element(status: &VimStatus, cx: &App) -> AnyElement {
         .id("vim-status")
         .flex()
         .items_center()
-        .gap_2()
-        .px_2()
+        .gap(px(6.))
         .h_full()
         .min_w_0()
         .max_w(px(MAX_WIDTH))
@@ -133,6 +155,27 @@ mod tests {
         assert!(is_error("E37: No write since last change"));
         assert!(!is_error("Echo"));
         assert!(!is_error("3 substitutions on 2 lines"));
+    }
+
+    #[test]
+    fn pill_labels_are_sentence_case() {
+        let modes = [
+            Mode::Normal,
+            Mode::Insert,
+            Mode::Replace,
+            Mode::Visual,
+            Mode::VisualLine,
+            Mode::VisualBlock,
+            Mode::OperatorPending,
+            Mode::CommandLine,
+        ];
+        for mode in modes {
+            let label = pill_label(mode);
+            let mut chars = label.chars();
+            assert!(chars.next().is_some_and(|c| c.is_uppercase()), "{label}");
+            assert!(chars.all(|c| !c.is_uppercase()), "{label}");
+        }
+        assert_eq!(pill_label(Mode::VisualLine), "Visual line");
     }
 
     #[test]

@@ -21,6 +21,14 @@ fn file_labels_split_into_folder_and_name() {
 }
 
 #[test]
+fn only_errors_and_warnings_count() {
+    assert!(counts_as_problem(DiagnosticSeverity::Error));
+    assert!(counts_as_problem(DiagnosticSeverity::Warning));
+    assert!(!counts_as_problem(DiagnosticSeverity::Info));
+    assert!(!counts_as_problem(DiagnosticSeverity::Hint));
+}
+
+#[test]
 fn rows_are_grouped_by_file() {
     let mut store = DiagnosticStore::new();
     let root = PathBuf::from("/p");
@@ -35,7 +43,8 @@ fn rows_are_grouped_by_file() {
     store.update("ra", root.join("src/a.rs"), vec![diag(0, Sev::HINT, "h")]);
     let rows = build_rows(&store, Some(&root));
     assert_eq!(rows.len(), 5);
-    assert!(matches!(&rows[0], ProblemRow::File { label, count: 1, .. } if label == "src/a.rs"));
+    // Hints are listed but not counted (like the tab badge).
+    assert!(matches!(&rows[0], ProblemRow::File { label, count: 0, .. } if label == "src/a.rs"));
     assert!(matches!(&rows[2], ProblemRow::File { label, count: 2, .. } if label == "src/main.rs"));
     match &rows[3] {
         ProblemRow::Problem {

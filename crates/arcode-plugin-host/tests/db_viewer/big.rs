@@ -82,17 +82,12 @@ fn a_million_rows_page_fast_and_a_group_by_cancels() {
     assert!(db.shows("Running query…"), "{:?}", db.texts());
     // Cancel the way the status bar's task chip does: with the token that
     // came with `TaskStarted` for this call.
-    let chip = v
-        .outputs
-        .lock()
-        .expect("outputs")
-        .iter()
-        .find_map(|o| match o {
-            PluginOutput::TaskStarted { call, cancel, .. } if *call == pending.id => {
-                Some(cancel.clone())
-            }
-            _ => None,
-        });
+    let chip = v.wait_output(|o| match o {
+        PluginOutput::TaskStarted { call, cancel, .. } if *call == pending.id => {
+            Some(cancel.clone())
+        }
+        _ => None,
+    });
     let cancelled_at = Instant::now();
     chip.expect("the query is a task").cancel();
     assert_eq!(pending.wait(), Ok(CallOutput::Done), "cooperative, no trap");

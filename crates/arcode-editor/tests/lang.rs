@@ -65,7 +65,7 @@ fn light_bulb_and_code_action_menu(cx: &mut TestAppContext) {
     assert_eq!(editor.read_with(cx, |e, _| e.lightbulb_line()), None);
 
     move_to(&editor, Point::new(1, 6), cx);
-    cx.simulate_keystrokes("ctrl-.");
+    cx.simulate_keystrokes("secondary-.");
     cx.run_until_parked();
     assert_eq!(
         menu(&editor, cx).unwrap(),
@@ -84,7 +84,7 @@ fn light_bulb_and_code_action_menu(cx: &mut TestAppContext) {
     assert_eq!(log.borrow().applied, ["Organize imports"]);
 
     // Refactor... lists only refactorings; Escape closes it.
-    cx.simulate_keystrokes("ctrl-shift-r");
+    cx.simulate_keystrokes("secondary-shift-r");
     cx.run_until_parked();
     assert_eq!(
         menu(&editor, cx).unwrap(),
@@ -94,7 +94,7 @@ fn light_bulb_and_code_action_menu(cx: &mut TestAppContext) {
     assert_eq!(menu(&editor, cx), None);
 
     // Typing closes the menu and reaches the buffer.
-    cx.simulate_keystrokes("ctrl-.");
+    cx.simulate_keystrokes("secondary-.");
     cx.run_until_parked();
     assert!(menu(&editor, cx).is_some());
     cx.simulate_input("z");
@@ -107,7 +107,7 @@ fn no_actions_shows_a_notice(cx: &mut TestAppContext) {
     let (editor, cx) = open(cx, CODE);
     install_services(&editor, false, cx);
     move_to(&editor, Point::new(2, 4), cx);
-    cx.simulate_keystrokes("ctrl-.");
+    cx.simulate_keystrokes("secondary-.");
     cx.run_until_parked();
     let notice = editor.read_with(cx, |e, cx| e.notice_text(cx));
     assert_eq!(notice.as_deref(), Some("No code actions available"));

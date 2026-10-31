@@ -173,6 +173,18 @@ pub fn poll_interval(elapsed: Duration) -> Duration {
 /// A shell never seen busy is taken as done after this long (the command
 /// finished between two looks, or never started).
 const NEVER_BUSY: Duration = Duration::from_millis(1500);
+/// The same for a shell started for this run: it reads the command only
+/// once it has started up (its rc files can take seconds), so it is given
+/// longer before an idle shell counts as done.
+const NEVER_BUSY_FRESH: Duration = Duration::from_secs(10);
+
+/// How long a shell may stay idle after the command was typed before the
+/// run counts as done: longer for a `fresh` shell, which may still be
+/// starting up (else the first run in a new terminal would end, without a
+/// duration, before the command even starts).
+pub fn never_busy_grace(fresh: bool) -> Duration {
+    if fresh { NEVER_BUSY_FRESH } else { NEVER_BUSY }
+}
 
 impl TerminalPanel {
     /// The last named-terminal run, if any.
@@ -181,19 +193,23 @@ impl TerminalPanel {
     }
 
     /// Records that `command` started in `terminal`: typed into its shell
-    /// (`program` false, watched through the shell's foreground group) or
-    /// as the terminal's own program (its exit ends the run).
+    /// (`program` false, watched through the shell's foreground group;
+    /// `fresh` when the shell was just started for it) or as the
+    /// terminal's own program (its exit ends the run).
     pub(super) fn track_run(
         &mut self,
         command: &str,
         terminal: &Entity<TerminalView>,
         program: bool,
+        fresh: bool,
         cx: &mut Context<Self>,
     ) {
         let pid = terminal.read(cx).terminal().child_pid();
         let watched = program || (can_check_busy() && pid.is_some());
         let watch = match pid {
-            Some(pid) if watched && !program => Some(self.watch_shell(pid, cx)),
+            Some(pid) if watched && !program => {
+                Some(self.watch_shell(pid, never_busy_grace(fresh), cx))
+            }
             _ => None,
         };
         self.last_run = Some(LastRun {
@@ -226,10 +242,10 @@ impl TerminalPanel {
     }
 
     /// Polls whether the shell `pid` still runs a command in the
-    /// foreground; ends the run when it went back to the prompt. Asks for
-    /// a redraw while it runs only when the readout on screen is out of
-    /// date (see [`LastRun::stale`]).
-    fn watch_shell(&self, pid: u32, cx: &mut Context<Self>) -> Task<()> {
+    /// foreground; ends the run when it went back to the prompt (or stayed
+    /// idle for `grace`). Asks for a redraw while it runs only when the
+    /// readout on screen is out of date (see [`LastRun::stale`]).
+    fn watch_shell(&self, pid: u32, grace: Duration, cx: &mut Context<Self>) -> Task<()> {
         cx.spawn(async move |this, cx| {
             let started = Instant::now();
             let mut seen_busy = false;
@@ -242,7 +258,7 @@ impl TerminalPanel {
                     .await;
                 let elapsed = started.elapsed();
                 seen_busy |= busy;
-                let done = !busy && (seen_busy || elapsed >= NEVER_BUSY);
+                let done = !busy && (seen_busy || elapsed >= grace);
                 let keep_going = this
                     .update(cx, |panel, cx| {
                         let Some(run) = panel.last_run.as_mut().filter(|r| !r.ended) else {

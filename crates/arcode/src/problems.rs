@@ -39,13 +39,14 @@ pub enum ProblemsEvent {
 /// One list row.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProblemRow {
-    /// A file header with its problem count.
+    /// A file header with its count of errors and warnings (the same
+    /// count as the tab badge; hints and infos are listed, not counted).
     File {
         /// Absolute path.
         path: PathBuf,
         /// Path relative to the project root.
         label: SharedString,
-        /// Number of problems in the file.
+        /// Number of errors and warnings in the file.
         count: usize,
     },
     /// One diagnostic.
@@ -63,6 +64,15 @@ pub enum ProblemRow {
         /// Start position as reported.
         position: Position,
     },
+}
+
+/// Whether a diagnostic of `severity` counts in the badges (the tab's and
+/// each file's): errors and warnings, what needs attention.
+pub fn counts_as_problem(severity: DiagnosticSeverity) -> bool {
+    matches!(
+        severity,
+        DiagnosticSeverity::Error | DiagnosticSeverity::Warning
+    )
 }
 
 /// Flattens the store into header and problem rows: files sorted by path,
@@ -85,7 +95,10 @@ pub fn build_rows(store: &DiagnosticStore, root: Option<&Path>) -> Vec<ProblemRo
         rows.push(ProblemRow::File {
             path: path.to_path_buf(),
             label: label.into(),
-            count: entries.len(),
+            count: entries
+                .iter()
+                .filter(|(_, d)| counts_as_problem(convert::severity(d)))
+                .count(),
         });
         for (server, d) in entries {
             rows.push(ProblemRow::Problem {
@@ -272,7 +285,7 @@ impl ProblemsPanel {
                                 .child(SharedString::from(dir.to_string())),
                         )
                     })
-                    .child(badge(count.to_string()))
+                    .when(*count > 0, |el| el.child(badge(count.to_string())))
             }
             ProblemRow::Problem {
                 severity,

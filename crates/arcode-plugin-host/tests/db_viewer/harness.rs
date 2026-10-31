@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use arcode_plugin_host::bindings::PanelId;
 use arcode_plugin_host::bindings::ui::{Event, EventKind, RowPage, TableProps, TreeItem, Widget};
@@ -104,6 +105,28 @@ impl Viewer {
             outputs,
             project,
             _dirs: dirs,
+        }
+    }
+
+    /// The first output `f` picks, waiting up to 10 s for it. Outputs reach
+    /// [`Viewer::outputs`] through a thread draining the channel, so one
+    /// sent during a call may land there only after the call returned.
+    pub fn wait_output<T>(&self, mut f: impl FnMut(&PluginOutput) -> Option<T>) -> Option<T> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(found) = self
+                .outputs
+                .lock()
+                .expect("outputs")
+                .iter()
+                .find_map(&mut f)
+            {
+                return Some(found);
+            }
+            if Instant::now() >= deadline {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
 

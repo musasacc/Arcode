@@ -95,6 +95,15 @@ fn polling_slows_down() {
     );
 }
 
+#[test]
+fn a_fresh_shell_gets_time_to_start_up() {
+    // A shell that is reused reads the command at once.
+    assert_eq!(never_busy_grace(false), Duration::from_millis(1500));
+    // A shell started for the run first reads its rc files: a slow start
+    // must not end the run before the command starts.
+    assert!(never_busy_grace(true) >= Duration::from_secs(5));
+}
+
 fn run(ended: bool, exit: Option<Option<i32>>, watched: bool) -> LastRun {
     LastRun {
         command: "cargo run".into(),
