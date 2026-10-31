@@ -155,8 +155,19 @@ impl Render for DebugPanel {
             let t = s.threads.iter().find(|t| t.id == id)?;
             Some(format!("thread {}", t.name).into())
         });
-        let adapter: SharedString = d.session().map(|s| s.adapter.clone()).unwrap_or_default().into();
-        let muted = |text: SharedString| div().min_w_0().truncate().text_color(c.text_muted).font_weight(gpui::FontWeight::NORMAL).child(text);
+        let adapter: SharedString = d
+            .session()
+            .map(|s| s.adapter.clone())
+            .unwrap_or_default()
+            .into();
+        let muted = |text: SharedString| {
+            div()
+                .min_w_0()
+                .truncate()
+                .text_color(c.text_muted)
+                .font_weight(gpui::FontWeight::NORMAL)
+                .child(text)
+        };
         let repl_focused = self.repl.focus_handle(cx).is_focused(window);
         let stack = Self::column(
             section_header("Call stack", cx).children(thread.map(muted)),

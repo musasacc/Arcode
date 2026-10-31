@@ -8,8 +8,10 @@
 //! confirmation), Copy Path, Copy Relative Path, Reveal in the system file
 //! manager and Open in Terminal ([`ops`]). Expanded folders are watched
 //! ([`watch`]) so changes made outside Arcode show up. Rows can be dragged
-//! onto a folder to move them.
+//! onto a folder to move them. Rows show git status letters and error
+//! counts ([`decor`]) once the workspace connects the tree to its sources.
 
+mod decor;
 mod edit;
 mod menu;
 mod nav;
@@ -76,7 +78,7 @@ pub const CONTEXT: &str = "FileTree";
 /// Key context of the inline name field.
 const EDIT_CONTEXT: &str = "FileTreeEdit";
 pub(crate) const ROW_HEIGHT: f32 = 24.;
-pub(crate) const INDENT: f32 = 12.;
+pub(crate) const INDENT: f32 = 14.;
 pub(crate) const LEFT_PAD: f32 = 8.;
 
 /// Registers the tree's keyboard bindings.
@@ -176,6 +178,10 @@ pub struct FileTree {
     list_bounds: std::rc::Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>>,
     /// Folders being expanded from a session, read in the background.
     restoring: Option<(Vec<PathBuf>, gpui::Task<()>)>,
+    /// Git letters, change dots and error counts of the rows.
+    decor: decor::Decorations,
+    /// Where `decor` comes from (none in tests and before a project).
+    sources: Option<decor::Sources>,
 }
 
 impl EventEmitter<FileTreeEvent> for FileTree {}
@@ -204,6 +210,8 @@ impl FileTree {
             watch: None,
             list_bounds: Default::default(),
             restoring: None,
+            decor: Default::default(),
+            sources: None,
         };
         tree.rebuild();
         if workspace_settings(cx).watch_files {

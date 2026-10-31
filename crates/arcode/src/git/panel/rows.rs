@@ -5,8 +5,9 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use arcode_git::{FileStatus, StatusCode};
-use arcode_ui_kit::{IconName, ThemeColors, icon, icon_button, theme};
-use gpui::{App, Context, Div, Hsla, SharedString, Stateful, div, prelude::*, px};
+use arcode_ui_kit::metrics::{ROW_RADIUS, WEIGHT_SEMIBOLD, icon_size};
+use arcode_ui_kit::{IconName, ThemeColors, badge, icon, icon_button, theme, type_scale};
+use gpui::{App, Context, Div, Hsla, SharedString, div, prelude::*, px};
 
 use super::GitPanel;
 use crate::file_icons::file_icon;
@@ -39,8 +40,8 @@ impl Group {
     /// The header title.
     pub fn title(self) -> &'static str {
         match self {
-            Group::Conflicts => "Merge Conflicts",
-            Group::Staged => "Staged Changes",
+            Group::Conflicts => "Merge conflicts",
+            Group::Staged => "Staged changes",
             Group::Changes => "Changes",
             Group::Untracked => "Untracked",
         }
@@ -86,6 +87,9 @@ pub fn build_rows(entries: &[FileStatus], collapsed: &HashSet<Group>) -> Vec<Row
 }
 
 /// The status letter of `entry` in `group` and the theme color for it.
+/// Letters are text, so they use the text-safe status colors (`info`
+/// modified, `success` added or untracked, `error` deleted or conflicted;
+/// docs/DESIGN.md 2.4 rule 3), never the `diff_*` bar colors.
 pub fn status_letter(entry: &FileStatus, group: Group, c: &ThemeColors) -> (&'static str, Hsla) {
     let code = match group {
         Group::Conflicts => return ("!", c.error),
@@ -93,13 +97,20 @@ pub fn status_letter(entry: &FileStatus, group: Group, c: &ThemeColors) -> (&'st
         Group::Staged => entry.index,
         Group::Changes => entry.worktree,
     };
+    code_letter(code, c)
+}
+
+/// The letter and text color of one status code (modified for anything
+/// that is not added or deleted).
+pub fn code_letter(code: StatusCode, c: &ThemeColors) -> (&'static str, Hsla) {
     match code {
-        StatusCode::Added => ("A", c.diff_added),
-        StatusCode::Deleted => ("D", c.diff_deleted),
-        StatusCode::Renamed => ("R", c.diff_modified),
-        StatusCode::Copied => ("C", c.diff_modified),
-        StatusCode::TypeChanged => ("T", c.diff_modified),
-        _ => ("M", c.diff_modified),
+        StatusCode::Added => ("A", c.success),
+        StatusCode::Untracked => ("U", c.success),
+        StatusCode::Deleted => ("D", c.error),
+        StatusCode::Renamed => ("R", c.info),
+        StatusCode::Copied => ("C", c.info),
+        StatusCode::TypeChanged => ("T", c.info),
+        _ => ("M", c.info),
     }
 }
 
@@ -128,14 +139,14 @@ impl GitPanel {
         group: Group,
         count: usize,
         cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
+    ) -> Div {
         let c = theme(cx).colors.clone();
         let collapsed = self.collapsed.contains(&group);
         let actions = div()
             .absolute()
             .top_0()
             .bottom_0()
-            .right(px(34.))
+            .right(px(30.))
             .flex()
             .items_center()
             .gap_0p5()
@@ -173,20 +184,21 @@ impl GitPanel {
                         })),
                 )
             });
-        div()
+        let row = div()
             .id(("git-header", ix))
             .group("git-row")
             .relative()
             .w_full()
             .flex()
             .items_center()
-            .gap_1()
+            .gap_1p5()
             .h(px(ROW_HEIGHT))
             .px_2()
+            .rounded(ROW_RADIUS)
             .cursor_pointer()
-            .text_xs()
-            .font_weight(gpui::FontWeight::SEMIBOLD)
-            .text_color(c.text_muted)
+            .text_size(type_scale(cx).meta)
+            .font_weight(WEIGHT_SEMIBOLD)
+            .text_color(c.text)
             .hover(|s| s.bg(c.hover))
             .child(
                 icon(if collapsed {
@@ -194,12 +206,14 @@ impl GitPanel {
                 } else {
                     IconName::ChevronDown
                 })
-                .size(px(12.)),
+                .size(px(14.))
+                .color(c.text_muted),
             )
-            .child(div().flex_1().child(group.title().to_uppercase()))
+            .child(div().flex_1().child(group.title()))
             .child(actions)
-            .child(count_badge(count, &c))
-            .on_click(cx.listener(move |p, _, _, cx| p.toggle_group(group, cx)))
+            .child(badge(count.to_string()))
+            .on_click(cx.listener(move |p, _, _, cx| p.toggle_group(group, cx)));
+        crate::sidebar::inset(row)
     }
 
     pub(super) fn render_file_row(
@@ -208,7 +222,7 @@ impl GitPanel {
         group: Group,
         entry: &FileStatus,
         cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
+    ) -> Div {
         let c = theme(cx).colors.clone();
         let (name, dir) = split_path(&entry.path);
         let (letter, letter_color) = status_letter(entry, group, &c);
@@ -273,7 +287,7 @@ impl GitPanel {
                     }))
             });
         let tooltip: SharedString = entry.path.display().to_string().into();
-        div()
+        let row = div()
             .id(("git-file", ix))
             .group("git-row")
             .relative()
@@ -282,11 +296,12 @@ impl GitPanel {
             .items_center()
             .gap_1p5()
             .h(px(ROW_HEIGHT))
-            .pl(px(22.))
+            .pl(px(28.))
             .pr_2()
+            .rounded(ROW_RADIUS)
             .cursor_pointer()
             .hover(|s| s.bg(c.hover))
-            .child(icon(file_icon_name).size(px(14.)).color(icon_color))
+            .child(icon(file_icon_name).size(icon_size::ROW).color(icon_color))
             .child(
                 div()
                     .flex()
@@ -304,7 +319,7 @@ impl GitPanel {
                     .child(
                         div()
                             .min_w_0()
-                            .text_xs()
+                            .text_size(type_scale(cx).meta)
                             .text_color(c.text_muted)
                             .truncate()
                             .child(dir),
@@ -315,23 +330,14 @@ impl GitPanel {
                 div()
                     .w(px(12.))
                     .flex_none()
-                    .text_xs()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(letter_color)
-                    .child(letter),
+                    .flex()
+                    .justify_center()
+                    .child(crate::sidebar::git_letter(letter, letter_color, cx)),
             )
             .tooltip(move |_, cx| arcode_ui_kit::Tooltip::text(tooltip.clone(), cx))
-            .on_click(cx.listener(move |p, _, _, cx| p.open_diff(&path, group, cx)))
+            .on_click(cx.listener(move |p, _, _, cx| p.open_diff(&path, group, cx)));
+        crate::sidebar::inset(row)
     }
-}
-
-fn count_badge(count: usize, c: &ThemeColors) -> Div {
-    div()
-        .px_1p5()
-        .rounded_full()
-        .bg(c.surface_raised)
-        .text_color(c.text_muted)
-        .child(count.to_string())
 }
 
 /// A muted line of text in the list area.

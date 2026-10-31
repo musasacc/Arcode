@@ -279,21 +279,7 @@ impl Render for GitPanel {
         let c = theme(cx).colors.clone();
         let has_repo = self.store.read(cx).active_repo().is_some();
         let has_root = self.store.read(cx).root().is_some();
-        let header = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .h(px(34.))
-            .pl_3()
-            .pr_1()
-            .child(
-                div()
-                    .flex_1()
-                    .text_xs()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(c.text_muted)
-                    .child("SOURCE CONTROL"),
-            )
+        let header = crate::sidebar::header("Source control", cx)
             .when(has_repo, |el| {
                 el.child(
                     icon_button("git-blame", IconName::History)

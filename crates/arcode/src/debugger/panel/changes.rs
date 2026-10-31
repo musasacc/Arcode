@@ -43,7 +43,8 @@ impl ValueChanges {
                 *seen = generation;
             }
             None => {
-                self.known.insert(key.to_string(), (value.to_string(), generation));
+                self.known
+                    .insert(key.to_string(), (value.to_string(), generation));
             }
         }
         self.changed.contains(key)

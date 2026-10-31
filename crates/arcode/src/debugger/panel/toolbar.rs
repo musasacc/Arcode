@@ -16,6 +16,7 @@ use crate::debugger::actions::*;
 
 /// One toolbar button. Disabled buttons keep their place with a
 /// `text_disabled` icon (never opacity) and do nothing.
+#[allow(clippy::too_many_arguments)]
 fn tool(
     id: &'static str,
     glyph: IconName,
@@ -155,9 +156,7 @@ impl DebugPanel {
                     .icon_size(px(12.))
                     .icon_color(c.error)
                     .tooltip(format!("Stop ({})", shortcut_label("shift-f5")))
-                    .on_click(|_, window, cx| {
-                        window.dispatch_action(Box::new(StopDebugging), cx)
-                    }),
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(StopDebugging), cx)),
             )
             .into_any_element()
     }
@@ -212,7 +211,11 @@ impl DebugPanel {
                 .into_any_element();
         }
         let place = d.stopped_at().and_then(|(path, line)| {
-            Some(format!("{}:{}", path.file_name()?.to_string_lossy(), line + 1))
+            Some(format!(
+                "{}:{}",
+                path.file_name()?.to_string_lossy(),
+                line + 1
+            ))
         });
         let thread = s
             .thread

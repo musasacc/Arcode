@@ -1,12 +1,13 @@
 //! Appearance: theme (cards with a live preview on hover), dark and light
 //! themes, UI size, animations and low-end mode.
 
-use arcode_config::{ThemeChoice, low_end_edits};
-use arcode_ui_kit::{ButtonStyle, IconName, button, settings, theme};
-use gpui::{Context, Div, SharedString, div, prelude::*};
+use arcode_config::{Appearance, ThemeChoice, low_end_edits};
+use arcode_ui_kit::{ButtonStyle, IconName, button, settings, theme, type_scale};
+use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
-use super::widgets::{picker_button, segmented, setting_row, theme_swatch};
-use super::{SettingsEvent, SettingsPage, Steps, group_title};
+use super::theme_card::{CardKind, card_subtitle, theme_card};
+use super::widgets::{picker_button, segmented, setting_row};
+use super::{SettingsEvent, SettingsPage, Steps, filter, group_title};
 use crate::prefs::pickers::ThemeSlot;
 use crate::theme_sync::Themes;
 
@@ -16,7 +17,7 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
     let c = theme(cx).colors.clone();
     let registry = cx.global::<Themes>().0.clone();
 
-    let mut choices = vec![(ThemeChoice::System, "Follow System".to_owned())];
+    let mut choices = vec![(ThemeChoice::System, "Follow system".to_owned())];
     choices.extend(
         registry
             .names()
@@ -38,17 +39,49 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             ThemeChoice::Named(name) => (registry.get(name), None),
         };
         let selected = value == shown;
+        let kind = match &value {
+            ThemeChoice::Named(name) => CardKind::Named {
+                name,
+                appearance: first.map_or(Appearance::Dark, |t| t.appearance),
+            },
+            _ => CardKind::System {
+                dark: &ui.dark_theme,
+                light: &ui.light_theme,
+            },
+        };
+        let subtitle = card_subtitle(kind, selected);
         let preview = first.filter(|_| value != ThemeChoice::System).cloned();
         let writer = page.writer();
         let id = SharedString::from(format!("theme-card-{label}"));
-        let card = theme_swatch(id.clone(), label, first, second, selected, cx)
+        let card = theme_card(id.clone(), label, subtitle, first, second, selected, cx)
             .on_hover(cx.listener(move |page, hovered: &bool, window, cx| {
                 page.hover_theme(&id, preview.as_ref(), *hovered, window, cx)
             }))
             .on_click(move |_, _, cx| writer.set("ui.theme", value.as_str(), cx));
         cards.push(card);
     }
-    let cards = div().flex().flex_wrap().gap_2().py_2().children(cards);
+    let cards = div()
+        .flex()
+        .flex_wrap()
+        .gap_x(px(14.))
+        .gap_y(px(16.))
+        .pt(px(12.))
+        .pb(px(10.))
+        .border_b_1()
+        .border_color(c.border)
+        .children(cards);
+    // While the page filter is on, only matching rows show.
+    let theme_intro = (!filter::active()).then(|| {
+        div()
+            .child(group_title("Theme", cx))
+            .child(
+                div()
+                    .text_size(type_scale(cx).meta)
+                    .text_color(c.text_muted)
+                    .child("Hover a theme to preview it, click to use it."),
+            )
+            .child(cards)
+    });
 
     let mode = match ui.theme {
         ThemeChoice::System => 0,
@@ -90,14 +123,7 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
     });
 
     div()
-        .child(group_title("Theme", cx))
-        .child(
-            div()
-                .text_xs()
-                .text_color(c.text_muted)
-                .child("Hover a theme to preview it, click to use it."),
-        )
-        .child(cards)
+        .children(theme_intro)
         .child(setting_row(
             "Mode",
             "Follow the system appearance, or always use the dark or the light theme.",
@@ -129,8 +155,8 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
         ))
         .child(group_title("Interface", cx))
         .child(page.number_row(
-            "UI font size",
-            "Size of menus, tabs, panels and the status bar.",
+            "UI size",
+            "Text size of the workbench; the code size is under Fonts.",
             "ui.font_size",
             ui.font_size,
             Steps { step: 1., min: 8., max: 32., int: false },
@@ -162,8 +188,8 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             cx,
         ))
         .child(page.bool_row(
-            "Performance stats",
-            "Startup time and memory use in the status bar.",
+            "Show performance stats",
+            "Startup time and memory use in the footer.",
             "ui.show_perf_stats",
             ui.show_perf_stats,
             cx,

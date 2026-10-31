@@ -4,7 +4,8 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use arcode_ui_kit::{IconName, ThemeColors, icon, icon_button, theme};
+use arcode_ui_kit::metrics::{ROW_RADIUS, icon_size};
+use arcode_ui_kit::{IconName, ThemeColors, badge, icon, icon_button, readout, theme};
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, Hsla, SharedString,
     Subscription, UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
@@ -15,7 +16,7 @@ use super::rows::{Row, build_rows, relative_label, tag_counts};
 use crate::file_icons::file_icon;
 use crate::search_view::results::split_path;
 
-const ROW_HEIGHT: f32 = 22.;
+const ROW_HEIGHT: f32 = 24.;
 
 /// Emitted when the user picks an item.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -172,8 +173,8 @@ impl TodoView {
                     .cursor_pointer()
                     .text_xs()
                     .border_color(if on { color } else { c.border })
-                    .when(on, |el| el.bg(color.opacity(0.18)))
-                    .hover(|s| s.bg(c.hover))
+                    .when(on, |el| el.bg(c.pill))
+                    .when(!on, |el| el.hover(|s| s.bg(c.hover)))
                     .text_color(if n == 0 { c.text_disabled } else { c.text })
                     .child(div().size(px(6.)).rounded_full().bg(color))
                     .child(tag)
@@ -186,7 +187,7 @@ impl TodoView {
 
     fn render_row(&self, ix: usize, cx: &mut Context<Self>) -> gpui::AnyElement {
         let c = theme(cx).colors.clone();
-        let store = self.store.read(cx);
+        let selected = self.selected == Some(ix);
         let base = div()
             .id(ix)
             .flex()
@@ -195,12 +196,24 @@ impl TodoView {
             .h(px(ROW_HEIGHT))
             .px_2()
             .w_full()
+            .rounded(ROW_RADIUS)
             .overflow_hidden()
             .whitespace_nowrap()
             .cursor_pointer()
-            .when(self.selected == Some(ix), |el| el.bg(c.selection))
-            .hover(|s| s.bg(c.hover))
+            .when(selected, |el| el.bg(c.pill))
+            .when(!selected, |el| el.hover(|s| s.bg(c.hover)))
             .on_click(cx.listener(move |view, _, _, cx| view.open_row(ix, cx)));
+        crate::sidebar::inset(self.render_row_content(ix, base, cx)).into_any_element()
+    }
+
+    fn render_row_content(
+        &self,
+        ix: usize,
+        base: gpui::Stateful<gpui::Div>,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let c = theme(cx).colors.clone();
+        let store = self.store.read(cx);
         match self.rows.get(ix) {
             Some(Row::File {
                 path,
@@ -216,10 +229,14 @@ impl TodoView {
                     } else {
                         IconName::ChevronDown
                     })
-                    .size(px(12.))
+                    .size(px(14.))
                     .color(c.text_muted),
                 )
-                .child(icon(file_icon_name).size(px(13.)).color(file_icon_color))
+                .child(
+                    icon(file_icon_name)
+                        .size(icon_size::ROW)
+                        .color(file_icon_color),
+                )
                 .child(div().flex_none().text_color(c.text).child(name))
                 .child(
                     div()
@@ -230,16 +247,7 @@ impl TodoView {
                         .text_color(c.text_muted)
                         .child(dir),
                 )
-                .child(
-                    div()
-                        .flex_none()
-                        .px_1p5()
-                        .rounded_full()
-                        .bg(c.surface_raised)
-                        .text_xs()
-                        .text_color(c.text_muted)
-                        .child(count.to_string()),
-                )
+                .child(badge(count.to_string()))
                 .into_any_element()
             }
             Some(Row::Item { path, index }) => {
@@ -278,13 +286,7 @@ impl TodoView {
                                 .child(a),
                         )
                     })
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_xs()
-                            .text_color(c.text_disabled)
-                            .child(format!("Ln {}", item.line + 1)),
-                    )
+                    .child(readout((item.line + 1).to_string()))
                     .into_any_element()
             }
             None => base.into_any_element(),
@@ -345,13 +347,8 @@ impl Render for TodoView {
             view.store.update(cx, |s, cx| s.rescan(cx));
         }));
         let top = match self.placement {
-            TodoPlacement::Sidebar => div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .pr_1()
-                .child(crate::sidebar::header(&format!("TODO ({total})"), cx))
-                .child(refresh)
+            TodoPlacement::Sidebar => crate::sidebar::header_count("Todo", total, cx)
+                .child(refresh.size(px(24.)))
                 .into_any_element(),
             TodoPlacement::Panel => div()
                 .flex()

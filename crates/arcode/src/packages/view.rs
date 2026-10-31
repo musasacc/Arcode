@@ -6,7 +6,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use arcode_project::deps::{PackageAction, ProjectManifest};
-use arcode_ui_kit::{IconName, icon, icon_button, theme};
+use arcode_ui_kit::metrics::{CONTROL_H_PANEL, ROW_INSET, icon_size};
+use arcode_ui_kit::{IconName, icon, icon_button, input_frame, theme};
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, Subscription,
     UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
@@ -259,43 +260,34 @@ impl Render for PackagesView {
             .map(|m| m.deps.len())
             .sum();
         let loading = self.store.read(cx).is_loading();
-        let header = div()
-            .flex()
-            .items_center()
-            .justify_between()
-            .pr_1()
-            .child(crate::sidebar::header(&format!("Packages ({count})"), cx))
-            .child(
-                icon_button(
-                    "packages-refresh-all",
-                    if loading {
-                        IconName::Loader
-                    } else {
-                        IconName::Refresh
-                    },
-                )
-                .size(px(22.))
-                .tooltip(if loading {
-                    "Reading manifests…"
+        let header = crate::sidebar::header_count("Packages", count, cx).child(
+            icon_button(
+                "packages-refresh-all",
+                if loading {
+                    IconName::Loader
                 } else {
-                    "Refresh"
-                })
-                .on_click(cx.listener(|view, _, _, cx| {
-                    view.store.update(cx, |s, cx| s.refresh(cx));
-                })),
-            );
-        let filter = div().px_2().pb_1().child(
-            div()
-                .flex()
-                .items_center()
-                .gap_1()
-                .h(px(26.))
-                .px_1p5()
-                .rounded_md()
-                .border_1()
-                .border_color(c.border)
-                .bg(c.background)
-                .child(icon(IconName::Search).size(px(12.)).color(c.text_muted))
+                    IconName::Refresh
+                },
+            )
+            .size(px(24.))
+            .tooltip(if loading {
+                "Reading manifests…"
+            } else {
+                "Refresh"
+            })
+            .on_click(cx.listener(|view, _, _, cx| {
+                view.store.update(cx, |s, cx| s.refresh(cx));
+            })),
+        );
+        let filter_focused = self.filter.focus_handle(cx).is_focused(window);
+        let filter = div().px(ROW_INSET).pb_1().child(
+            input_frame(filter_focused, false, cx)
+                .h(CONTROL_H_PANEL)
+                .child(
+                    icon(IconName::Search)
+                        .size(icon_size::INLINE)
+                        .color(c.text_muted),
+                )
                 .child(
                     div()
                         .flex_1()

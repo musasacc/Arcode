@@ -24,7 +24,7 @@ use std::collections::HashSet;
 
 use arcode_plugin_host::PluginId;
 use arcode_plugin_host::grants::Capability;
-use arcode_ui_kit::{IconName, icon_button, pill_tab, theme};
+use arcode_ui_kit::{IconName, badge, icon_button, pill_tab, section_header, spacer, theme};
 use gpui::{Context, Entity, EventEmitter, IntoElement, SharedString, Window, div, prelude::*, px};
 
 use super::PluginClient;
@@ -175,28 +175,26 @@ impl PluginsPage {
         let c = theme(cx).colors.clone();
         let loaded = self.client.is_loaded();
         let rows = self.rows();
-        let title = if let Some(busy) = &self.busy {
-            busy.to_string()
-        } else {
-            format!("INSTALLED · {}", rows.len())
-        };
-        let toolbar = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_between()
-            .px_3()
-            .pb_1()
-            .text_xs()
-            .text_color(c.text_muted)
-            .child(title)
+        let busy = self.busy.as_ref().map(|b| b.to_string());
+        let toolbar = section_header("Installed", cx)
+            .child(badge(rows.len().to_string()))
+            .when_some(busy, |el, busy| {
+                el.child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(c.text_muted)
+                        .child(busy),
+                )
+            })
+            .child(spacer())
             .child(
                 div()
                     .flex()
                     .gap_0p5()
                     .child(
                         icon_button("plugins-install", IconName::FolderOpen)
-                            .size(px(22.))
+                            .size(px(24.))
                             .tooltip("Install from Folder…")
                             .on_click(
                                 cx.listener(|_, _, _, cx| cx.emit(PluginsPageEvent::Install)),
@@ -204,7 +202,7 @@ impl PluginsPage {
                     )
                     .child(
                         icon_button("plugins-reload", IconName::Refresh)
-                            .size(px(22.))
+                            .size(px(24.))
                             .tooltip("Reload plugins")
                             .on_click(cx.listener(|_, _, _, cx| cx.emit(PluginsPageEvent::Reload))),
                     ),

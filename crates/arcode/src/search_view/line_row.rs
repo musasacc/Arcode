@@ -4,7 +4,8 @@
 use std::ops::Range;
 
 use arcode_search::{LineReplacer, SearchQuery};
-use arcode_ui_kit::theme;
+use arcode_ui_kit::metrics::ROW_RADIUS;
+use arcode_ui_kit::{readout, theme};
 use gpui::{
     AnyElement, Context, FontWeight, HighlightStyle, SharedString, StrikethroughStyle, StyledText,
     div, prelude::*, px,
@@ -144,30 +145,25 @@ impl ProjectSearch {
         });
         let styled = StyledText::new(SharedString::from(shown)).with_highlights(styles);
         let selected = self.selected == Some(ix);
-        div()
+        let row = div()
             .id(ix)
             .flex()
             .items_center()
             .gap_2()
             .h(px(ROW_HEIGHT))
-            .pl(px(34.))
+            .pl(px(30.))
             .pr_2()
             .w_full()
+            .rounded(ROW_RADIUS)
             .overflow_hidden()
             .whitespace_nowrap()
             .cursor_pointer()
             .text_color(c.text)
-            .when(selected, |el| el.bg(c.selection))
-            .hover(|s| s.bg(c.hover))
+            .when(selected, |el| el.bg(c.pill))
+            .when(!selected, |el| el.hover(|s| s.bg(c.hover)))
             .child(div().flex_1().min_w_0().overflow_hidden().child(styled))
-            .child(
-                div()
-                    .flex_none()
-                    .text_xs()
-                    .text_color(c.text_disabled)
-                    .child((line.line + 1).to_string()),
-            )
-            .on_click(cx.listener(move |view, _, _, cx| view.open_row(ix, cx)))
-            .into_any_element()
+            .child(readout((line.line + 1).to_string()))
+            .on_click(cx.listener(move |view, _, _, cx| view.open_row(ix, cx)));
+        crate::sidebar::inset(row).into_any_element()
     }
 }

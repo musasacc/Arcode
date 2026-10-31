@@ -88,9 +88,22 @@ impl DebugPanel {
                     .px(px(8.))
                     .rounded(px(7.))
                     .border_1()
-                    .border_color(if repl_focused { c.accent } else { c.border_strong })
+                    .border_color(if repl_focused {
+                        c.accent
+                    } else {
+                        c.border_strong
+                    })
+                    .text_size(scale.body)
+                    .line_height(px(20.))
                     .child(icon(IconName::ChevronRight).size(px(13.)).color(c.accent))
-                    .child(div().flex_1().min_w_0().h_full().child(self.repl.clone())),
+                    .child(
+                        div()
+                            .flex()
+                            .flex_1()
+                            .min_w_0()
+                            .h(px(26.))
+                            .child(self.repl.clone()),
+                    ),
             )
     }
 }

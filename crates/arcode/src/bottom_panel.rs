@@ -353,7 +353,7 @@ impl Render for BottomPanel {
             .flex()
             .flex_none()
             .items_center()
-            .gap(px(6.))
+            .gap(px(4.))
             .h(TAB_STRIP_H)
             .px(px(6.))
             .child(self.render_tabs(focused, cx));
@@ -369,9 +369,10 @@ impl Render for BottomPanel {
             None => header
                 .child(spacer())
                 .when_some(readout, |el, readout| {
-                    el.child(readout).when(self.active == BottomTab::Terminal, |el| {
-                        el.child(header_rule(c.border))
-                    })
+                    el.child(readout)
+                        .when(self.active == BottomTab::Terminal, |el| {
+                            el.child(header_rule(c.border))
+                        })
                 })
                 .when(self.active == BottomTab::Terminal, |el| {
                     el.child(terminal_panel::render_strip(&self.terminals, cx))

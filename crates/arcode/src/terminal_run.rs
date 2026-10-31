@@ -168,7 +168,11 @@ impl TerminalPanel {
 
     /// The terminal of the last run exited with `code`: the run ended.
     pub(super) fn run_terminal_exited(&mut self, id: EntityId, code: Option<i32>) {
-        if let Some(run) = self.last_run.as_mut().filter(|r| r.terminal == id && !r.ended) {
+        if let Some(run) = self
+            .last_run
+            .as_mut()
+            .filter(|r| r.terminal == id && !r.ended)
+        {
             run.ended = true;
             run.watched = true;
             run.exit = Some(code);
@@ -315,7 +319,10 @@ mod tests {
             poll_interval(Duration::from_secs(5)),
             Duration::from_millis(250)
         );
-        assert_eq!(poll_interval(Duration::from_secs(60)), Duration::from_secs(1));
+        assert_eq!(
+            poll_interval(Duration::from_secs(60)),
+            Duration::from_secs(1)
+        );
     }
 
     fn run(ended: bool, exit: Option<Option<i32>>, watched: bool) -> LastRun {
@@ -334,7 +341,10 @@ mod tests {
     #[test]
     fn status_from_the_exit() {
         assert_eq!(run(false, None, true).status(), RunStatus::Running);
-        assert_eq!(run(true, Some(Some(0)), true).status(), RunStatus::Succeeded);
+        assert_eq!(
+            run(true, Some(Some(0)), true).status(),
+            RunStatus::Succeeded
+        );
         assert_eq!(run(true, Some(Some(2)), true).status(), RunStatus::Failed);
         assert_eq!(run(true, Some(None), true).status(), RunStatus::Failed);
         assert_eq!(run(true, None, true).status(), RunStatus::Ended);

@@ -192,7 +192,10 @@ mod tests {
             "Vec<int, Global>"
         );
         assert_eq!(strip_paths("i32"), "i32");
-        assert_eq!(strip_paths("&mut core::option::Option<u8>"), "&mut Option<u8>");
+        assert_eq!(
+            strip_paths("&mut core::option::Option<u8>"),
+            "&mut Option<u8>"
+        );
         assert_eq!(strip_paths("\"a::b\""), "\"a::b\"");
         assert_eq!(strip_paths("Rect::new"), "Rect::new");
         assert_eq!(strip_paths("é::x"), "é::x");

@@ -3,7 +3,8 @@
 
 use std::ops::Range;
 
-use arcode_ui_kit::{IconName, icon, icon_button, theme};
+use arcode_ui_kit::metrics::{ROW_RADIUS, WEIGHT_MEDIUM, icon_size};
+use arcode_ui_kit::{IconName, badge, icon, icon_button, theme};
 use gpui::{AnyElement, Context, SharedString, Window, div, prelude::*, px, uniform_list};
 
 use super::results::{Row, split_path};
@@ -15,7 +16,7 @@ use crate::find_bar::{ToggleCase, ToggleRegex, ToggleWord};
 use crate::search_widgets::{SearchOption, field_box, option_toggles};
 
 /// Height of a result row.
-pub(super) const ROW_HEIGHT: f32 = 22.;
+pub(super) const ROW_HEIGHT: f32 = 24.;
 
 impl ProjectSearch {
     fn render_inputs(
@@ -172,30 +173,35 @@ impl ProjectSearch {
         let (file_icon_name, file_icon_color) = file_icon(&name, &c);
         let selected = self.selected == Some(ix);
         let group = SharedString::from(format!("search-file-{fx}"));
-        div()
+        let row = div()
             .id(ix)
             .group(group.clone())
             .flex()
             .items_center()
-            .gap_1()
+            .gap_1p5()
             .h(px(ROW_HEIGHT))
             .px_2()
             .w_full()
+            .rounded(ROW_RADIUS)
             .overflow_hidden()
             .whitespace_nowrap()
             .cursor_pointer()
-            .when(selected, |el| el.bg(c.selection))
-            .hover(|s| s.bg(c.hover))
+            .when(selected, |el| el.bg(c.pill).font_weight(WEIGHT_MEDIUM))
+            .when(!selected, |el| el.hover(|s| s.bg(c.hover)))
             .child(
                 icon(if collapsed {
                     IconName::ChevronRight
                 } else {
                     IconName::ChevronDown
                 })
-                .size(px(12.))
+                .size(px(14.))
                 .color(c.text_muted),
             )
-            .child(icon(file_icon_name).size(px(13.)).color(file_icon_color))
+            .child(
+                icon(file_icon_name)
+                    .size(icon_size::ROW)
+                    .color(file_icon_color),
+            )
             .child(div().flex_none().text_color(c.text).child(name))
             .child(
                 div()
@@ -219,18 +225,9 @@ impl ProjectSearch {
                     ),
                 )
             })
-            .child(
-                div()
-                    .flex_none()
-                    .px_1p5()
-                    .rounded_full()
-                    .bg(c.surface_raised)
-                    .text_xs()
-                    .text_color(c.text_muted)
-                    .child(file.match_count().to_string()),
-            )
-            .on_click(cx.listener(move |view, _, _, cx| view.open_row(ix, cx)))
-            .into_any_element()
+            .child(badge(file.match_count().to_string()))
+            .on_click(cx.listener(move |view, _, _, cx| view.open_row(ix, cx)));
+        crate::sidebar::inset(row).into_any_element()
     }
 
     fn render_row(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
@@ -243,39 +240,31 @@ impl ProjectSearch {
 
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let has_results = !self.results.files().is_empty();
-        div()
-            .flex()
-            .items_center()
-            .justify_between()
-            .pr_1()
-            .child(crate::sidebar::header("Search", cx))
-            .child(
-                div()
-                    .flex()
-                    .gap_0p5()
-                    .child(
-                        icon_button("search-refresh", IconName::Refresh)
-                            .size(px(22.))
-                            .tooltip("Search Again")
-                            .on_click(cx.listener(|view, _, _, cx| view.run(true, cx))),
+        crate::sidebar::header("Search", cx).child(
+            div()
+                .flex()
+                .gap_0p5()
+                .child(
+                    icon_button("search-refresh", IconName::Refresh)
+                        .size(px(24.))
+                        .tooltip("Search Again")
+                        .on_click(cx.listener(|view, _, _, cx| view.run(true, cx))),
+                )
+                .when(has_results, |el| {
+                    el.child(
+                        icon_button("search-collapse", IconName::ChevronsDownUp)
+                            .size(px(24.))
+                            .tooltip("Collapse All")
+                            .on_click(cx.listener(|view, _, _, cx| view.toggle_collapse_all(cx))),
                     )
-                    .when(has_results, |el| {
-                        el.child(
-                            icon_button("search-collapse", IconName::ChevronsDownUp)
-                                .size(px(22.))
-                                .tooltip("Collapse All")
-                                .on_click(
-                                    cx.listener(|view, _, _, cx| view.toggle_collapse_all(cx)),
-                                ),
-                        )
-                        .child(
-                            icon_button("search-clear", IconName::X)
-                                .size(px(22.))
-                                .tooltip("Clear Results")
-                                .on_click(cx.listener(|view, _, _, cx| view.clear(cx))),
-                        )
-                    }),
-            )
+                    .child(
+                        icon_button("search-clear", IconName::X)
+                            .size(px(24.))
+                            .tooltip("Clear Results")
+                            .on_click(cx.listener(|view, _, _, cx| view.clear(cx))),
+                    )
+                }),
+        )
     }
 }
 
