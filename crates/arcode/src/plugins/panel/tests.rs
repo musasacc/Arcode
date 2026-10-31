@@ -1,5 +1,6 @@
 use arcode_plugin_host::bindings::ui::{
-    Cell, Column, InputProps, Node, Patch, RowPage, StackProps, TabsProps, TextProps, Tone, View,
+    Cell, Column, InputProps, Node, Patch, RowPage, StackProps, TableProps, TabsProps, TextProps,
+    Tone, View,
 };
 use arcode_plugin_host::rows::PageRequest;
 use arcode_plugin_host::ui_tree::PanelTree;
@@ -209,4 +210,40 @@ fn unknown_row_counts_grow_with_the_pages() {
     known.cache_mut().set_viewport(50_000, 50_030);
     let request = known.cache_mut().next_fetch().expect("a page");
     assert!(request.start <= 50_000 && request.start + u64::from(request.count) > 50_030);
+}
+
+/// Ctrl+End (Cmd+End) jumps to the last of 100,000 rows without clicking
+/// the table first; Ctrl+Home goes back to the first.
+#[gpui::test]
+fn ctrl_end_jumps_to_the_last_row(cx: &mut TestAppContext) {
+    crate::test_support::init(cx);
+    let (client, _requests) = PluginClient::new();
+    let plugin = PluginId::parse("acme.tools").unwrap();
+    let table = Widget::Table(TableProps {
+        columns: vec![Column {
+            title: "a".into(),
+            width: None,
+            numeric: false,
+            sortable: true,
+        }],
+        row_count: Some(100_000),
+        generation: 0,
+    });
+    let mut tree = PanelTree::new();
+    let view = View {
+        root: 1,
+        nodes: vec![node(1, table, vec![])],
+    };
+    let (snapshot, changes) = tree.render(view).unwrap();
+    let (view, cx) = cx.add_window_view(|_, cx| PanelView::new(client, plugin, 1, None, cx));
+    view.update_in(cx, |v, window, cx| {
+        v.apply(snapshot, changes, cx);
+        window.focus(&v.focus);
+    });
+    cx.run_until_parked();
+    let selected = |cx: &mut VisualTestContext| view.read_with(cx, |v, _| v.tables[&1].selected());
+    cx.simulate_keystrokes("secondary-end");
+    assert_eq!(selected(cx), Some(99_999));
+    cx.simulate_keystrokes("secondary-home");
+    assert_eq!(selected(cx), Some(0));
 }

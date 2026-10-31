@@ -8,7 +8,7 @@ use arcode_completion::{CompletionCandidate, path_completions};
 use gpui::{AppContext, Context};
 
 use super::menu::MenuState;
-use super::session::{Mode, Pending, Session};
+use super::session::{Anchor, Mode, Pending, Session};
 use super::{CompletionItem, CompletionList, CompletionProvider, CompletionTrigger, is_word_char};
 use crate::Editor;
 
@@ -139,22 +139,29 @@ impl Editor {
     ) {
         self.completion.seq += 1;
         let id = self.completion.seq;
+        // Where the request applies when it is scheduled: fast typing can
+        // move the cursor out of that word before the delay ends.
+        let scheduled = self.completion_anchor();
         self.completion.request_task = Some(cx.spawn(async move |this, cx| {
             if !delay.is_zero() {
                 cx.background_executor().timer(delay).await;
             }
             this.update(cx, |editor, cx| {
-                editor.fire_completion_request(id, trigger, cx)
+                editor.fire_completion_request(id, trigger, scheduled, cx)
             })
             .ok();
         }));
     }
 
-    /// Sends request `id` to the provider and the path lister.
+    /// Sends request `id` to the provider and the path lister. It is
+    /// dropped when the cursor left the word it was scheduled for (e.g.
+    /// `u8 = "q";` typed within the delay must not ask for completions
+    /// after the `;`).
     fn fire_completion_request(
         &mut self,
         id: u64,
         trigger: CompletionTrigger,
+        scheduled: Option<Anchor>,
         cx: &mut Context<Self>,
     ) {
         if id != self.completion.seq {
@@ -163,6 +170,12 @@ impl Editor {
         let Some(mut anchor) = self.completion_anchor() else {
             return;
         };
+        let moved = scheduled.is_none_or(|s| {
+            s.mode != anchor.mode || s.start != anchor.start || self.completion_query(&s).is_none()
+        });
+        if moved {
+            return;
+        }
         // An incomplete list is asked again for the same word, and keeps
         // knowing whether it opened after a trigger character.
         let mut after_trigger = matches!(trigger, CompletionTrigger::Character(_));

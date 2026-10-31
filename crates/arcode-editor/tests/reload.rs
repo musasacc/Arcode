@@ -163,6 +163,7 @@ fn discard_and_reload_replaces_unsaved_edits_undoably(cx: &mut TestAppContext) {
     });
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "xa\n");
     assert!(events.borrow().contains(&EditorEvent::DiskConflictChanged));
+    assert!(events.borrow().contains(&EditorEvent::Reloaded));
     assert!(!events.borrow().contains(&EditorEvent::SaveConflict));
 }
 

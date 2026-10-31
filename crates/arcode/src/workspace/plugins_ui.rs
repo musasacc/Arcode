@@ -324,10 +324,17 @@ impl Workspace {
         self.plugins.opened_files.retain(|_, k| k != key);
     }
 
+    /// Closes the tabs of `page`, and a split pane left empty by that (the
+    /// plugin opened it beside the editor; the user did not).
     fn plugin_close_pages(&mut self, page: &str, window: &mut Window, cx: &mut Context<Self>) {
         for pane in self.panes.clone() {
             if let Some(ix) = pane.read(cx).page_position(page) {
                 pane.update(cx, |p, cx| p.close_page(ix, window, cx));
+                if !pane.read(cx).has_tabs()
+                    && let Some(pane_ix) = self.panes.iter().position(|p| *p == pane)
+                {
+                    self.close_pane(pane_ix, window, cx);
+                }
             }
         }
     }

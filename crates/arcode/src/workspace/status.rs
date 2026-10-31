@@ -174,8 +174,19 @@ impl Workspace {
                 let e = editor.read(cx);
                 let pos = e.cursor_position();
                 let status = self.lsp.read(cx).status_for_language(e.language().id, cx);
+                // A plugin language (the HTTP client's `.http`) replaces
+                // plain text for plugins; show its name too.
+                let contributed = crate::plugins::snapshot::contributed_for(
+                    e.path(),
+                    e.language().id,
+                    &self.plugins.contributions.languages,
+                );
+                let name = contributed.map_or_else(
+                    || SharedString::new_static(e.language().name),
+                    |l| SharedString::from(l.name.clone()),
+                );
                 (
-                    Some(SharedString::new_static(e.language().name)),
+                    Some(name),
                     Some((pos.line, pos.column)),
                     status,
                 )

@@ -49,6 +49,8 @@ pub struct CapturedOutput {
     pub stderr: String,
     /// Stopped by the cancel flag or the timeout.
     pub cancelled: bool,
+    /// Stopped by the timeout (`cancelled` is set too).
+    pub timed_out: bool,
 }
 
 /// Runs `cmd` without a shell and waits for it, killing it (and what it
@@ -101,12 +103,13 @@ pub fn capture(
             .map(|p| Box::new(p) as Box<dyn Read + Send>),
     );
     let start = Instant::now();
-    let mut cancelled = false;
+    let (mut cancelled, mut timed_out) = (false, false);
     let status = loop {
         if let Some(status) = child.try_wait()? {
             break Some(status);
         }
-        if cancel.is_cancelled() || start.elapsed() > timeout {
+        timed_out = start.elapsed() > timeout;
+        if cancel.is_cancelled() || timed_out {
             cancelled = true;
             proc_group::kill_group(&mut child);
             let _ = child.wait();
@@ -122,6 +125,7 @@ pub fn capture(
         stdout,
         stderr,
         cancelled,
+        timed_out,
     })
 }
 
@@ -162,7 +166,20 @@ mod tests {
         });
         let start = Instant::now();
         let out = capture(&sh("sleep 30"), &flag, Duration::from_secs(60)).unwrap();
-        assert!(out.cancelled);
+        assert!(out.cancelled && !out.timed_out);
+        assert!(start.elapsed() < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn timeout_kills_the_command_and_says_so() {
+        let start = Instant::now();
+        let out = capture(
+            &sh("sleep 30"),
+            &CancelFlag::new(),
+            Duration::from_millis(200),
+        )
+        .unwrap();
+        assert!(out.cancelled && out.timed_out);
         assert!(start.elapsed() < Duration::from_secs(10));
     }
 

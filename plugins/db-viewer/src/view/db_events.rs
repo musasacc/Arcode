@@ -92,7 +92,12 @@ impl DbView {
                 self.results = Some(outcome);
                 self.result_generation = self.result_generation.wrapping_add(1);
             }
-            Err(message) => self.query = QueryState::Failed(message),
+            Err(message) => {
+                // The previous query's rows would read as this one's.
+                self.query = QueryState::Failed(message);
+                self.results = None;
+                self.result_generation = self.result_generation.wrapping_add(1);
+            }
         }
         self.render()
     }

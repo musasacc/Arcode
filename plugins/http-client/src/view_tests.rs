@@ -204,12 +204,12 @@ fn history_tab_lists_entries() {
     let w = flat(&render(&ex, 3, &entries));
     assert!(w.contains(&Widget::KeyValues(vec![
         (
-            "2023-11-14 22:13:20 GET http://a/".into(),
-            "200 · 5 ms · 2.0 KB".into()
+            "2023-11-14 22:13:20".into(),
+            "GET http://a/ → 200 · 5 ms · 2.0 KB".into()
         ),
         (
-            "1970-01-01 00:00:00 POST http://b/".into(),
-            "cancelled".into()
+            "1970-01-01 00:00:00".into(),
+            "POST http://b/ → cancelled".into()
         ),
     ])));
     assert_eq!(status_tone(101), Tone::Accent);

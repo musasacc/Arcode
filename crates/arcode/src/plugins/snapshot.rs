@@ -58,17 +58,27 @@ pub fn language_for(
     editor_language: &str,
     contributed: &[ContributedLanguage],
 ) -> String {
-    let plain = arcode_syntax::plain_text().id;
-    if editor_language == plain
-        && let Some(ext) = path.and_then(|p| p.extension()).and_then(|e| e.to_str())
-        && claimable(ext)
-        && let Some(lang) = contributed
-            .iter()
-            .find(|l| l.extension.eq_ignore_ascii_case(ext))
-    {
-        return lang.id.clone();
+    contributed_for(path, editor_language, contributed)
+        .map_or_else(|| editor_language.to_owned(), |l| l.id.clone())
+}
+
+/// The plugin language that replaces the editor's plain text for `path`
+/// (see [`language_for`]); its name is what the status bar shows.
+pub fn contributed_for<'a>(
+    path: Option<&Path>,
+    editor_language: &str,
+    contributed: &'a [ContributedLanguage],
+) -> Option<&'a ContributedLanguage> {
+    if editor_language != arcode_syntax::plain_text().id {
+        return None;
     }
-    editor_language.to_owned()
+    let ext = path?.extension()?.to_str()?;
+    if !claimable(ext) {
+        return None;
+    }
+    contributed
+        .iter()
+        .find(|l| l.extension.eq_ignore_ascii_case(ext))
 }
 
 /// `path` relative to `root` with `/` separators; `None` outside the
@@ -145,6 +155,10 @@ mod tests {
             plain
         );
         assert_eq!(language_for(None, plain, &http()), plain);
+        let http = http();
+        let shown = contributed_for(Some(Path::new("/p/a.http")), plain, &http);
+        assert_eq!(shown.map(|l| l.name.as_str()), Some("HTTP Request"));
+        assert!(contributed_for(Some(Path::new("/p/a.rs")), "rust", &http).is_none());
     }
 
     #[test]

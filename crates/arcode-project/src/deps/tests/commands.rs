@@ -404,6 +404,10 @@ fn bad_names_and_versions_are_refused() {
     assert!(action_command(&uv, &remove("x", DepKind::Dev, Some("--all")), false).is_err());
 }
 
+/// Network checks fail fast offline (fewer retries, shorter waits).
+const NPM: &str = "npm outdated --json --fetch-retries=1 --fetch-retry-mintimeout=2000 --fetch-retry-maxtimeout=5000";
+const PNPM: &str = "pnpm outdated --format json --fetch-retries=1 --fetch-retry-mintimeout=2000 --fetch-retry-maxtimeout=5000";
+
 #[test]
 fn check_commands() {
     let check = |m: &ProjectManifest, windows: bool| {
@@ -420,8 +424,8 @@ fn check_commands() {
             "cargo update --dry-run --verbose",
             F::CargoDryRun,
         ),
-        (Manager::Npm, "npm outdated --json", F::NpmJson),
-        (Manager::Pnpm, "pnpm outdated --format json", F::NpmJson),
+        (Manager::Npm, NPM, F::NpmJson),
+        (Manager::Pnpm, PNPM, F::NpmJson),
         (Manager::Yarn, "yarn outdated --json", F::YarnJson),
         (Manager::Bun, "bun outdated", F::Raw),
         (Manager::Uv, "uv lock --upgrade --dry-run", F::UvDryRun),
@@ -432,12 +436,12 @@ fn check_commands() {
         ),
         (
             Manager::Pipenv,
-            "pipenv run python -m pip list --outdated --format json",
+            "pipenv run python -m pip list --outdated --format json --retries 1 --timeout 10",
             F::PipJson,
         ),
         (
             Manager::Pip,
-            "python3 -m pip list --outdated --format json",
+            "python3 -m pip list --outdated --format json --retries 1 --timeout 10",
             F::PipJson,
         ),
         (Manager::Go, "go list -m -u -json all", F::GoJson),
@@ -461,7 +465,7 @@ fn check_commands() {
     }
     assert_eq!(
         check(&manifest(Manager::Npm, "x"), true).unwrap().0,
-        "npm.cmd outdated --json"
+        NPM.replacen("npm", "npm.cmd", 1)
     );
     let mut berry = manifest(Manager::Yarn, "package.json");
     berry.yarn_berry = true;

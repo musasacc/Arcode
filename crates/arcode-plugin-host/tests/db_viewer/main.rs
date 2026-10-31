@@ -83,6 +83,10 @@ fn sample_database_tree_rows_query_and_errors() {
 
     db.run_wait(&v, "SELECT * FROM nope");
     assert!(db.shows("no such table: nope"), "{:?}", db.texts());
+    assert!(
+        db.table(false).is_none(),
+        "a failed query does not show the previous rows"
+    );
     db.run_wait(&v, "DELETE FROM users");
     assert!(db.shows("attempt to write a readonly database"));
     db.run_wait(&v, "SELECT count(*) FROM users");

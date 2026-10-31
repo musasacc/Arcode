@@ -19,6 +19,10 @@ pub enum EditorEvent {
     },
     /// The buffer was written to disk.
     Saved,
+    /// The buffer took the file's new content from disk (it changed
+    /// outside, or Reload discarded unsaved edits): it matches the file
+    /// again, as after a save.
+    Reloaded,
     /// A save was refused because the file changed on disk since the
     /// buffer was loaded or saved (ask, then
     /// [`Editor::save_overwriting`](crate::Editor::save_overwriting)).

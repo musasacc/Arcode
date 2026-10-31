@@ -43,6 +43,31 @@ pub enum OutdatedFormat {
     Raw,
 }
 
+/// `pip list --outdated` asks the index once per installed package, and
+/// by default retries each failed request five times with a growing pause:
+/// offline, a system Python with 90 packages took over five minutes. One
+/// retry and a 10 s timeout fail fast enough.
+const PIP_OUTDATED: &[&str] = &[
+    "-m",
+    "pip",
+    "list",
+    "--outdated",
+    "--format",
+    "json",
+    "--retries",
+    "1",
+    "--timeout",
+    "10",
+];
+
+/// npm and pnpm retry each registry request twice, waiting 10 to 60 s in
+/// between (about 70 s offline); one retry after 2 to 5 s is enough here.
+const NPM_OFFLINE_FAST: &[&str] = &[
+    "--fetch-retries=1",
+    "--fetch-retry-mintimeout=2000",
+    "--fetch-retry-maxtimeout=5000",
+];
+
 /// The check command for manifest `m` and how to read its output; `None`
 /// when the manager has no such command (Yarn 2+).
 pub fn outdated_command(
@@ -55,9 +80,12 @@ pub fn outdated_command(
             s(&["update", "--dry-run", "--verbose"]),
             OutdatedFormat::CargoDryRun,
         ),
-        Manager::Npm => (s(&["outdated", "--json"]), OutdatedFormat::NpmJson),
+        Manager::Npm => (
+            [s(&["outdated", "--json"]), s(NPM_OFFLINE_FAST)].concat(),
+            OutdatedFormat::NpmJson,
+        ),
         Manager::Pnpm => (
-            s(&["outdated", "--format", "json"]),
+            [s(&["outdated", "--format", "json"]), s(NPM_OFFLINE_FAST)].concat(),
             OutdatedFormat::NpmJson,
         ),
         Manager::Yarn if m.yarn_berry => return None,
@@ -74,21 +102,12 @@ pub fn outdated_command(
             OutdatedFormat::PoetryText,
         ),
         Manager::Pipenv => (
-            s(&[
-                "run",
-                "python",
-                "-m",
-                "pip",
-                "list",
-                "--outdated",
-                "--format",
-                "json",
-            ]),
+            [s(&["run", "python"]), s(PIP_OUTDATED)].concat(),
             OutdatedFormat::PipJson,
         ),
         Manager::Pip => {
             let (program, shown) = python_program(m, windows);
-            let args = s(&["-m", "pip", "list", "--outdated", "--format", "json"]);
+            let args = s(PIP_OUTDATED);
             let cmd = PackageCommand::new(program, args, &m.dir, shown.as_deref());
             return Some((cmd, OutdatedFormat::PipJson));
         }

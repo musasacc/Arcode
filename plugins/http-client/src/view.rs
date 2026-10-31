@@ -194,20 +194,21 @@ fn cut_code(part: &str, language: Option<&str>) -> Element {
     ])
 }
 
-/// The History tab: newest first.
+/// The History tab: newest first. The key column is narrow (the host
+/// cuts it), so it holds only the time; the request goes with its outcome.
 fn history_list(entries: &[Entry]) -> Element {
     if entries.is_empty() {
         return empty_state("No history yet", "Sent requests appear here.");
     }
     let rows = entries.iter().map(|e| {
         let when = iso8601(e.time_ms);
-        let key = format!("{} {} {}", when[..19].replace('T', " "), e.method, e.url);
-        let value = match (e.status, &e.error) {
+        let key = when[..19].replace('T', " ");
+        let outcome = match (e.status, &e.error) {
             (Some(s), _) => format!("{s} · {} ms · {}", e.total_ms, format_size(e.size)),
             (None, Some(err)) => err.clone(),
             (None, None) => "no response".to_owned(),
         };
-        (key, value)
+        (key, format!("{} {} → {outcome}", e.method, e.url))
     });
     scroll(key_values(rows))
 }

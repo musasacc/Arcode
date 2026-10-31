@@ -129,8 +129,10 @@ pub fn current_uid() -> u32 {
     unsafe { libc::geteuid() }
 }
 
-/// `<exe>/../share/arcode/plugins`, and in a cargo build directory
-/// (`target/<profile>/arcode`) also `target/wasm-plugins`.
+/// `<exe>/../share/arcode/plugins`, and in a cargo build directory also
+/// `target/wasm-plugins`: for `target/<profile>/arcode`, a cross build's
+/// `target/<triple>/<profile>/arcode` and a `CARGO_TARGET_DIR` inside
+/// `target/` (`target/shared/release/arcode`).
 pub fn bundled_roots(exe: &Path) -> Vec<PathBuf> {
     let Some(bin_dir) = exe.parent() else {
         return Vec::new();
@@ -138,9 +140,14 @@ pub fn bundled_roots(exe: &Path) -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Some(prefix) = bin_dir.parent() {
         roots.push(prefix.join("share").join("arcode").join("plugins"));
-        if prefix.file_name().is_some_and(|n| n == "target") {
-            roots.push(prefix.join("wasm-plugins"));
-        }
+    }
+    let target = bin_dir
+        .ancestors()
+        .skip(1)
+        .take(2)
+        .find(|d| d.file_name().is_some_and(|n| n == "target"));
+    if let Some(target) = target {
+        roots.push(target.join("wasm-plugins"));
     }
     roots
 }
@@ -190,5 +197,16 @@ mod tests {
                 PathBuf::from("/w/target/wasm-plugins")
             ]
         );
+        // A custom CARGO_TARGET_DIR inside target/, and a cross build.
+        for exe in [
+            "/w/target/shared/release/arcode",
+            "/w/target/x86_64-pc-windows-gnu/release/arcode.exe",
+        ] {
+            let roots = bundled_roots(Path::new(exe));
+            assert_eq!(roots.len(), 2, "{exe}");
+            assert_eq!(roots[1], Path::new("/w/target/wasm-plugins"), "{exe}");
+        }
+        // Too deep to be a cargo build directory.
+        assert_eq!(bundled_roots(Path::new("/target/a/b/bin/arcode")).len(), 1);
     }
 }

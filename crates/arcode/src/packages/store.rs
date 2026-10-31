@@ -17,8 +17,9 @@ use gpui::{AppContext, Context, EventEmitter, Task};
 
 /// Quiet time after a manifest or lockfile change before rescanning.
 const REFRESH_DEBOUNCE: Duration = Duration::from_millis(400);
-/// A check for updates is stopped after this long.
-const CHECK_TIMEOUT: Duration = Duration::from_secs(300);
+/// A check for updates is stopped after this long and shown as failed
+/// (the commands themselves give up on a dead network much sooner).
+const CHECK_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// The state of "Check for updates" for one manifest.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -231,6 +232,11 @@ impl PackagesStore {
             this.update(cx, |store, cx| {
                 store.check_tasks.remove(&key);
                 let state = match result {
+                    Ok(out) if out.timed_out => {
+                        let msg = timed_out_message(&command.display);
+                        cx.emit(PackagesStoreEvent::Message(msg.clone()));
+                        Some(CheckState::Failed(msg))
+                    }
                     Ok(out) if out.cancelled => None,
                     Ok(out) => {
                         match deps::parse_outdated(format, &out.stdout, &out.stderr, out.success) {
@@ -286,6 +292,14 @@ impl PackagesStore {
             flag.cancel();
         }
     }
+}
+
+/// Why a check that ran out of time failed (most likely no network).
+fn timed_out_message(command: &str) -> String {
+    format!(
+        "`{command}` got no answer within {} s: is the network reachable?",
+        CHECK_TIMEOUT.as_secs()
+    )
 }
 
 /// The text shown for a check whose output could not be read.

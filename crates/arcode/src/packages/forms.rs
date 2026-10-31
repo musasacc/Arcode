@@ -18,16 +18,19 @@ use super::view::PackagesView;
 use super::view_actions::{DepCommand, DepKey, can_add, removable};
 use crate::text_field::TextField;
 
-actions!(packages_form, [SubmitAdd, CancelAdd]);
+actions!(packages_form, [SubmitAdd, CancelAdd, OtherField]);
 
 /// Key context of the Add form.
 const FORM_CONTEXT: &str = "PackagesAddForm";
 
-/// Enter adds, Escape closes the form.
+/// Enter adds, Escape closes the form, Tab and Shift+Tab move between
+/// the name and the version.
 pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("enter", SubmitAdd, Some(FORM_CONTEXT)),
         KeyBinding::new("escape", CancelAdd, Some(FORM_CONTEXT)),
+        KeyBinding::new("tab", OtherField, Some(FORM_CONTEXT)),
+        KeyBinding::new("shift-tab", OtherField, Some(FORM_CONTEXT)),
     ]);
 }
 
@@ -127,6 +130,21 @@ impl PackagesView {
         cx.notify();
     }
 
+    /// Moves the focus from the name field to the version field or back.
+    pub fn focus_other_field(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(form) = &self.add else {
+            return;
+        };
+        let name = form.name.read(cx).focus_handle(cx);
+        let next = if name.is_focused(window) {
+            form.version.read(cx).focus_handle(cx)
+        } else {
+            name
+        };
+        window.focus(&next);
+        cx.notify();
+    }
+
     fn close_add(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.add = None;
         window.focus(&self.focus_handle);
@@ -172,6 +190,9 @@ impl PackagesView {
                 .on_action(
                     cx.listener(|view, _: &CancelAdd, window, cx| view.close_add(window, cx)),
                 )
+                .on_action(cx.listener(|view, _: &OtherField, window, cx| {
+                    view.focus_other_field(window, cx)
+                }))
                 .mx_2()
                 .mb_2()
                 .p_2()
@@ -217,7 +238,16 @@ impl PackagesView {
                     )
                 })
                 .when_some(form.error.clone(), |el, err| {
-                    el.child(div().text_xs().text_color(c.error).child(err))
+                    // A definite width lets the message wrap to its full
+                    // height instead of being cut after the first line.
+                    el.child(
+                        div()
+                            .w_full()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .text_color(c.error)
+                            .child(err),
+                    )
                 })
                 .child(
                     div()
