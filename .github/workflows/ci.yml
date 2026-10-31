@@ -83,18 +83,17 @@ jobs:
         run: |
           scripts/build-test-plugins.sh
           scripts/build-plugins.sh
+      # On Linux the run also fails when a test leaves a process running
+      # (the runner used to end with hundreds of orphaned `sleep`s from
+      # fake language servers). The script checks while the tests run,
+      # since a leaked `sleep 30` is gone by the end of a long run.
       - name: Test
         id: test
-        run: cargo test --workspace --locked
-      # Tests must not leave processes behind (the runner used to end with
-      # hundreds of orphaned `sleep`s from fake language servers).
-      - name: Check for processes leaked by tests
-        if: runner.os != 'Windows' && !cancelled() && steps.test.outcome != 'skipped'
         run: |
-          sleep 2
-          if pgrep -l -x sleep; then
-            echo "::error::tests left the sleep processes above running"
-            exit 1
+          if [ "$RUNNER_OS" = Linux ]; then
+            python3 -I scripts/check-test-leaks.py cargo test --workspace --locked
+          else
+            cargo test --workspace --locked
           fi
       # Lints and formatting are reported even when tests fail.
       - name: Clippy

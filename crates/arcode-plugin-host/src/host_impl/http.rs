@@ -153,7 +153,7 @@ impl HostState {
 
     fn background_allowed(&self) -> bool {
         let ctx = &self.ctx;
-        let store = crate::cancel::lock(&ctx.services.permissions.store);
+        let mut store = crate::cancel::lock(&ctx.services.permissions.store);
         store.decide(
             ctx.manifest.id(),
             &Capability::NetworkBackground,

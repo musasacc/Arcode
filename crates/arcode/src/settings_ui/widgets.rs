@@ -4,10 +4,10 @@
 use std::rc::Rc;
 
 use arcode_config::Theme;
-use arcode_ui_kit::{IconName, hsla, icon, switch, theme};
+use arcode_ui_kit::{IconName, Tooltip, hsla, icon, switch, theme, truncated};
 use gpui::{
-    AnyElement, App, ClickEvent, Div, ElementId, Hsla, SharedString, Stateful, Window, div,
-    prelude::*, px,
+    AnyElement, AnyView, App, ClickEvent, Div, ElementId, Hsla, SharedString, Stateful, Window,
+    div, prelude::*, px,
 };
 
 type Handler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
@@ -263,6 +263,8 @@ pub fn theme_swatch(
     for theme in [first, second].into_iter().flatten() {
         preview = preview.child(swatch_half(theme));
     }
+    let label: SharedString = label.into();
+    let tooltip = label.clone();
     div()
         .id(id)
         .flex()
@@ -279,17 +281,27 @@ pub fn theme_swatch(
             c.surface_raised.opacity(0.)
         })
         .hover(|s| s.bg(c.hover))
+        // Long names end in `…` on the card; the tooltip has all of it.
+        .tooltip(move |_, cx| -> AnyView { Tooltip::text(tooltip.clone(), cx) })
         .child(preview)
         .child(
             div()
                 .flex()
                 .items_center()
                 .gap_1()
+                .min_w_0()
                 .text_xs()
                 .when(selected, |el| {
                     el.child(icon(IconName::Check).size(px(12.)).color(c.accent))
                 })
-                .child(div().min_w_0().truncate().child(label.into())),
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .debug_selector(|| "theme-card-label".into())
+                        .child(truncated(label)),
+                ),
         )
 }
 

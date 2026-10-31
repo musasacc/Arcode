@@ -266,9 +266,22 @@ pub fn editor_commands() -> Vec<(&'static str, Box<dyn gpui::Action>)> {
         ("Editor: Move Line Up", Box::new(e::MoveLineUp)),
         ("Editor: Move Line Down", Box::new(e::MoveLineDown)),
         ("Editor: Duplicate Line", Box::new(e::DuplicateLine)),
+        ("Editor: Duplicate Line Up", Box::new(e::DuplicateLineUp)),
         ("Editor: Go to Start of File", Box::new(e::MoveDocStart)),
         ("Editor: Go to End of File", Box::new(e::MoveDocEnd)),
         ("File: Save", Box::new(e::Save)),
+        (
+            "File: Reload from Disk",
+            Box::new(crate::pane::ReloadFromDisk),
+        ),
+        (
+            "File: Compare with Disk",
+            Box::new(crate::pane::CompareWithDisk),
+        ),
+        (
+            "File: Keep My Changes (Ignore Disk Change)",
+            Box::new(crate::pane::KeepMyChanges),
+        ),
         ("Editor: Code Actions", Box::new(e::ShowCodeActions)),
         ("Editor: Refactor", Box::new(e::Refactor)),
         ("Editor: Rename Symbol", Box::new(e::RenameSymbol)),

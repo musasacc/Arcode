@@ -8,6 +8,7 @@ mod debug;
 #[cfg(test)]
 mod debug_tests;
 mod debuggee;
+mod disk_conflict;
 #[cfg(test)]
 mod feature_tests;
 mod features;
@@ -36,9 +37,23 @@ mod plugins;
 #[cfg(feature = "plugins")]
 mod plugins_cmd;
 #[cfg(feature = "plugins")]
+mod plugins_consent;
+#[cfg(all(test, feature = "plugins"))]
+mod plugins_consent_tests;
+#[cfg(feature = "plugins")]
+mod plugins_install;
+#[cfg(feature = "plugins")]
 mod plugins_open;
 #[cfg(feature = "plugins")]
+mod plugins_page;
+#[cfg(all(test, feature = "plugins"))]
+mod plugins_page_tests;
+#[cfg(feature = "plugins")]
 mod plugins_req;
+#[cfg(feature = "plugins")]
+mod plugins_sync;
+#[cfg(all(test, feature = "plugins"))]
+mod plugins_sync_tests;
 #[cfg(all(test, feature = "plugins"))]
 mod plugins_tests;
 #[cfg(feature = "plugins")]
@@ -63,10 +78,15 @@ mod review_lang_packs;
 mod review_palette;
 #[cfg(all(test, feature = "plugins"))]
 mod review_plugins;
+#[cfg(all(test, feature = "plugins"))]
+mod review_plugins_ui;
+#[cfg(test)]
+mod review_disk_conflict;
 #[cfg(test)]
 mod review_prefs;
 mod run_menu;
 mod session;
+mod snippets_notice;
 mod status;
 mod subs;
 #[cfg(test)]
@@ -232,6 +252,7 @@ impl Workspace {
         let (pkgs, pkg_subs) = packages_ui::PackagesParts::new(window, cx);
         subscriptions.extend(pkg_subs);
         subscriptions.extend(lang_subs);
+        subscriptions.push(Self::watch_snippet_errors(cx));
         let workspace = Self {
             focus_handle: cx.focus_handle(),
             project: None,
@@ -419,6 +440,7 @@ impl Workspace {
             .editors
             .update(cx, |git, cx| git.register(&editor, cx));
         self.track_feature_editor(&editor, cx);
+        self.track_disk_conflicts(&editor, window, cx);
         self.debug
             .debugger
             .update(cx, |d, cx| d.register_editor(&editor, cx));

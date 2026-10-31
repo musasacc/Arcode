@@ -126,6 +126,7 @@ pub use completion::{
 pub use diagnostics::{DiagnosticSeverity, EditorDiagnostic};
 pub use doc_settings::IndentOverride;
 pub use editor::{Editor, EditorEvent};
+pub use reload::DiskConflict;
 pub use ext::{
     BackgroundHighlight, ChangeKind, CodeLens, CursorShape, DotStyle, EditorPopover,
     GutterDecoration, GutterLane, GutterMark, HighlightRange, InterceptorId, KeyInterceptor,

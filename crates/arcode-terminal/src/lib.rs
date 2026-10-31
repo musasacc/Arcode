@@ -15,7 +15,7 @@ pub mod keys;
 mod options;
 mod reaper;
 mod replies;
-#[cfg(all(test, unix))]
+#[cfg(all(test, target_os = "linux"))]
 mod review_reaper;
 mod selection;
 mod size;

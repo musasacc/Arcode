@@ -1591,8 +1591,8 @@ database that the plugin generates itself with writes on, then pages
 > `crates/arcode/src/workspace/plugins*.rs` (behind the `plugins` cargo
 > feature, on by default). Same rule as above: the design text is
 > unchanged; this lists what the app does differently or decides where the
-> design was silent. The consent dialog with capability summaries and the
-> Plugins view (list, enable, grants, network log) are a separate step.
+> design was silent. The consent dialog, the Plugins view and shipping are
+> in the next section.
 
 **Loading and cost:**
 - Each workspace (window) owns one `PluginManager`, created **250 ms after
@@ -1725,11 +1725,143 @@ database that the plugin generates itself with writes on, then pages
 - `notify`, crashes, disables and "needs approval" become toasts and lines
   of "Plugins: Show Log", which also shows every plugin's log (reopen to
   refresh).
-- Consent (interim): a host prompt (the themed in-window dialog) built
-  from the host-derived request, with Allow Once / This Project / Always /
-  Deny for hosts and a read / read-and-write choice for workspace access.
-  `ARCODE_PLUGIN_CONSENT` (`allow-once`, `allow-project`, `allow-always`,
-  optional `+write`, or `deny`) answers every prompt without showing it,
-  for automated runs; answers are written to the plugin log. Only debug
-  builds read it; a release build always asks.
+- Consent: see the next section (the interim prompt and its scripted
+  `ARCODE_PLUGIN_CONSENT` answers are gone).
 - Quick picks use the status-bar list picker overlay.
+
+## Appendix B (continued): Step 9, consent dialog and Plugins view; Step 12, shipping
+
+> **Added during implementation** of `plugins/consent*.rs`,
+> `plugins/page/`, `workspace/plugins_consent.rs`,
+> `workspace/plugins_page.rs`, `settings_ui/plugins.rs` and
+> `scripts/package.sh`. Same rule as above.
+
+**Consent dialog (§4 "Prompts are host chrome"):**
+- The app gives the host its own `ConsentProvider`
+  (`plugins::consent::AppConsent`, `AppServices.consent`). `ask` sends the
+  request, the call's cancel token and a oneshot to the workspace and
+  blocks the plugin thread (never the UI thread) until the answer, the
+  call's cancellation or the dialog going away (then `Dismissed`). A
+  cancelled call is never shown. `PluginOutput::Consent` (the host's
+  channel provider) is still handled the same way.
+- Prompts are queued and shown one at a time as a window-modal dialog
+  through GPUI's prompt layer: it covers the window, owns the keyboard (no
+  workspace shortcut reaches anything while it is open) and gives focus
+  back when it closes. The custom prompt builder is swapped in only for
+  that call; the app's own prompts are restored right after
+  (`prompt::restore`). Esc goes to the dialog, not to the task chip.
+- Content, all host-derived except what is marked: a title per kind
+  ("Allow a network request?", "Allow access to project files?",
+  "Allow editing documents?"); the plugin's display name (plugin text,
+  quoted and capped by the host, on its own line so it cannot read as
+  part of the question) above its validated id and where it was found
+  (bundled with Arcode / installed by you / loaded unpacked); "Asks to"
+  with the method and the parsed `scheme://host:port` (IPv6 in brackets)
+  or the quoted project in monospace; what the answer covers ("every
+  request to <host>", combined-risk wording for workspace prompts of
+  plugins that also have `network`).
+- Buttons: Allow once / Always for this project ("For this session"
+  without a project) / Always / Deny for every kind; a workspace prompt of
+  a `read-write` manifest adds the "Also allow changing files" checkbox
+  (unticked: read only). Deny is remembered for the project (§4), so the
+  next request to that host is refused without asking until the grant is
+  revoked in the Plugins view.
+- Keyboard: Tab / Shift+Tab and the arrow keys move between the checkbox
+  and the buttons (focus starts on Allow once), Enter or Space presses,
+  Esc dismisses. The buttons ignore clicks and keys for the first 500 ms
+  (`ARM_DELAY`), so the click or Ctrl+Enter that started the request cannot
+  land on the dialog; Esc works at once.
+- An open dialog polls its call's cancel token every 250 ms and closes
+  itself when the call was cancelled (task chip, Esc on the chip, timeout).
+  Every answer goes to the plugin log with the request sentence.
+- Network consent only ever appears inside a user gesture: the host checks
+  the master switch, the gesture and the manifest's hosts before it asks.
+
+**Plugins view (Plugins activity):**
+- Two tabs, Installed and Languages; the Languages page is unchanged inside
+  its tab ("Show Languages" switches to it).
+- One card per discovered plugin (bundled, installed, unpacked), sorted by
+  name: name, version, description, state (inactive / active / crashed /
+  disabled; crashed means disabled for the session by the crash policy, or
+  a crash the app saw since the plugin last ran), where it comes from, an
+  enable switch, what its manifest lets it ask for (expand the card), its
+  grants with a Revoke button each, Log, Restart (after a crash) and
+  Uninstall (installed plugins only, after a confirmation). Reading the
+  rows starts nothing and creates no engine.
+- Disabling a plugin takes away at once everything it shows: its panels
+  and tabs (retired first), its sidebar entry, its lenses, its status items
+  and palette commands, and the language it contributes (documents are
+  re-published, so `.http` is plain text again until it is re-enabled). The
+  manager now skips openers of disabled plugins (`PluginManager::opener_for`;
+  `Registry::openers_for`).
+- Enabling an installed plugin first shows its capability summary (from
+  the manifest; name and version quoted) with Enable / Cancel; enabling
+  approves the current `plugin.wasm` (§3). Bundled and unpacked plugins
+  are enabled at once.
+- Install from Folder… (the folder button, "Plugins: Install from
+  Folder…", Settings → Plugins) uses the folder picker or the in-app path
+  prompt, then runs `install::install_from_folder` and `precompile` on a
+  background thread and `PluginManager::finish_install` on the UI thread.
+  The new plugin is listed disabled; errors (reserved id, not a component,
+  …) are toasts.
+- Uninstall: `PluginManager::uninstall` (new) stops the plugin, removes
+  its folder (only a folder directly in the installed root; a symlink is
+  removed, never followed), its `plugins.toml` entry and its grants, global
+  and in every project's grants file (`grant_files::forget_everywhere`), so
+  a later plugin with the same id is asked again; then it re-reads the
+  manifests. Its kv data stays, as for a disabled plugin.
+- Several windows: each has its own manager, so every write of
+  `plugins.toml` and of a grants file re-reads the file first and changes
+  only its own entry, and a grants store re-reads a file that changed
+  (modification time, size, inode) before it decides. A window that
+  enables, disables, installs or uninstalls a plugin or revokes a grant
+  tells the other windows, which call `PluginManager::sync_from_disk`: a
+  plugin disabled or uninstalled elsewhere stops and its panels, lenses,
+  sidebar entry and commands go away; a changed `/project` grant recycles
+  the instance (`GrantStore::take_static_changes`).
+- The consent dialog shares GPUI's one prompt per window with the app's
+  prompts: a consent request waits while an app prompt is open
+  (`prompt::open_in`), and a consent dialog replaced by an app prompt is
+  dropped, which answers "dismissed" (the plugin's call ends, it asks
+  again next time); the next request follows once the app prompt is
+  answered, and the focus goes back where it was. Key repeats (a key held
+  down from before the dialog appeared) never press its buttons.
+- Log opens one plugin's log and its network log (time, method,
+  host:port, status or refusal) in a read-only tab.
+- Not done: the background-network toggle (no bundled plugin declares
+  `network.background`) and per-plugin settings editing.
+
+**Settings:**
+- `[plugins] network = true` in `config.toml` is the master switch
+  (`PluginManager::set_network_enabled`, applied when the manager loads and
+  on every settings change). Settings → Plugins has its switch and buttons
+  for the Plugins view, Install from Folder… and the log.
+
+**Shipping (Step 12):**
+- `scripts/package.sh` lays out `<prefix>/bin/arcode` and
+  `<prefix>/share/arcode/plugins/<id>/` (and the docs); see
+  `docs/PACKAGING.md`. The app already looked in `<exe>/../share/arcode/plugins`;
+  a debug binary inside such a prefix no longer also reads this checkout's
+  `target/wasm-plugins`.
+- The author guide is `crates/arcode-plugin-api/README.md` (quick start,
+  manifest, capabilities, imports, limits, native tests, install from
+  folder).
+- Benchmark, run again for this step (`cargo run --release -p
+  arcode-plugin-host --example plugin_bench`; release host with this
+  workspace's profile, the bundled plugins from `scripts/build-plugins.sh`,
+  warm `.cwasm` cache, 20 runs; same VM as `docs/SPIKE.md`; activation =
+  thread start, sealed-cache read and deserialize, import check,
+  instantiate, `activate(restore)` and one `view-closed`; RSS = growth with
+  one idle instance alive):
+
+  | plugin | precompile | activation from cache (min / median) | RSS of one instance |
+  |---|---|---|---|
+  | arcode.http-client | 345 ms | 2.2 ms / 2.7 ms | 1.2 MB |
+  | arcode.db-viewer | 2 s | 10.0 ms / 11.7 ms | 5.5 MB |
+
+  Targets (§13 step 12): activation under 30 ms, RSS under 5 MB (HTTP) and
+  around 15 MB (DB): met. Not measured: a packaged release binary of the
+  whole app (only the host example was built in release here). Checked
+  instead: the debug app run from a prefix laid out like the package
+  (`bin/arcode`, `share/arcode/plugins/arcode.http-client` only) lists and
+  runs just that plugin, not this checkout's `target/wasm-plugins`.

@@ -6,7 +6,7 @@
 use arcode_ui_kit::Elevated;
 use std::path::PathBuf;
 
-use arcode_ui_kit::{IconName, Tooltip, icon, kbd, theme};
+use arcode_ui_kit::{IconName, Tooltip, icon, kbd, theme, truncated};
 use gpui::{
     AnyView, App, Context, Div, ElementId, MouseButton, SharedString, Stateful, div, prelude::*, px,
 };
@@ -48,14 +48,20 @@ fn menu_item(
                 .child(label.into()),
         )
         .when_some(detail, |el, detail| {
+            // Long paths lose their middle (`/home/…/project`), keeping
+            // the folder name; the tooltip has the full path.
+            let tooltip = detail.clone();
             el.child(
                 div()
+                    .id("detail")
                     .flex_1()
                     .min_w_0()
-                    .truncate()
+                    .overflow_hidden()
                     .text_xs()
                     .text_color(c.text_muted)
-                    .child(detail),
+                    .debug_selector(|| "project-menu-detail".into())
+                    .tooltip(move |_, cx| -> AnyView { Tooltip::text(tooltip.clone(), cx) })
+                    .child(truncated(detail).middle()),
             )
         })
 }
@@ -258,5 +264,34 @@ impl Workspace {
             );
         }
         menu
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::px;
+
+    use super::super::tests::open;
+    use crate::app_state;
+
+    /// A long recent path is cut in the middle inside the 360px menu
+    /// instead of running past its edge.
+    #[gpui::test]
+    fn long_paths_stay_inside_the_menu(cx: &mut gpui::TestAppContext) {
+        let (ws, cx) = open(cx);
+        let long = std::path::PathBuf::from(format!(
+            "/home/someone/{}/deeply/nested/projects/the-project",
+            "a-very-long-folder-name".repeat(4)
+        ));
+        cx.update(|_, cx| app_state::touch_recent(&long, cx));
+        ws.update(cx, |ws, cx| ws.toggle_project_menu(cx));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear());
+        let detail = cx
+            .debug_bounds("project-menu-detail")
+            .expect("the recent project's path is drawn");
+        assert!(detail.size.width > px(0.));
+        // Menu at x = 8, 360px wide.
+        assert!(detail.right() <= px(8. + 360.), "{detail:?}");
     }
 }

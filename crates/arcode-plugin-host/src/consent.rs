@@ -289,7 +289,7 @@ impl Permissions {
         let id = manifest.id();
         let wants_write = caps.workspace == WorkspaceAccess::ReadWrite;
         let (read, write) = {
-            let store = lock(&self.store);
+            let mut store = lock(&self.store);
             let read = store.decide(id, &Capability::WorkspaceRead, caps, network_enabled);
             let write = store.decide(id, &Capability::WorkspaceWrite, caps, network_enabled);
             (read, write)

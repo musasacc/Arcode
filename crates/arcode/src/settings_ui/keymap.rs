@@ -129,4 +129,52 @@ mod tests {
         assert_eq!(filter_rows(&rows, "ctrl+j")[0].0, "View: Toggle Panel");
         assert!(filter_rows(&rows, "theme ctrl+j").is_empty());
     }
+
+    /// Copy Line Down / Up keys reach Duplicate Line in an editor of a
+    /// pane, and nothing else is bound to them there (multi-cursor keeps
+    /// Shift+Alt+Up / Down).
+    #[gpui::test]
+    fn duplicate_line_keys_do_not_clash(cx: &mut gpui::TestAppContext) {
+        use gpui::{KeyContext, Keystroke};
+        crate::test_support::init(cx);
+        cx.update(|cx| {
+            let stack: Vec<KeyContext> = [
+                crate::actions::WORKSPACE_CONTEXT,
+                crate::actions::PANE_CONTEXT,
+                arcode_editor::KEY_CONTEXT,
+            ]
+            .iter()
+            .filter_map(|n| KeyContext::parse(n).ok())
+            .collect();
+            let keymap = cx.key_bindings();
+            let keymap = keymap.borrow();
+            let resolve = |key: &str| {
+                let keys = [Keystroke::parse(key).expect("keystroke")];
+                let (bindings, _) = keymap.bindings_for_input(&keys, &stack);
+                bindings
+                    .iter()
+                    .map(|b| b.action().name())
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                resolve("secondary-alt-shift-down"),
+                ["editor::DuplicateLine"]
+            );
+            assert_eq!(
+                resolve("secondary-alt-shift-up"),
+                ["editor::DuplicateLineUp"]
+            );
+            assert_eq!(resolve("alt-shift-down"), ["editor::AddCursorBelow"]);
+            assert_eq!(resolve("alt-shift-up"), ["editor::AddCursorAbove"]);
+        });
+        let rows = cx.update(|cx| keymap_rows(cx));
+        let keys = |label: &str| {
+            rows.iter()
+                .find(|(l, _)| l == label)
+                .map(|(_, k)| k.clone())
+                .unwrap_or_default()
+        };
+        assert_eq!(keys("Editor: Duplicate Line").len(), 1);
+        assert_eq!(keys("Editor: Duplicate Line Up").len(), 1);
+    }
 }

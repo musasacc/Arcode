@@ -90,6 +90,9 @@ pub struct Editor {
     /// Indentation chosen for this file (status bar picker or detected
     /// from its content), overriding the language settings.
     pub(crate) indent_override: Option<crate::doc_settings::IndentOverride>,
+    /// The file changed or vanished on disk while the buffer kept its own
+    /// text (see `reload.rs`).
+    pub(crate) disk_conflict: Option<crate::reload::DiskConflict>,
 }
 
 impl EventEmitter<EditorEvent> for Editor {}
@@ -143,6 +146,7 @@ impl Editor {
             cursor_history: Default::default(),
             vim: None,
             indent_override: None,
+            disk_conflict: None,
         };
         crate::completion::register_editor(cx.entity().downgrade(), cx);
         editor.init_syntax(cx);
@@ -205,6 +209,7 @@ impl Editor {
             self.highlights = None;
             self.init_syntax(cx);
         }
+        cx.emit(EditorEvent::PathChanged);
         cx.notify();
     }
 
@@ -215,7 +220,10 @@ impl Editor {
     }
 
     /// Writes the buffer to its path and emits [`EditorEvent::Saved`].
-    /// A read-only editor (library sources, diffs) never writes its file.
+    /// A read-only editor (library sources, diffs) never writes its file,
+    /// and a file another program changed since it was loaded or saved is
+    /// not overwritten: that emits [`EditorEvent::SaveConflict`] instead
+    /// (see [`Editor::save_overwriting`]).
     pub fn save(&mut self, cx: &mut Context<Self>) -> std::io::Result<()> {
         if self.read_only {
             return Err(std::io::Error::new(
@@ -223,7 +231,9 @@ impl Editor {
                 "the editor is read-only",
             ));
         }
+        self.check_save_conflict(cx)?;
         self.buffer.save()?;
+        self.set_disk_conflict(None, cx);
         if self
             .path()
             .is_some_and(crate::completion::snippets::is_snippets_file)

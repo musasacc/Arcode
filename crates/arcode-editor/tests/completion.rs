@@ -166,6 +166,18 @@ fn user_snippet_choices_open_a_list(cx: &mut TestAppContext) {
     assert!(err.is_err());
     let error = cx.update(|_, cx| arcode_editor::completion::user_snippets_error(cx));
     assert!(error.is_some());
+    // The error is handed out once per load (for one toast).
+    let take = |cx: &mut gpui::VisualTestContext| {
+        cx.update(|_, cx| arcode_editor::completion::take_user_snippets_error(cx))
+    };
+    assert_eq!(take(cx), error);
+    assert_eq!(take(cx), None);
+    let _ = cx.update(|_, cx| {
+        arcode_editor::completion::load_user_snippets("[[snippet]]\nprefix = 1", cx)
+    });
+    assert!(take(cx).is_some());
+    let _ = cx.update(|_, cx| arcode_editor::completion::load_user_snippets("", cx));
+    assert_eq!(take(cx), None);
 }
 
 #[gpui::test]

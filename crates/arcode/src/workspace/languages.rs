@@ -157,6 +157,8 @@ impl Workspace {
         self.activity = Activity::Plugins;
         self.sidebar_visible = true;
         self.langs.view.update(cx, |v, cx| v.shown(cx));
+        #[cfg(feature = "plugins")]
+        self.show_plugins_page(crate::plugins::page::PageTab::Languages, cx);
         cx.notify();
     }
 

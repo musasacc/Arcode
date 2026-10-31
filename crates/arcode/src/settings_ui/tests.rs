@@ -48,3 +48,22 @@ fn low_end_switch_writes_the_preset(cx: &mut TestAppContext) {
         "a missing file starts from the template"
     );
 }
+
+/// Theme names longer than a card (`Arcode Midnight`) stay inside it: the
+/// label shrinks to the card and ends in `…` (see `truncated`), with the
+/// full name as the card's tooltip.
+#[gpui::test]
+fn theme_card_labels_fit_their_cards(cx: &mut TestAppContext) {
+    crate::test_support::init(cx);
+    let dir = tempfile::tempdir().expect("tempdir");
+    cx.update(|cx| cx.set_global(ConfigPathOverride(dir.path().join("config.toml"))));
+    let (_page, cx) = cx.add_window_view(|_, cx| SettingsPage::new(WeakEntity::new_invalid(), cx));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear());
+    let label = cx
+        .debug_bounds("theme-card-label")
+        .expect("a theme card label is drawn");
+    // 124px card, 6px padding and a 2px border on each side.
+    assert!(label.size.width > px(0.));
+    assert!(label.size.width <= px(124. - 16.), "{label:?}");
+}

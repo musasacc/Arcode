@@ -73,6 +73,7 @@ impl Render for Editor {
             .on_action(cx.listener(Self::move_line_up))
             .on_action(cx.listener(Self::move_line_down))
             .on_action(cx.listener(Self::duplicate_line))
+            .on_action(cx.listener(Self::duplicate_line_up))
             .on_action(cx.listener(Self::save_action))
             .on_action(cx.listener(|e, _: &crate::ShowCompletions, _, cx| e.show_completions(cx)))
             .on_action(

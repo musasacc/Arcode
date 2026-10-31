@@ -15,7 +15,7 @@ use std::ops::Range;
 pub use delete::{backspace, delete_forward, delete_word_left, delete_word_right};
 pub use insert::{insert_tab, insert_text, newline_and_indent, paste, type_text};
 pub use lines::{
-    duplicate_line, indent_lines, move_lines_down, move_lines_up, outdent_lines,
+    duplicate_line, duplicate_line_up, indent_lines, move_lines_down, move_lines_up, outdent_lines,
     toggle_line_comment,
 };
 pub use select::{select_all, select_line, select_next_occurrence, selected_text, word_range_at};

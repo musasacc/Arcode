@@ -27,6 +27,7 @@ pub mod cancel;
 pub mod consent;
 pub mod dispatch;
 pub mod engine;
+pub mod grant_files;
 pub mod grant_store;
 pub mod grants;
 pub mod host_impl;

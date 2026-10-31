@@ -121,8 +121,12 @@ impl PluginManager {
 
     /// The opener contribution for a project-relative path, if any (the
     /// file tree shows the plugin view instead of the binary notice).
+    /// Openers of disabled plugins are skipped.
     pub fn opener_for(&self, relative_path: &Path) -> Option<QualifiedId> {
-        self.registry.opener_for(relative_path).cloned()
+        self.registry
+            .openers_for(relative_path)
+            .find(|id| PluginId::parse(id.plugin()).is_ok_and(|p| self.is_enabled(&p)))
+            .cloned()
     }
 
     /// Opens `relative_path` (with `/` separators) with `opener`, as

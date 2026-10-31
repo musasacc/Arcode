@@ -55,6 +55,9 @@ impl Workspace {
             (Activity::Search, _) => self.features.search.clone().into_any_element(),
             (Activity::Todo, _) => self.features.todo_side.clone().into_any_element(),
             (Activity::Debug, _) => self.debug.sidebar.clone().into_any_element(),
+            #[cfg(feature = "plugins")]
+            (Activity::Plugins, _) => self.plugins_page_element(),
+            #[cfg(not(feature = "plugins"))]
             (Activity::Plugins, _) => self.langs.view.clone().into_any_element(),
             (Activity::Packages, _) => self.pkgs.view.clone().into_any_element(),
             #[cfg(feature = "plugins")]
@@ -274,6 +277,7 @@ impl Render for Workspace {
         let root = self.register_nav_actions(root, cx);
         let root = self.register_feature_actions(root, cx);
         let root = self.register_file_actions(root, cx);
+        let root = self.register_disk_actions(root, cx);
         let root = self.register_debug_actions(root, cx);
         let root = self.register_language_actions(root, cx);
         let root = self.register_prefs_actions(root, cx);

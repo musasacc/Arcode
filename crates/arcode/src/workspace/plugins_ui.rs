@@ -22,6 +22,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.plugins_page_output(&output, cx);
         match output {
             PluginOutput::Notify {
                 plugin, message, ..

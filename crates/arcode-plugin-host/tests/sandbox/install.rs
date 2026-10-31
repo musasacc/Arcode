@@ -158,3 +158,106 @@ fn folders_that_are_not_installable_are_refused() {
     }
     assert_eq!(m.registry().plugins().count(), 0, "nothing was installed");
 }
+
+#[test]
+fn uninstall_removes_the_folder_its_state_and_its_grants() {
+    let dirs = tempfile::tempdir().unwrap();
+    let (mut m, _outputs) = manager(dirs.path());
+    let id = PluginId::parse("test.echo").unwrap();
+    m.install_from_folder(&echo_source(dirs.path(), |t| t))
+        .unwrap();
+    m.set_enabled(&id, true);
+    let project = dirs.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    m.set_project(Some(arcode_plugin_host::ProjectContext {
+        name: "p".into(),
+        root: project,
+    }));
+    assert_eq!(echo(&m), Ok(Ok(CallOutput::Done)));
+    assert!(
+        !m.grants(&id).is_empty(),
+        "the workspace prompt was answered"
+    );
+    let dir = m.registry().get(&id).unwrap().dir.clone();
+
+    assert_eq!(m.uninstall(&id), Ok(()));
+    assert!(!dir.exists());
+    assert!(m.registry().get(&id).is_none());
+    assert!(m.grants(&id).is_empty(), "grants are forgotten");
+    let state = std::fs::read_to_string(dirs.path().join("config/arcode/plugins.toml")).unwrap();
+    assert!(!state.contains("test.echo"), "{state}");
+    assert!(matches!(m.uninstall(&id), Err(InstallError::Invalid(_))));
+
+    // Installed again, it starts disabled with no grants.
+    m.install_from_folder(&echo_source(dirs.path(), |t| t))
+        .unwrap();
+    assert!(!m.is_enabled(&id));
+    assert!(m.grants(&id).is_empty());
+}
+
+#[test]
+fn only_installed_plugins_can_be_uninstalled() {
+    let dirs = tempfile::tempdir().unwrap();
+    let (mut m, _outputs) = manager(dirs.path());
+    let src = echo_source(dirs.path(), |t| t);
+    m.reload(vec![src.clone()]);
+    let id = PluginId::parse("test.echo").unwrap();
+    assert_eq!(m.registry().get(&id).unwrap().source, PluginSource::Dev);
+    assert!(matches!(m.uninstall(&id), Err(InstallError::Invalid(_))));
+    assert!(
+        src.join("plugin.wasm").exists(),
+        "a dev folder is never removed"
+    );
+}
+
+#[test]
+fn openers_of_disabled_plugins_are_skipped() {
+    let dirs = tempfile::tempdir().unwrap();
+    let (mut m, _outputs) = manager(dirs.path());
+    let id = PluginId::parse("test.echo").unwrap();
+    m.install_from_folder(&echo_source(dirs.path(), |t| t))
+        .unwrap();
+    let file = Path::new("a.echo-view");
+    assert_eq!(m.opener_for(file), None, "installed plugins start disabled");
+    m.set_enabled(&id, true);
+    assert_eq!(
+        m.opener_for(file).map(|o| o.to_string()),
+        Some("test.echo/echo-file".to_owned())
+    );
+    m.set_enabled(&id, false);
+    assert_eq!(m.opener_for(file), None);
+}
+
+/// Two windows (two managers on the same files): what one installs,
+/// enables, disables or uninstalls reaches the other on `sync_from_disk`,
+/// which stops the instance of a plugin disabled elsewhere.
+#[test]
+fn another_manager_catches_up_with_changes_saved_elsewhere() {
+    let dirs = tempfile::tempdir().unwrap();
+    let (mut a, _a_out) = manager(dirs.path());
+    let (mut b, _b_out) = manager(dirs.path());
+    let id = PluginId::parse("test.echo").unwrap();
+    a.install_from_folder(&echo_source(dirs.path(), |t| t))
+        .unwrap();
+    a.set_enabled(&id, true);
+    assert!(b.registry().get(&id).is_none());
+    assert!(b.sync_from_disk().is_empty());
+    assert!(b.is_enabled(&id), "installed and enabled in window A");
+    assert_eq!(echo(&b), Ok(Ok(CallOutput::Done)));
+    let handle = b.instance(&id).unwrap();
+    assert!(handle.thread_running());
+
+    a.set_enabled(&id, false);
+    assert_eq!(b.sync_from_disk(), std::slice::from_ref(&id));
+    assert!(!b.is_enabled(&id));
+    assert!(
+        handle.wait_stopped(std::time::Duration::from_secs(5)),
+        "window B stopped the plugin disabled in window A"
+    );
+
+    a.set_enabled(&id, true);
+    b.sync_from_disk();
+    a.uninstall(&id).unwrap();
+    assert_eq!(b.sync_from_disk(), std::slice::from_ref(&id));
+    assert!(b.registry().get(&id).is_none());
+}

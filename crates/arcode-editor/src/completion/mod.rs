@@ -43,7 +43,10 @@ pub use docs::{Block, Inline, InlineStyle, parse_markdown};
 pub(crate) use docs_view::DocsView;
 pub(crate) use session::{Pending, Session};
 pub(crate) use signature::SignatureState;
-pub use snippets::{load_user_snippets, reload_user_snippets, user_snippets_error};
+pub use snippets::{
+    SnippetStore, load_user_snippets, reload_user_snippets, take_user_snippets_error,
+    user_snippets_error,
+};
 pub(crate) use view::MenuView;
 pub(crate) use words::{BufferWords, register_editor};
 

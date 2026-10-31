@@ -12,6 +12,7 @@ pub mod edit_value;
 mod files;
 mod git;
 mod language;
+mod plugins;
 mod presets;
 mod search;
 mod sections;
@@ -37,6 +38,7 @@ pub use language::{
     LanguageSettings, LspFeatures, LspServerSettings, NamedServer, builtin_languages,
     builtin_servers,
 };
+pub use plugins::PluginSettings;
 pub use presets::{FirstRunChoices, keymap_edits, low_end_edits};
 pub use search::{SearchSettings, TodoSettings};
 pub use sections::{
@@ -76,6 +78,8 @@ pub struct Config {
     pub debug: DebugSettings,
     /// `[files]`
     pub files: FilesSettings,
+    /// `[plugins]`
+    pub plugins: PluginSettings,
     /// `[language.<id>]`, keyed by language id (e.g. `rust`). Ids read from
     /// TOML are lowercased.
     #[serde(rename = "language")]
@@ -96,6 +100,7 @@ impl Default for Config {
             workspace: WorkspaceSettings::default(),
             debug: DebugSettings::default(),
             files: FilesSettings::default(),
+            plugins: PluginSettings::default(),
             languages: builtin_languages(),
             lsp: builtin_servers(),
         }
@@ -263,6 +268,7 @@ impl Config {
                 "workspace" => apply_table(&mut self.workspace, value, "workspace", warnings),
                 "debug" => apply_table(&mut self.debug, value, "debug", warnings),
                 "files" => apply_table(&mut self.files, value, "files", warnings),
+                "plugins" => apply_table(&mut self.plugins, value, "plugins", warnings),
                 "language" => self.apply_languages(value, warnings),
                 "lsp" => self.apply_servers(value, warnings),
                 other => warnings.push(format!("unknown section `{other}` (ignored)")),
@@ -363,7 +369,7 @@ fn for_each_entry(
 }
 
 /// Every key understood in each fixed section, for documentation checks.
-pub fn known_keys() -> [(&'static str, &'static [&'static str]); 10] {
+pub fn known_keys() -> [(&'static str, &'static [&'static str]); 11] {
     [
         ("editor", EditorSettings::KEYS),
         ("editor.completion", CompletionSettings::KEYS),
@@ -373,6 +379,7 @@ pub fn known_keys() -> [(&'static str, &'static [&'static str]); 10] {
         ("workspace", WorkspaceSettings::KEYS),
         ("debug", DebugSettings::KEYS),
         ("files", FilesSettings::KEYS),
+        ("plugins", PluginSettings::KEYS),
         ("language.<id>", LanguageSettings::KEYS),
         ("lsp.<name>", LspServerSettings::KEYS),
     ]

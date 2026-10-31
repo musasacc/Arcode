@@ -14,94 +14,14 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use arcode_plugin_host::manifest::{PanelLocation, When};
+use arcode_plugin_host::install::{InstallError, InstallReport};
 use arcode_plugin_host::{
-    AppServices, ManagerConfig, PluginId, PluginManager, PluginOutput, ProjectContext, QualifiedId,
+    AppServices, ManagerConfig, PluginId, PluginManager, PluginOutput, ProjectContext, Runtime,
 };
 
 use super::bridge::{AppEditor, AppIndex, EditorRequest};
-use super::snapshot::ContributedLanguage;
-
-/// A contributed sidebar panel (an activity-bar entry).
-#[derive(Debug, Clone, PartialEq)]
-pub struct SidebarPanel {
-    /// Namespaced panel id.
-    pub id: QualifiedId,
-    /// Title (tooltip and header).
-    pub title: String,
-    /// Host icon name from the manifest.
-    pub icon: Option<String>,
-}
-
-/// A contributed palette command.
-#[derive(Debug, Clone, PartialEq)]
-pub struct PaletteCommand {
-    /// Namespaced command id.
-    pub id: QualifiedId,
-    /// Palette title.
-    pub title: String,
-    /// Enablement (`language == <id>`).
-    pub when: Option<When>,
-    /// Default key binding (GPUI key syntax, e.g. `secondary-enter`).
-    pub key: Option<String>,
-}
-
-/// What the app shows for the registry (read once per load).
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Contributions {
-    /// Palette commands.
-    pub commands: Vec<PaletteCommand>,
-    /// Sidebar panels.
-    pub sidebar: Vec<SidebarPanel>,
-    /// Languages plugins add by file extension.
-    pub languages: Vec<ContributedLanguage>,
-}
-
-impl Contributions {
-    /// Collects the contributions of every registered plugin.
-    pub fn of(manager: &PluginManager) -> Self {
-        let registry = manager.registry();
-        let mut out = Self::default();
-        for (id, plugin, command) in registry.commands() {
-            if manager.is_enabled(plugin.id()) {
-                out.commands.push(PaletteCommand {
-                    id,
-                    title: command.title.clone(),
-                    when: command.when.clone(),
-                    key: command.key.clone(),
-                });
-            }
-        }
-        for plugin in registry.plugins() {
-            if !manager.is_enabled(plugin.id()) {
-                continue;
-            }
-            for panel in &plugin.manifest.contributes.panels {
-                if panel.location == PanelLocation::Sidebar {
-                    out.sidebar.push(SidebarPanel {
-                        id: plugin.id().qualify(&panel.id),
-                        title: panel.title.clone(),
-                        icon: panel.icon.clone(),
-                    });
-                }
-            }
-        }
-        for (plugin, language) in registry.languages() {
-            if !manager.is_enabled(plugin.id()) {
-                continue;
-            }
-            for ext in &language.extensions {
-                out.languages.push(ContributedLanguage {
-                    extension: ext.to_ascii_lowercase(),
-                    id: language.id.clone(),
-                    name: language.name.clone(),
-                });
-            }
-        }
-        out.commands.sort_by(|a, b| a.title.cmp(&b.title));
-        out
-    }
-}
+use super::consent::{AppConsent, ConsentAsk};
+pub use super::contributions::{Contributions, PaletteCommand, SidebarPanel};
 
 struct Inner {
     manager: Option<PluginManager>,
@@ -110,6 +30,8 @@ struct Inner {
     contributions: Contributions,
     /// Plugins are unavailable (no config or data folder).
     failed: bool,
+    /// Consent prompts until the workspace takes the receiver.
+    consents: Option<async_channel::Receiver<ConsentAsk>>,
 }
 
 /// Cheap to clone; every clone shares one manager. UI thread only.
@@ -118,6 +40,7 @@ pub struct PluginClient {
     inner: Rc<RefCell<Inner>>,
     editor: Arc<AppEditor>,
     index: Arc<AppIndex>,
+    consent: Arc<AppConsent>,
 }
 
 impl PluginClient {
@@ -125,15 +48,18 @@ impl PluginClient {
     /// plugins ask for.
     pub fn new() -> (Self, async_channel::Receiver<EditorRequest>) {
         let (tx, rx) = async_channel::unbounded();
+        let (consent, consents) = AppConsent::new();
         let client = Self {
             inner: Rc::new(RefCell::new(Inner {
                 manager: None,
                 outputs: None,
                 contributions: Contributions::default(),
                 failed: false,
+                consents: Some(consents),
             })),
             editor: Arc::new(AppEditor::new(tx)),
             index: Arc::new(AppIndex::default()),
+            consent: Arc::new(consent),
         };
         (client, rx)
     }
@@ -194,7 +120,7 @@ impl PluginClient {
             editor: self.editor.clone(),
             index: Some(self.index.clone()),
             http: Arc::new(super::bridge::LazyHttp::default()),
-            consent: None,
+            consent: Some(self.consent.clone()),
         };
         let (manager, outputs) = PluginManager::new(config, services);
         for problem in manager.registry().problems() {
@@ -208,6 +134,11 @@ impl PluginClient {
         inner.manager = Some(manager);
         inner.outputs = Some(outputs);
         true
+    }
+
+    /// The consent prompts receiver, once (the workspace shows them).
+    pub fn take_consents(&self) -> Option<async_channel::Receiver<ConsentAsk>> {
+        self.inner.borrow_mut().consents.take()
     }
 
     /// The output receiver, once (the workspace drains it).
@@ -256,6 +187,59 @@ impl PluginClient {
     /// Re-reads every manifest with `dev` as the unpacked plugins.
     pub fn reload(&self, dev: Vec<PathBuf>) {
         self.with_mut(|m| m.reload(dev));
+        let contributions = self.manager().map(|m| Contributions::of(&m));
+        if let Some(c) = contributions {
+            self.inner.borrow_mut().contributions = c;
+        }
+    }
+
+    /// Enables or disables `plugin` (see `PluginManager::set_enabled`)
+    /// and re-reads what the enabled plugins contribute.
+    pub fn set_enabled(&self, plugin: &PluginId, enabled: bool) {
+        self.with_mut(|m| m.set_enabled(plugin, enabled));
+        self.refresh_contributions();
+    }
+
+    /// Removes an installed plugin (folder, state, grants).
+    pub fn uninstall(&self, plugin: &PluginId) -> Result<(), InstallError> {
+        let result = self
+            .with_mut(|m| m.uninstall(plugin))
+            .unwrap_or_else(|| Err(InstallError::Invalid("plugins are not loaded".into())));
+        self.refresh_contributions();
+        result
+    }
+
+    /// Records an install that ran in the background (the new plugin is
+    /// disabled until enabled).
+    pub fn finish_install(&self, report: &InstallReport) {
+        self.with_mut(|m| m.finish_install(report));
+        self.refresh_contributions();
+    }
+
+    /// What a background install needs: the runtime (for `precompile`)
+    /// and the installed-plugins folder.
+    pub fn install_target(&self) -> Option<(Arc<Runtime>, PathBuf)> {
+        let manager = self.manager()?;
+        Some((manager.runtime().clone(), manager.paths().installed.clone()))
+    }
+
+    /// Catches up with plugin changes another window or process saved
+    /// (see `PluginManager::sync_from_disk`). Returns the plugins that were
+    /// enabled and are not any more.
+    pub fn sync_from_disk(&self) -> Vec<PluginId> {
+        let gone = self.with_mut(|m| m.sync_from_disk()).unwrap_or_default();
+        self.refresh_contributions();
+        gone
+    }
+
+    /// `settings.plugins.network`: false refuses every plugin request.
+    pub fn set_network_enabled(&self, enabled: bool) {
+        if let Some(m) = self.manager() {
+            m.set_network_enabled(enabled);
+        }
+    }
+
+    fn refresh_contributions(&self) {
         let contributions = self.manager().map(|m| Contributions::of(&m));
         if let Some(c) = contributions {
             self.inner.borrow_mut().contributions = c;

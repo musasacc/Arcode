@@ -13,8 +13,8 @@ use gpui::{Context, Window};
 use super::Workspace;
 use crate::plugins::commands;
 use crate::plugins::commands::{
-    CancelPluginTask, LoadUnpackedPlugin, ReloadPlugins, RunPluginCommand, ShowPluginLog,
-    when_holds,
+    CancelPluginTask, InstallPluginFromFolder, LoadUnpackedPlugin, ReloadPlugins, RunPluginCommand,
+    ShowPluginLog, ShowPlugins, when_holds,
 };
 use crate::plugins::snapshot::doc_id;
 
@@ -135,6 +135,15 @@ impl Workspace {
         .on_action(cx.listener(|ws, _: &CancelPluginTask, _, cx| {
             ws.plugins.status.update(cx, |s, cx| s.cancel_newest(cx));
         }))
+        .on_action(cx.listener(|ws, _: &ShowPlugins, window, cx| {
+            ws.ensure_plugins(window, cx);
+            ws.show_plugins_page(crate::plugins::page::PageTab::Installed, cx);
+        }))
+        .on_action(cx.listener(|ws, _: &InstallPluginFromFolder, window, cx| {
+            ws.prompt_folder("Install Plugin", window, cx, |ws, path, window, cx| {
+                ws.plugins_install_from(path, window, cx)
+            });
+        }))
     }
 
     /// Installs (once, when the first task starts) the Esc interceptor:
@@ -179,6 +188,19 @@ impl Workspace {
         let dev = self.plugins.dev_folders.clone();
         self.plugins.client.reload(dev);
         self.plugin_retire_panels("Plugins: Reload", Some(window), cx);
+        self.plugin_sync_contributions(cx);
+        let count = self
+            .plugins
+            .client
+            .manager()
+            .map_or(0, |m| m.registry().plugins().count());
+        self.show_toast(format!("Plugins reloaded ({count} found)"), cx);
+    }
+
+    /// Takes over what the registry's enabled plugins contribute now
+    /// (after a reload, an enable or disable, an install): palette
+    /// commands and key bindings, and fresh lenses for visible editors.
+    pub(super) fn plugin_sync_contributions(&mut self, cx: &mut Context<Self>) {
         let old = std::mem::take(&mut self.plugins.contributions);
         self.plugins.contributions = self.plugins.client.contributions();
         let gone: Vec<_> = old
@@ -200,13 +222,26 @@ impl Workspace {
             tracked.lens_version = None;
             tracked.lens_targets.clear();
         }
-        self.plugin_refresh_visible(cx);
-        let count = self
+        // A document's language for plugins depends on the contributed
+        // languages (`.http` is plain text without the HTTP client).
+        let editors: Vec<_> = self
             .plugins
-            .client
-            .manager()
-            .map_or(0, |m| m.registry().plugins().count());
-        self.show_toast(format!("Plugins reloaded ({count} found)"), cx);
+            .editors
+            .values()
+            .filter_map(|t| t.editor.upgrade())
+            .collect();
+        for editor in &editors {
+            self.plugin_publish(editor, cx);
+        }
+        self.plugin_refresh_visible(cx);
+        if self
+            .plugins
+            .sidebar_active
+            .is_some_and(|ix| ix >= self.plugins.contributions.sidebar.len())
+        {
+            self.plugins.sidebar_active = None;
+        }
+        cx.notify();
     }
 
     /// Whether a path is inside the project (plugins only reach those).

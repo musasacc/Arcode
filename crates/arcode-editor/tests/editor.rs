@@ -229,8 +229,13 @@ fn line_commands(cx: &mut TestAppContext) {
     let (editor, cx, _) = open(cx, "a\nb\n");
     cx.simulate_keystrokes("secondary-/");
     assert_eq!(text(&editor, cx), "// a\nb\n");
-    cx.simulate_keystrokes("secondary-shift-d");
+    cx.simulate_keystrokes("secondary-alt-shift-down");
     assert_eq!(text(&editor, cx), "// a\n// a\nb\n");
+    assert_eq!(editor.read_with(cx, |e, _| e.cursor_position().line), 1);
+    cx.simulate_keystrokes("secondary-alt-shift-up");
+    assert_eq!(text(&editor, cx), "// a\n// a\n// a\nb\n");
+    assert_eq!(editor.read_with(cx, |e, _| e.cursor_position().line), 1);
+    cx.simulate_keystrokes("secondary-z");
     cx.simulate_keystrokes("alt-down");
     assert_eq!(text(&editor, cx), "// a\nb\n// a\n");
     cx.simulate_keystrokes("home tab");

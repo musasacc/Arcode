@@ -93,6 +93,14 @@ impl Editor {
     ) {
         self.edit_with(cx, |b, s, _| ops::duplicate_line(b, s));
     }
+    pub(crate) fn duplicate_line_up(
+        &mut self,
+        _: &DuplicateLineUp,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.edit_with(cx, |b, s, _| ops::duplicate_line_up(b, s));
+    }
 
     /// Undoes the last change (public for app menus and tests).
     pub fn undo(&mut self, cx: &mut Context<Self>) {

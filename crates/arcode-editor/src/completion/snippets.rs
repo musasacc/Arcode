@@ -2,6 +2,7 @@
 //! from the config directory, loaded on the background executor at startup
 //! and again whenever that file is saved in an editor.
 
+use std::cell::Cell;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -10,11 +11,15 @@ use gpui::{App, Global};
 
 use super::CompletionItem;
 
-/// The active snippet library.
-struct SnippetStore {
+/// The active snippet library (a global: observe it to learn when the
+/// user file was loaded again).
+pub struct SnippetStore {
     library: Arc<SnippetLibrary>,
     /// Problem with the user file, if any.
     error: Option<String>,
+    /// Whether [`take_user_snippets_error`] handed out `error` already
+    /// (a `Cell`: taking it must not notify the global's observers).
+    reported: Cell<bool>,
 }
 
 impl Global for SnippetStore {}
@@ -28,6 +33,7 @@ pub(crate) fn init(cx: &mut App) {
     cx.set_global(SnippetStore {
         library: Arc::new(SnippetLibrary::builtin()),
         error: None,
+        reported: Cell::new(false),
     });
     reload_user_snippets(cx);
 }
@@ -70,6 +76,7 @@ pub fn load_user_snippets(toml_text: &str, cx: &mut App) -> anyhow::Result<usize
     cx.set_global(SnippetStore {
         library: Arc::new(library),
         error,
+        reported: Cell::new(false),
     });
     result.map(|_| count)
 }
@@ -77,6 +84,15 @@ pub fn load_user_snippets(toml_text: &str, cx: &mut App) -> anyhow::Result<usize
 /// The problem with the user's snippet file, if loading it failed.
 pub fn user_snippets_error(cx: &App) -> Option<String> {
     cx.try_global::<SnippetStore>()?.error.clone()
+}
+
+/// The problem with the user's snippet file the first time it is asked
+/// for after each load (so it is shown once, in one window); `None` after
+/// that or when the file is fine.
+pub fn take_user_snippets_error(cx: &App) -> Option<String> {
+    let store = cx.try_global::<SnippetStore>()?;
+    let error = store.error.clone()?;
+    (!store.reported.replace(true)).then_some(error)
 }
 
 /// Whether `path` is the user's snippet file.

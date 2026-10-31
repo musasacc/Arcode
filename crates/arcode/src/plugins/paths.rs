@@ -68,13 +68,13 @@ pub fn current() -> Option<PluginPaths> {
         .filter(|_| !isolated)
         .map_or_else(|| data.join("cache").join("plugins"), |p| p.cache);
     let exe = std::env::current_exe().ok();
-    Some(plugin_paths(
-        exe.as_deref(),
-        &config,
-        &data,
-        &cache,
-        dev_bundled_dir(),
-    ))
+    // A binary inside a package (`<prefix>/bin`) uses the package's
+    // plugins, not this checkout's.
+    let packaged = exe
+        .as_deref()
+        .is_some_and(|exe| bundled_roots(exe).iter().any(|r| r.is_dir()));
+    let dev = dev_bundled_dir().filter(|_| !packaged);
+    Some(plugin_paths(exe.as_deref(), &config, &data, &cache, dev))
 }
 
 /// Session-only "Load Unpacked" folders from `ARCODE_PLUGIN_DEV`

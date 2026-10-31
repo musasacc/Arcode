@@ -31,6 +31,7 @@ impl Workspace {
             .push(cx.subscribe_self(|ws, event: &WorkspaceEvent, cx| {
                 ws.plugins_workspace_event(event, cx)
             }));
+        self.plugins_page_init(window, cx);
         if let Some(requests) = self.plugins.requests.take() {
             let task = cx.spawn_in(window, async move |this, cx| {
                 while let Ok(request) = requests.recv().await {
@@ -65,6 +66,7 @@ impl Workspace {
 
     pub(super) fn plugins_loaded(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let client = self.plugins.client.clone();
+        self.plugins_apply_settings(cx);
         self.plugins.contributions = client.contributions();
         commands::register_commands(&self.plugins.contributions.commands, cx);
         client.index().set_files(self.project_files.clone());

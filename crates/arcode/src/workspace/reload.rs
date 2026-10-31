@@ -2,21 +2,24 @@
 //! a git checkout, a formatter run). Clean editors follow the file: the
 //! file is read and diffed on the background executor and the change is
 //! applied as one undo step, so cursors and scrolling stay where they
-//! were. Editors with unsaved edits keep them.
+//! were. Editors with unsaved edits keep them and are marked as changed
+//! (or deleted) on disk; `disk_conflict.rs` offers the ways out.
 
 use std::collections::HashSet;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
-use arcode_buffer::{Buffer, Point};
-use arcode_editor::Editor;
+use arcode_buffer::{Buffer, DiskStamp, LineEnding, Point};
+use arcode_editor::{DiskConflict, Editor};
 use gpui::{App, AppContext, Context, Entity};
 
 use super::Workspace;
+use super::disk_conflict::check_disk_conflict;
 
 impl Workspace {
     /// Reloads every clean editor showing one of `paths` (all of them on
-    /// `overflow`, when the watcher lost track of which files changed).
+    /// `overflow`, when the watcher lost track of which files changed),
+    /// and checks the others for a conflict with the file.
     pub(super) fn reload_changed_editors(
         &mut self,
         paths: &[PathBuf],
@@ -26,42 +29,95 @@ impl Workspace {
         let changed: HashSet<&Path> = paths.iter().map(PathBuf::as_path).collect();
         for editor in self.editors(cx) {
             let e = editor.read(cx);
-            let wanted = e.path().is_some_and(|p| overflow || changed.contains(p));
-            if wanted && !e.is_dirty() {
+            if !e.path().is_some_and(|p| overflow || changed.contains(p)) {
+                continue;
+            }
+            if e.is_dirty() {
+                check_disk_conflict(&editor, cx);
+            } else {
                 reload_editor(&editor, cx);
             }
         }
     }
 }
 
-/// Reads `editor`'s file in the background and applies the difference if
-/// the editor is still clean and unchanged by then (it tries again when it
-/// is clean but changed meanwhile, e.g. by an earlier reload).
-pub(crate) fn reload_editor(editor: &Entity<Editor>, cx: &mut App) {
+/// What the file holds compared with an editor's text snapshot.
+pub(super) enum DiskRead {
+    /// The file is gone.
+    Missing,
+    /// Same text and line ending.
+    Same(Option<DiskStamp>),
+    /// The edits that turn the snapshot into the file.
+    Edits(Vec<(Range<Point>, String)>, LineEnding, Option<DiskStamp>),
+}
+
+/// The file of `editor` read and diffed against its current text, off the
+/// main thread (`None` when the file cannot be read). Returns the buffer
+/// version the edits apply to.
+pub(super) fn read_disk(
+    editor: &Entity<Editor>,
+    cx: &mut App,
+) -> Option<(u64, gpui::Task<Option<DiskRead>>)> {
     let e = editor.read(cx);
-    let Some(path) = e.path().map(Path::to_path_buf) else {
-        return;
-    };
+    let path = e.path().map(Path::to_path_buf)?;
     let rope = e.buffer().text().clone();
     let version = e.buffer().version();
     let line_ending = e.buffer().line_ending();
+    let task = cx.background_spawn(async move {
+        let disk = match Buffer::from_file(&path) {
+            Ok(disk) => disk,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                return Some(DiskRead::Missing);
+            }
+            Err(_) => return None,
+        };
+        let new = disk.to_string();
+        let old = rope.to_string();
+        let stamp = disk.disk_stamp();
+        if old == new && disk.line_ending() == line_ending {
+            return Some(DiskRead::Same(stamp));
+        }
+        let edits = reload_edits(&old, &new);
+        Some(DiskRead::Edits(edits, disk.line_ending(), stamp))
+    });
+    Some((version, task))
+}
+
+/// Reads `editor`'s file in the background and applies the difference if
+/// the editor is still clean and unchanged by then (it tries again when it
+/// is clean but changed meanwhile, e.g. by an earlier reload). A file that
+/// is gone marks the editor as deleted on disk; one that got unsaved edits
+/// meanwhile is marked as changed on disk instead of reloaded.
+pub(crate) fn reload_editor(editor: &Entity<Editor>, cx: &mut App) {
+    let Some((version, read)) = read_disk(editor, cx) else {
+        return;
+    };
     let weak = editor.downgrade();
     cx.spawn(async move |cx| {
-        let work = cx.background_spawn(async move {
-            let disk = Buffer::from_file(&path).ok()?;
-            let new = disk.to_string();
-            let old = rope.to_string();
-            if old == new && disk.line_ending() == line_ending {
-                return None;
-            }
-            Some((reload_edits(&old, &new), disk.line_ending()))
-        });
-        let Some((edits, ending)) = work.await else {
+        let Some(read) = read.await else {
             return;
         };
         let retry = weak
-            .update(cx, |e, cx| {
-                !e.apply_disk_reload(version, edits, ending, cx) && !e.is_dirty()
+            .update(cx, |e, cx| match read {
+                DiskRead::Missing => {
+                    e.set_disk_conflict(Some(DiskConflict::Deleted), cx);
+                    false
+                }
+                DiskRead::Same(stamp) => {
+                    e.keep_mine(stamp, cx);
+                    e.set_disk_conflict(None, cx);
+                    false
+                }
+                DiskRead::Edits(edits, ending, stamp) => {
+                    if e.apply_disk_reload(version, edits, ending, stamp, cx) {
+                        false
+                    } else if e.is_dirty() {
+                        e.set_disk_conflict(Some(DiskConflict::Changed), cx);
+                        false
+                    } else {
+                        true
+                    }
+                }
             })
             .unwrap_or(false);
         if retry && let Some(editor) = weak.upgrade() {

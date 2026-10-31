@@ -1,8 +1,10 @@
 //! Line-oriented commands: indent, outdent, duplicate, move, comment.
 
+use std::ops::Range;
+
 use super::{IndentUnit, clamp_stale, commit, map_selection, prepare, set_from};
 use crate::buffer::Buffer;
-use crate::changes::{Assoc, Change, ChangeMap};
+use crate::changes::{Change, ChangeMap};
 use crate::edit::Edit;
 use crate::history::UndoGroup;
 use crate::selection::{Selection, SelectionSet};
@@ -115,29 +117,45 @@ fn block_text(buffer: &Buffer, first: usize, last: usize) -> String {
 }
 
 /// Duplicates the selected lines below themselves; selections move to the
-/// copy.
+/// copy (Copy Line Down).
 pub fn duplicate_line(buffer: &mut Buffer, selections: &mut SelectionSet) -> Vec<Edit> {
+    duplicate_lines(buffer, selections, false)
+}
+
+/// Duplicates the selected lines above themselves; selections stay on the
+/// upper copy (Copy Line Up).
+pub fn duplicate_line_up(buffer: &mut Buffer, selections: &mut SelectionSet) -> Vec<Edit> {
+    duplicate_lines(buffer, selections, true)
+}
+
+/// Inserts a copy of each selected line block above it. Selections move
+/// by the copies inserted before them: those of earlier blocks, plus their
+/// own block's copy unless they stay on the upper copy (`up`).
+fn duplicate_lines(buffer: &mut Buffer, selections: &mut SelectionSet, up: bool) -> Vec<Edit> {
     clamp_stale(buffer, selections);
-    let raw = line_blocks(buffer, selections)
-        .into_iter()
-        .map(|(first, last)| {
+    let blocks = line_blocks(buffer, selections);
+    let raw: Vec<(Range<usize>, String)> = blocks
+        .iter()
+        .map(|&(first, last)| {
             let at = buffer.line_start(first);
             (at..at, block_text(buffer, first, last))
         })
         .collect();
-    // Inserting the copy above with "after" mapping puts selections on the
-    // lower copy.
-    let changes = prepare(buffer, raw);
-    let map = ChangeMap::new(&changes);
+    // Chars inserted above each block (and, last, in total).
+    let mut inserted = vec![0];
+    for (_, text) in &raw {
+        inserted.push(inserted.last().copied().unwrap_or(0) + text.chars().count());
+    }
     let after: Vec<Selection> = selections
         .iter()
         .map(|s| {
-            Selection::new(
-                map.map(s.anchor, Assoc::After),
-                map.map(s.head, Assoc::After),
-            )
+            let line = buffer.char_to_line(s.start());
+            let block = blocks.partition_point(|&(_, last)| last < line);
+            let shift = inserted[if up { block } else { block + 1 }];
+            Selection::new(s.anchor + shift, s.head + shift)
         })
         .collect();
+    let changes = prepare(buffer, raw);
     let after = set_from(after, selections.primary_index(), selections);
     buffer.break_undo_group();
     commit(buffer, selections, &changes, after, UndoGroup::New)

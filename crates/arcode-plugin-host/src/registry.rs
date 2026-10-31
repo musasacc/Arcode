@@ -228,11 +228,23 @@ impl Registry {
     /// The opener for a file, given its project-relative path. Patterns
     /// without `/` match the file name; the first plugin by id wins.
     pub fn opener_for(&self, relative_path: &Path) -> Option<&QualifiedId> {
-        let name = relative_path.file_name()?;
+        self.openers_for(relative_path).next()
+    }
+
+    /// Every opener whose patterns match, in [`Registry::opener_for`]
+    /// order (the manager skips those of disabled plugins).
+    pub fn openers_for<'a>(
+        &'a self,
+        relative_path: &Path,
+    ) -> impl Iterator<Item = &'a QualifiedId> + 'a {
+        let name = relative_path.file_name().map(|n| n.to_owned());
         let unix_path = relative_path.to_string_lossy().replace('\\', "/");
         self.openers
             .iter()
-            .find(|o| o.by_name.is_match(name) || o.by_path.is_match(&unix_path))
+            .filter(move |o| {
+                name.as_ref()
+                    .is_some_and(|name| o.by_name.is_match(name) || o.by_path.is_match(&unix_path))
+            })
             .map(|o| &o.id)
     }
 

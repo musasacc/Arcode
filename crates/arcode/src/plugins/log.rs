@@ -3,9 +3,10 @@
 //! noted about plugins (notifications, crashes, unloads), in one read-only
 //! tab. Reopening the command refreshes it.
 
-use arcode_plugin_host::PluginManager;
 use arcode_plugin_host::bindings::Level;
+use arcode_plugin_host::net::{NetworkEntry, NetworkOutcome};
 use arcode_plugin_host::plugin_log::{LogLine, LogSource};
+use arcode_plugin_host::{PluginId, PluginManager};
 
 /// The tab key of the plugin log.
 pub const LOG_TAB_KEY: &str = "plugins-log";
@@ -80,6 +81,66 @@ pub fn render(manager: Option<&PluginManager>, host: &[String]) -> String {
     out
 }
 
+/// The tab key of one plugin's log.
+pub fn plugin_log_key(plugin: &PluginId) -> String {
+    format!("{LOG_TAB_KEY}\u{0}{plugin}")
+}
+
+/// One plugin's log, then its network log (time, method, host, port and
+/// outcome; bodies, paths and headers are never recorded).
+pub fn render_plugin(manager: Option<&PluginManager>, plugin: &PluginId) -> String {
+    let Some(manager) = manager else {
+        return "Plugins are not loaded.\n".to_owned();
+    };
+    let Some(registered) = manager.registry().get(plugin) else {
+        return format!("No plugin {plugin}.\n");
+    };
+    let mut out = format!(
+        "== {} ({}, {:?}) ==\n",
+        registered.manifest.plugin.name, plugin, registered.source
+    );
+    let Ok(instance) = manager.instance(plugin) else {
+        out.push_str("(disabled: no log)\n");
+        return out;
+    };
+    let lines = instance.log().lines();
+    if lines.is_empty() {
+        out.push_str("(no output)\n");
+    }
+    for line in &lines {
+        out.push_str(&format_line(line));
+        out.push('\n');
+    }
+    out.push_str("\n== Network ==\n");
+    let entries = instance.network_log().entries();
+    if entries.is_empty() {
+        out.push_str("(no requests)\n");
+    }
+    for entry in &entries {
+        out.push_str(&format_request(entry));
+        out.push('\n');
+    }
+    out
+}
+
+/// One network log entry as shown.
+pub fn format_request(entry: &NetworkEntry) -> String {
+    let secs = entry
+        .at
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let (h, m, s) = ((secs / 3600) % 24, (secs / 60) % 60, secs % 60);
+    let outcome = match &entry.outcome {
+        NetworkOutcome::Status(code) => code.to_string(),
+        NetworkOutcome::Refused(why) => format!("refused: {why}"),
+        NetworkOutcome::Failed(why) => format!("failed: {why}"),
+    };
+    format!(
+        "{h:02}:{m:02}:{s:02} UTC  {} {}:{}  {outcome}",
+        entry.method, entry.host, entry.port
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,6 +159,29 @@ mod tests {
             text: "sent".into(),
         };
         assert_eq!(format_line(&host), "[info] sent");
+    }
+
+    #[test]
+    fn requests_show_time_method_host_and_outcome() {
+        let entry = NetworkEntry {
+            at: std::time::UNIX_EPOCH + std::time::Duration::from_secs(3600 + 2 * 60 + 3),
+            method: "GET".into(),
+            host: "example.com".into(),
+            port: 443,
+            outcome: NetworkOutcome::Status(200),
+        };
+        assert_eq!(
+            format_request(&entry),
+            "01:02:03 UTC  GET example.com:443  200"
+        );
+        let refused = NetworkEntry {
+            outcome: NetworkOutcome::Refused("no consent".into()),
+            ..entry
+        };
+        assert!(format_request(&refused).ends_with("refused: no consent"));
+        let plugin = PluginId::parse("acme.tools").unwrap();
+        assert!(render_plugin(None, &plugin).contains("not loaded"));
+        assert_ne!(plugin_log_key(&plugin), LOG_TAB_KEY);
     }
 
     #[test]

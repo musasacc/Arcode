@@ -19,6 +19,9 @@ pub mod nav_convert;
 #[cfg(test)]
 mod nav_convert_tests;
 pub mod navigation;
+mod paths;
+#[cfg(test)]
+mod review_leftovers_tests;
 pub mod servers;
 #[cfg(test)]
 mod servers_tests;
@@ -269,30 +272,6 @@ impl LspBridge {
         self.push_diagnostics(&path, cx);
     }
 
-    /// The editor now shows another file (renamed or moved): the old
-    /// document is closed and the new one opened.
-    pub fn editor_path_changed(&mut self, editor: &Entity<Editor>, cx: &mut Context<Self>) {
-        self.forget(editor.entity_id());
-        self.register_editor(editor, cx);
-        self.schedule_idle_stop(cx);
-    }
-
-    /// The editor's language changed (language picker, file association):
-    /// like [`Self::editor_path_changed`], and the diagnostics the old
-    /// language's servers published for the file are dropped (the new
-    /// servers publish their own after `didOpen`).
-    pub fn editor_language_changed(&mut self, editor: &Entity<Editor>, cx: &mut Context<Self>) {
-        let path = editor.read(cx).path().map(Path::to_path_buf);
-        if let Some(path) = path
-            && !self.store.for_path(&path).is_empty()
-        {
-            self.store.clear_path(&path);
-            cx.emit(LspBridgeEvent::DiagnosticsChanged);
-            cx.notify();
-        }
-        self.editor_path_changed(editor, cx);
-    }
-
     /// Asks the editors served by `server` (every editor when `None`) for
     /// their inlay hints again.
     pub(crate) fn refresh_inlay_hints(&self, server: Option<&str>, cx: &mut App) {
@@ -333,6 +312,11 @@ impl LspBridge {
         event: &EditorEvent,
         cx: &mut Context<Self>,
     ) {
+        if *event == EditorEvent::PathChanged {
+            // Before the `synced` check: a file renamed to a language with
+            // servers starts being synced.
+            return self.editor_path_event(editor, cx);
+        }
         let Some(doc) = self.docs.get(&editor.entity_id()) else {
             return;
         };
@@ -356,6 +340,9 @@ impl LspBridge {
             EditorEvent::Saved => manager.save_document(&doc.path),
             EditorEvent::SelectionsChanged => self.schedule_highlights(editor, cx),
             EditorEvent::DirtyChanged(_)
+            | EditorEvent::PathChanged
+            | EditorEvent::SaveConflict
+            | EditorEvent::DiskConflictChanged
             | EditorEvent::GutterClicked { .. }
             | EditorEvent::GutterContextClicked { .. }
             | EditorEvent::CodeLensClicked { .. }
