@@ -39,12 +39,17 @@ impl Workspace {
             cx,
         );
         let kind = request.kind.clone();
-        cx.spawn(async move |_, _| {
+        self.plugins.prompts_open += 1;
+        cx.spawn(async move |this, cx| {
             let answer = match answer.await {
                 Ok(ix) => consent::answer_for(&kind, ix),
                 Err(_) => ConsentAnswer::Dismissed,
             };
             reply.send(answer);
+            this.update(cx, |ws, _| {
+                ws.plugins.prompts_open = ws.plugins.prompts_open.saturating_sub(1);
+            })
+            .ok();
         })
         .detach();
     }
@@ -169,22 +174,29 @@ impl Workspace {
                         (p(e.range.start)..p(e.range.end), e.text)
                     })
                     .collect();
-                editor.update(cx, |e, cx| e.apply_edits(edits, cx));
+                let applied = editor.update(cx, |e, cx| e.apply_edits(edits, cx));
                 let version = editor.read(cx).buffer().version();
-                let _ = reply.send(Ok(version));
+                if reply.send(Ok(version)).is_err() && applied {
+                    // The plugin stopped waiting and was told `denied`:
+                    // the document must not change behind its back.
+                    editor.update(cx, |e, cx| e.undo(cx));
+                }
             }
             EditorRequest::OpenFile { path, at, reply } => {
                 let Some(root) = self.project.as_ref().map(|p| p.root.clone()) else {
                     let _ = reply.send(Err(EditorError::InvalidPath));
                     return;
                 };
+                // Answered first: nothing opens for a plugin that gave up.
+                if reply.send(Ok(())).is_err() {
+                    return;
+                }
                 let abs = root.join(&path);
                 self.open_file(&abs, window, cx);
                 if let (Some(at), Some(editor)) = (at, self.editor_for_path(&abs, cx)) {
                     let point = Point::new(at.line as usize, at.column as usize);
                     editor.update(cx, |e, cx| e.go_to(point, window, cx));
                 }
-                let _ = reply.send(Ok(()));
             }
             EditorRequest::OpenScratch {
                 title,
@@ -199,12 +211,16 @@ impl Workspace {
                     }
                     e
                 });
+                // The id is answered before the tab is shown: a plugin that
+                // gave up waiting gets no tab.
+                if reply.send(Ok(editor.entity_id().as_u64())).is_err() {
+                    return;
+                }
                 let label = TabLabel::new(SharedString::from(title));
                 self.active_pane().clone().update(cx, |p, cx| {
                     p.add_titled_editor(editor.clone(), label, window, cx)
                 });
-                cx.emit(super::WorkspaceEvent::EditorOpened(editor.clone()));
-                let _ = reply.send(Ok(editor.entity_id().as_u64()));
+                cx.emit(super::WorkspaceEvent::EditorOpened(editor));
             }
         }
     }

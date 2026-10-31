@@ -59,7 +59,7 @@ impl Workspace {
         if self.plugins.client.ensure() {
             self.plugins_loaded(window, cx);
         }
-        self.plugins_sync_project();
+        self.plugins_sync_project(cx);
         self.plugins.client.is_loaded()
     }
 
@@ -80,7 +80,7 @@ impl Workspace {
             });
             self.plugins.tasks.push(task);
         }
-        self.plugins_sync_project();
+        self.plugins_sync_project(cx);
         for editor in self.editors(cx) {
             self.plugin_track_editor(&editor, cx);
         }
@@ -97,13 +97,16 @@ impl Workspace {
         }
     }
 
-    /// Tells the manager about the open project if it changed.
-    pub(super) fn plugins_sync_project(&mut self) {
+    /// Tells the manager about the open project if it changed; that stops
+    /// every instance, so their panels are retired.
+    pub(super) fn plugins_sync_project(&mut self, cx: &mut Context<Self>) {
         let (root, name) = match &self.project {
             Some(p) => (Some(p.root.clone()), Some(p.name.clone())),
             None => (None, None),
         };
-        self.plugins.client.set_project(root, name);
+        if self.plugins.client.set_project(root, name) {
+            self.plugin_retire_panels("the project changed", None, cx);
+        }
     }
 
     pub(super) fn plugins_workspace_event(
@@ -116,13 +119,11 @@ impl Workspace {
         }
         match event {
             WorkspaceEvent::ProjectChanged => {
-                self.plugins_sync_project();
+                self.plugins_sync_project(cx);
                 self.plugins
                     .client
                     .index()
                     .set_files(self.project_files.clone());
-                self.plugins.opened_files.clear();
-                self.plugins.sidebar_views.clear();
                 self.plugin_refresh_visible(cx);
             }
             WorkspaceEvent::EditorOpened(editor) => {
@@ -168,6 +169,7 @@ impl Workspace {
                 lens_targets: Default::default(),
                 lens_task: None,
                 lens_version: None,
+                pending_click: None,
                 subs: vec![events, released],
             },
         );
@@ -182,22 +184,78 @@ impl Workspace {
     ) {
         match event {
             EditorEvent::Edited { .. } => {
+                // The rows move with their lines at once, but the targets
+                // (opaque plugin args, e.g. a line number) are for the old
+                // text until the plugin answers again.
+                if let Some(tracked) = self.plugins.editors.get_mut(&editor.entity_id()) {
+                    tracked.lens_targets.clear();
+                }
                 self.plugin_publish(editor, cx);
                 self.plugin_schedule_lenses(editor, true, cx);
             }
-            EditorEvent::CodeLensClicked { set, id, .. } if set == LENS_SET => {
-                let target = self
-                    .plugins
-                    .editors
-                    .get(&editor.entity_id())
-                    .and_then(|t| t.lens_targets.get(id))
-                    .cloned();
-                if let Some(target) = target {
-                    self.plugin_publish(editor, cx);
-                    self.plugin_run(&target.command, &target.args, Some(doc_id(editor)), cx);
-                }
+            EditorEvent::CodeLensClicked { set, line, id } if set == LENS_SET => {
+                self.plugin_lens_clicked(editor, *line, *id, cx)
             }
             _ => {}
+        }
+    }
+
+    /// Runs the lens `id` on `line`. After an edit its target is gone: the
+    /// click is remembered and runs once the lenses of the current text
+    /// are back, if one with the same label is still on that line.
+    fn plugin_lens_clicked(
+        &mut self,
+        editor: &Entity<Editor>,
+        line: usize,
+        id: u64,
+        cx: &mut Context<Self>,
+    ) {
+        let key = editor.entity_id();
+        let target = self
+            .plugins
+            .editors
+            .get(&key)
+            .and_then(|t| t.lens_targets.get(&id))
+            .cloned();
+        if let Some(target) = target {
+            self.plugin_publish(editor, cx);
+            self.plugin_run(&target.command, &target.args, Some(doc_id(editor)), cx);
+            return;
+        }
+        let label = editor
+            .read(cx)
+            .code_lenses(LENS_SET)
+            .iter()
+            .flat_map(|l| &l.items)
+            .find(|item| item.id == id)
+            .map(|item| item.label.clone());
+        let (Some(label), Some(tracked)) = (label, self.plugins.editors.get_mut(&key)) else {
+            return;
+        };
+        tracked.pending_click = Some((line, label));
+        self.plugin_schedule_lenses(editor, false, cx);
+    }
+
+    /// Runs a click remembered by [`Self::plugin_lens_clicked`] if a lens
+    /// of the fresh `set` matches it.
+    fn plugin_run_pending_click(
+        &mut self,
+        editor: &Entity<Editor>,
+        click: (usize, gpui::SharedString),
+        set: &crate::plugins::lenses::LensSet,
+        cx: &mut Context<Self>,
+    ) {
+        let (line, label) = click;
+        let target = set
+            .lenses
+            .iter()
+            .filter(|l| l.line == line)
+            .flat_map(|l| &l.items)
+            .find(|item| item.label == label)
+            .and_then(|item| set.targets.get(&item.id))
+            .cloned();
+        if let Some(target) = target {
+            self.plugin_run(&target.command, &target.args, Some(doc_id(editor)), cx);
         }
     }
 
@@ -246,11 +304,14 @@ impl Workspace {
         else {
             return;
         };
-        let wanted = self
-            .plugins
-            .client
-            .manager()
-            .is_some_and(|m| !m.registry().lens_providers(&language).is_empty());
+        // Plain text is never handed to a lens provider: it may be a key,
+        // a certificate or notes (see `snapshot::language_for`).
+        let wanted = language != arcode_syntax::plain_text().id
+            && self
+                .plugins
+                .client
+                .manager()
+                .is_some_and(|m| !m.registry().lens_providers(&language).is_empty());
         if !wanted || !self.plugin_editor_visible(editor, cx) {
             return;
         }
@@ -300,11 +361,21 @@ impl Workspace {
             };
             this.update(cx, |ws, cx| {
                 let line_count = editor.read(cx).line_count();
+                let click = ws
+                    .plugins
+                    .editors
+                    .get_mut(&editor.entity_id())
+                    .and_then(|t| t.pending_click.take());
                 if editor.read(cx).buffer().version() != version {
                     return;
                 }
                 let set = build(answers, line_count);
-                editor.update(cx, |e, cx| e.set_code_lenses(LENS_SET, set.lenses, cx));
+                editor.update(cx, |e, cx| {
+                    e.set_code_lenses(LENS_SET, set.lenses.clone(), cx)
+                });
+                if let Some(click) = click {
+                    ws.plugin_run_pending_click(&editor, click, &set, cx);
+                }
                 if let Some(tracked) = ws.plugins.editors.get_mut(&editor.entity_id()) {
                     tracked.lens_targets = set.targets;
                 }

@@ -39,6 +39,8 @@ mod plugins_cmd;
 mod plugins_open;
 #[cfg(feature = "plugins")]
 mod plugins_req;
+#[cfg(all(test, feature = "plugins"))]
+mod plugins_tests;
 #[cfg(feature = "plugins")]
 mod plugins_ui;
 mod prefs;
@@ -59,6 +61,8 @@ mod review_git;
 mod review_lang_packs;
 #[cfg(test)]
 mod review_palette;
+#[cfg(all(test, feature = "plugins"))]
+mod review_plugins;
 #[cfg(test)]
 mod review_prefs;
 mod run_menu;

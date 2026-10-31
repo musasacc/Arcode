@@ -7,12 +7,14 @@
 
 mod badges;
 mod forms;
+#[cfg(test)]
+mod review_tests;
 pub mod rows;
+#[cfg(test)]
+mod stale_tests;
 mod store;
 #[cfg(test)]
 pub(crate) mod tests;
-#[cfg(test)]
-mod review_tests;
 mod view;
 mod view_actions;
 mod view_rows;

@@ -13,7 +13,7 @@ use crate::activity_bar::Activity;
 use crate::pane::PageTab;
 use crate::plugins::commands::icon_for;
 use crate::plugins::status::RunningTask;
-use crate::plugins::{PanelKey, PanelSlot, PanelView, PanelViewEvent, Placement, Plugins};
+use crate::plugins::{PanelKey, PanelSlot, PanelView, PanelViewEvent, Placement};
 
 impl Workspace {
     pub(super) fn on_plugin_output(
@@ -81,7 +81,7 @@ impl Workspace {
                 panel,
                 title,
             } => {
-                let key = Plugins::page_key(&(plugin, panel));
+                let key = self.plugins.page_key(&(plugin, panel));
                 for pane in self.panes.clone() {
                     pane.update(cx, |p, cx| p.set_page_title(&key, title.clone().into(), cx));
                 }
@@ -104,6 +104,7 @@ impl Workspace {
                 self.plugins
                     .status
                     .update(cx, |s, cx| s.task_started(task, cx));
+                self.plugin_install_esc(cx);
             }
             PluginOutput::TaskFinished { call, .. } => self
                 .plugins
@@ -190,7 +191,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let page = Plugins::page_key(key);
+        let page = self.plugins.page_key(key);
         for (ix, pane) in self.panes.clone().into_iter().enumerate() {
             if let Some(pos) = pane.read(cx).page_position(&page) {
                 self.active_pane = ix;
@@ -212,7 +213,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let page_key = Plugins::page_key(key);
+        let page_key = self.plugins.page_key(key);
         let view = self.plugin_new_view(key, Placement::Page(page_key.clone()), cx);
         let tab = PageTab {
             key: page_key,
@@ -313,18 +314,51 @@ impl Workspace {
             return;
         };
         match slot.placement {
-            Placement::Page(page) => {
-                for pane in self.panes.clone() {
-                    if let Some(ix) = pane.read(cx).page_position(&page) {
-                        pane.update(cx, |p, cx| p.close_page(ix, window, cx));
-                    }
-                }
-            }
+            Placement::Page(page) => self.plugin_close_pages(&page, window, cx),
             Placement::Sidebar(id) => {
                 self.plugins.sidebar_views.remove(&id);
                 cx.notify();
             }
         }
         self.plugins.opened_files.retain(|_, k| k != key);
+    }
+
+    fn plugin_close_pages(&mut self, page: &str, window: &mut Window, cx: &mut Context<Self>) {
+        for pane in self.panes.clone() {
+            if let Some(ix) = pane.read(cx).page_position(page) {
+                pane.update(cx, |p, cx| p.close_page(ix, window, cx));
+            }
+        }
+    }
+
+    /// Every instance was stopped ("Plugins: Reload", a project switch) and
+    /// panel ids start at 1 again: the shown panels are retired so none of
+    /// them talks to a new panel with its id. With a `window` their tabs
+    /// are closed; without one they stay with a "stopped" banner. New
+    /// panels get new page keys (`Plugins::generation`).
+    pub(super) fn plugin_retire_panels(
+        &mut self,
+        reason: &str,
+        mut window: Option<&mut Window>,
+        cx: &mut Context<Self>,
+    ) {
+        self.plugins.generation += 1;
+        let slots: Vec<_> = self.plugins.panels.drain().map(|(_, s)| s).collect();
+        for slot in slots {
+            if let Some(view) = slot.view.upgrade() {
+                view.update(cx, |v, cx| v.retire(reason.to_owned(), cx));
+            }
+            if let (Placement::Page(page), Some(window)) = (&slot.placement, window.as_deref_mut())
+            {
+                self.plugin_close_pages(page, window, cx);
+            }
+        }
+        self.plugins.opened_files.clear();
+        self.plugins.sidebar_views.clear();
+        if self.activity == Activity::Extension {
+            self.plugins.sidebar_active = None;
+            self.activity = Activity::Files;
+        }
+        cx.notify();
     }
 }

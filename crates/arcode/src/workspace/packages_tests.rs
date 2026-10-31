@@ -110,3 +110,91 @@ fn clicking_a_dependency_opens_the_manifest_at_its_line(cx: &mut TestAppContext)
     assert_eq!(path, Some(root.join("crates/core/Cargo.toml")));
     assert_eq!(line, 8);
 }
+
+/// The root of a Cargo workspace is a virtual manifest: cargo cannot add
+/// or remove there, nor edit `[workspace.dependencies]`. The view hides
+/// those actions; asked anyway, nothing runs and a message says why.
+#[gpui::test]
+fn a_virtual_cargo_root_refuses_add_and_remove(cx: &mut TestAppContext) {
+    let (_dir, root) = crate::packages::tests::project();
+    let (ws, cx) = open(cx);
+    ws.update_in(cx, |ws, window, cx| {
+        ws.open_project(root.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    ws.update(cx, |ws, _| ws.pkgs.recorded = Some(Vec::new()));
+    cx.dispatch_action(ShowPackages);
+    settle(cx);
+    let view = ws.read_with(cx, |ws, _| ws.packages().view.clone());
+    // Section 0 is the workspace root; its `serde` is a workspace entry.
+    view.update(cx, |v, cx| {
+        v.dep_action(0, 0, DepCommand::Remove, cx);
+        v.confirm_removal(cx);
+    });
+    cx.run_until_parked();
+    let toast = ws.read_with(cx, |ws, _| ws.toast.clone().unwrap_or_default());
+    assert!(toast.contains("virtual workspace"), "{toast}");
+    view.update_in(cx, |v, window, cx| {
+        v.open_add(&root.join("Cargo.toml"), window, cx)
+    });
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |v, _| v.add_form().is_none()));
+    let toast = ws.read_with(cx, |ws, _| ws.toast.clone().unwrap_or_default());
+    assert!(
+        toast.contains("add packages to one of its members"),
+        "{toast}"
+    );
+    let ran = ws.update(cx, |ws, _| ws.pkgs.recorded.take().unwrap_or_default());
+    assert!(ran.is_empty(), "{ran:?}");
+    // Updating from the root works.
+    view.update(cx, |v, cx| v.dep_action(0, 0, DepCommand::Update, cx));
+    cx.run_until_parked();
+}
+
+/// A check whose output cannot be read shows that output in a terminal
+/// tab (printed from a temporary file) instead of running it again.
+#[cfg(unix)]
+#[gpui::test]
+fn unreadable_check_output_is_shown_not_rerun(cx: &mut TestAppContext) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = std::fs::canonicalize(dir.path()).expect("canonical");
+    std::fs::write(root.join("requirements.txt"), "pyyaml==6.0.1\n").expect("write");
+    std::fs::create_dir_all(root.join(".venv/bin")).expect("mkdir");
+    std::fs::write(root.join(".venv/pyvenv.cfg"), "home = /usr/bin\n").expect("write");
+    let python = root.join(".venv/bin/python");
+    std::fs::write(
+        &python,
+        "#!/bin/sh\necho 'not json'\necho 'boom' >&2\nexit 3\n",
+    )
+    .expect("write");
+    std::fs::set_permissions(&python, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    let (ws, cx) = open(cx);
+    ws.update_in(cx, |ws, window, cx| {
+        ws.open_project(root.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    ws.update(cx, |ws, _| ws.pkgs.recorded = Some(Vec::new()));
+    cx.dispatch_action(ShowPackages);
+    settle(cx);
+    let store = ws.read_with(cx, |ws, _| ws.packages().store.clone());
+    let manifest = root.join("requirements.txt");
+    store.update(cx, |s, cx| s.check_updates(&manifest, cx));
+    let mut ran = Vec::new();
+    for _ in 0..100 {
+        settle(cx);
+        ran = ws.update(cx, |ws, _| ws.pkgs.recorded.clone().unwrap_or_default());
+        if !ran.is_empty() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert_eq!(ran.len(), 1, "{ran:?}");
+    let shown = &ran[0];
+    assert_eq!(shown.program, "cat", "the output is printed, not re-run");
+    assert!(shown.display.ends_with("(output)"), "{}", shown.display);
+    let file = std::path::PathBuf::from(&shown.args[0]);
+    let text = std::fs::read_to_string(&file).expect("output file");
+    let _ = std::fs::remove_file(&file);
+    assert_eq!(text, "not json\nboom\n[exit code 3]\n");
+}

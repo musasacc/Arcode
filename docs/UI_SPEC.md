@@ -66,6 +66,8 @@ Shared reference for the GPUI crates. Read `docs/ARCHITECTURE.md` first.
   line; hover buttons and the context menu offer Update, Remove… (confirmed
   in the row) and Open Documentation. Add… opens a small form above the
   list (name, optional version, dev switch; Enter adds, Escape closes).
+  A Cargo virtual workspace root has no Add…, and its
+  `[workspace.dependencies]` rows no Remove.
 - Status bar, right side: cursor, indentation, encoding, line ending,
   language, language servers. Clicking the indentation, line ending or
   language opens a small filterable picker (Ctrl+K M also picks the

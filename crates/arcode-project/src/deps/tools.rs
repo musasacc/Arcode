@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::Manager;
+use super::{Manager, PackageCommand};
 
 /// How to install `manager` when its program is missing.
 pub fn install_hint(manager: Manager) -> &'static str {
@@ -45,4 +45,20 @@ pub fn find_program(program: &str) -> Option<PathBuf> {
             .map(|ext| dir.join(format!("{program}{ext}")))
             .find(|p| p.is_file())
     })
+}
+
+/// A command that prints the text file `file` in a terminal tab, shown as
+/// `title`: output a check captured but could not read is shown this way
+/// instead of running the check (and its network requests) again.
+/// `findstr "^"` prints every line on Windows, where `type` is a `cmd.exe`
+/// builtin.
+pub fn print_file_command(file: &Path, cwd: &Path, title: &str, windows: bool) -> PackageCommand {
+    let file = file.to_string_lossy().into_owned();
+    let (program, args) = match windows {
+        true => ("findstr", vec!["^".to_string(), file]),
+        false => ("cat", vec![file]),
+    };
+    let mut command = PackageCommand::new(program.to_string(), args, cwd, None);
+    command.display = title.to_string();
+    command
 }

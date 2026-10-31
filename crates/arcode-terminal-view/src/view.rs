@@ -65,6 +65,8 @@ pub struct TerminalView {
     pub(crate) scroll_remainder: f32,
     title: Option<SharedString>,
     exited: bool,
+    /// The program's exit code, once it exited (`None` if killed).
+    exit_code: Option<i32>,
     _events: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
@@ -142,6 +144,7 @@ impl TerminalView {
             scroll_remainder: 0.,
             title: None,
             exited: false,
+            exit_code: None,
             _events: task,
             _subscriptions: subscriptions,
         }
@@ -165,6 +168,12 @@ impl TerminalView {
         !self.exited && self.terminal.is_alive()
     }
 
+    /// The exit code of the program, once it exited with one (`None`
+    /// while it runs, or when it was killed by a signal).
+    pub fn exit_code(&self) -> Option<i32> {
+        self.exit_code
+    }
+
     /// The underlying terminal (for size, text snapshots, selection, ...).
     pub fn terminal(&self) -> &Terminal {
         &self.terminal
@@ -184,6 +193,10 @@ impl TerminalView {
             }
             TerminalEvent::Bell => cx.emit(TerminalViewEvent::Bell),
             TerminalEvent::Exit | TerminalEvent::ChildExit(_) => {
+                // The child's code comes first, then `Exit`.
+                if let TerminalEvent::ChildExit(code) = event {
+                    self.exit_code = self.exit_code.or(code);
+                }
                 if !self.exited {
                     self.exited = true;
                     cx.emit(TerminalViewEvent::Exited);

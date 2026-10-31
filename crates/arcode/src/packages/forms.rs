@@ -3,7 +3,9 @@
 
 use std::path::{Path, PathBuf};
 
-use arcode_project::deps::{PackageAction, validate_package_name, validate_version};
+use arcode_project::deps::{
+    Manager, PackageAction, is_cmd_shim, validate_package_name, validate_version,
+};
 use arcode_ui_kit::{ButtonStyle, Elevated, IconName, button, icon, switch, theme};
 use gpui::{
     AnyElement, App, AppContext, Context, Entity, Focusable, KeyBinding, Pixels, Point, Window,
@@ -11,8 +13,9 @@ use gpui::{
 };
 
 use super::rows::relative_dir;
+use super::store::PackagesStoreEvent;
 use super::view::PackagesView;
-use super::view_actions::DepCommand;
+use super::view_actions::{DepCommand, DepKey, can_add, removable};
 use crate::text_field::TextField;
 
 actions!(packages_form, [SubmitAdd, CancelAdd]);
@@ -42,6 +45,9 @@ pub struct AddForm {
 pub struct DepMenu {
     pub(super) section: usize,
     pub(super) dep: usize,
+    /// The dependency it was opened for (a rescan closes the menu when
+    /// the row shows another one).
+    pub(super) key: DepKey,
     pub(super) position: Point<Pixels>,
 }
 
@@ -49,6 +55,20 @@ impl PackagesView {
     /// Opens the Add form for the manifest at `manifest` and focuses its
     /// name field.
     pub fn open_add(&mut self, manifest: &Path, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .store
+            .read(cx)
+            .manifest(manifest)
+            .is_some_and(|m| !can_add(m))
+        {
+            self.store.update(cx, |_, cx| {
+                cx.emit(PackagesStoreEvent::Message(
+                    "This Cargo.toml is a virtual workspace: add packages to one of its members"
+                        .to_string(),
+                ))
+            });
+            return;
+        }
         let name = cx.new(|cx| TextField::new("Package name", cx));
         let version = cx.new(|cx| TextField::new("Version (optional)", cx));
         window.focus(&name.read(cx).focus_handle(cx));
@@ -85,11 +105,12 @@ impl PackagesView {
         };
         let name = form.name.read(cx).text().trim().to_string();
         let version = form.version.read(cx).text().trim().to_string();
-        let shim = cfg!(windows);
-        let checked = validate_package_name(&name).and_then(|()| match version.is_empty() {
-            true => Ok(()),
-            false => validate_version(&version, shim),
-        });
+        let manager = self
+            .store
+            .read(cx)
+            .manifest(&form.manifest)
+            .map(|m| m.manager);
+        let checked = check_add_input(manager, &name, &version, cfg!(windows));
         if let Err(err) = checked {
             form.error = Some(err);
             cx.notify();
@@ -286,6 +307,23 @@ impl PackagesView {
     }
 }
 
+/// Checks the Add form's name and optional version for `manager`. Only
+/// Windows batch shims (npm, pnpm, Yarn, Composer, Bundler) refuse
+/// `< > ^ !` in versions; cargo, uv, pip... are real executables there.
+pub(super) fn check_add_input(
+    manager: Option<Manager>,
+    name: &str,
+    version: &str,
+    windows: bool,
+) -> Result<(), String> {
+    validate_package_name(name)?;
+    if version.is_empty() {
+        return Ok(());
+    }
+    let shim = manager.is_some_and(|m| is_cmd_shim(m, windows));
+    validate_version(version, shim)
+}
+
 /// The menu entries for the menu's dependency.
 fn menu_entries(
     view: &PackagesView,
@@ -295,9 +333,8 @@ fn menu_entries(
     let mut entries = vec![
         ("Go to Declaration", IconName::FileText, DepCommand::Open),
         ("Update", IconName::ArrowUp, DepCommand::Update),
-        ("Remove…", IconName::Trash, DepCommand::Remove),
     ];
-    let has_docs = view
+    let (can_remove, has_docs) = view
         .store
         .read(cx)
         .manifests()
@@ -305,9 +342,12 @@ fn menu_entries(
         .and_then(|m| {
             m.deps
                 .get(menu.dep)
-                .map(|d| m.manager.docs_url(&d.package).is_some())
+                .map(|d| (removable(m, d), m.manager.docs_url(&d.package).is_some()))
         })
-        .unwrap_or(false);
+        .unwrap_or((false, false));
+    if can_remove {
+        entries.push(("Remove…", IconName::Trash, DepCommand::Remove));
+    }
     if has_docs {
         entries.push((
             "Open Documentation",

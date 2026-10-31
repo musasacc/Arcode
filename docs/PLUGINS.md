@@ -1608,7 +1608,15 @@ database that the plugin generates itself with writes on, then pages
   (wasmtime, cranelift, ureq and rustls are linked in). Idle with the
   HTTP client active: its thread and the epoch ticker use no CPU. The
   HTTP transport (TLS config, root certificates) is built on the first
-  request (`bridge::LazyHttp`).
+  request (`bridge::LazyHttp`). Measured inside the app (glibc
+  `mallinfo2` and `VmRSS` around `PluginManager::new`, real bundled
+  plugins): the manager itself holds **+11 KB of heap**; RSS grows by
+  0.7-0.9 MB, all of it code pages of the binary it runs for the first
+  time. Of the debug binary's ~152 MB RSS, ~110 MB are clean file-backed
+  pages (`Private_Clean`) and ~37 MB anonymous, so the remaining idle
+  difference is the size of the binary with wasmtime, cranelift and rustls
+  linked in, not plugin state; removing it would take an out-of-process
+  host. Release (LTO) numbers are not measured.
 - Discovery: bundled roots are `<exe>/../share/arcode/plugins`, then (debug
   builds) this checkout's `target/wasm-plugins`; installed plugins in
   `<data>/plugins`; dev folders from `ARCODE_PLUGIN_DEV` (path list) and
@@ -1624,11 +1632,18 @@ database that the plugin generates itself with writes on, then pages
   selections are current without work on each cursor move.
 - A document's language for plugins is the editor's language, unless that
   is plain text and a plugin contributes a language for the file's
-  extension (`.http` → `http`).
+  extension (`.http` → `http`). Plain text's own extensions (`.txt`) and
+  files that usually hold secrets or private notes (`.key`, `.pem`,
+  `.env`, `.log`, ...; `snapshot::NEVER_CLAIMED`) are never claimed, and
+  lens providers are never asked about plain-text documents, so
+  `editor = "context"` cannot be widened to them without a prompt.
 - Writes (`apply-edits`, `open-file`, `open-scratch`) are requests to the
   workspace task; the plugin thread waits at most 1 s (a timeout answers
   `denied`). `apply-edits` is one undo step; `open-scratch` opens an
-  untitled, writable tab.
+  untitled, writable tab. A request the plugin stopped waiting for has no
+  effect: `open-file` and `open-scratch` answer before they open anything
+  and open nothing when the answer cannot be delivered, and an
+  `apply-edits` whose answer cannot be delivered is undone.
 - `workspace.find-files` uses the finder's file list once it is loaded,
   and walks the project (`WalkIndex`) before that.
 
@@ -1638,14 +1653,25 @@ database that the plugin generates itself with writes on, then pages
   under "Plugins"); palette runs pass `null` args. `when = "language ==
   x"` hides the command unless the active document has that language
   (the palette reads a global, `commands::CommandContext`, because it is
-  built while the workspace is being updated). A contributed `key` is
-  bound in the `Editor` context (an invalid one is ignored); pressed
-  outside the command's `when` it does nothing (the action propagates).
+  built while the workspace is being updated). A title never replaces a
+  command it does not own: when another command (built in or another
+  plugin's) already has the label, the plugin id is appended ("File: Save
+  (acme.tools)"); a reload replaces a plugin's own entries and removes
+  commands that are gone. A contributed `key` is bound in the `Editor`
+  context (an invalid one is ignored) unless a binding already active in
+  an editor of a pane uses it, a prefix of it, or a chord starting with it
+  (`commands::key_taken`: Ctrl+S, Ctrl+C, Ctrl+K, another plugin's key);
+  pressed outside the command's `when` it does nothing (the action
+  propagates).
 - Lenses: one editor decoration set `"plugins"`, above-line rows; lenses
   on one line share a row. Asked for when an editor of a lens language
   becomes visible and 300 ms after the last edit; answers for an older
   buffer version are dropped. A click runs the command as a gesture about
-  that document.
+  that document. An edit drops the click targets at once (the rows move
+  with their lines, but a target's args are for the old text); a lens
+  clicked before the new answer is remembered by line and label, lenses
+  are asked for at once, and the click runs if a lens with that label is
+  still on that line.
 - Openers: `Workspace::open_file` asks the registry first; a match opens
   the plugin view as a tab named after the file (opening it again focuses
   that tab). Only project files are offered to openers.
@@ -1658,6 +1684,12 @@ database that the plugin generates itself with writes on, then pages
 - Closing a tab drops the view; its release sends `view-closed` only if
   the instance still has that panel open, so closing never starts a
   stopped plugin.
+- "Plugins: Reload" and a project switch stop every instance, and panel
+  ids start at 1 again. The shown panels are retired first (a retired view
+  sends nothing, not even `view-closed`, so it cannot reach a new panel
+  with its id): Reload closes their tabs, a project switch has already
+  reset the panes. Page keys carry a generation, so a new panel never
+  lands on an old tab.
 
 **Panel rendering (`plugins/panel/`):**
 - Every widget kind is mapped. `text` without `wrap` is clipped at the
@@ -1685,8 +1717,11 @@ database that the plugin generates itself with writes on, then pages
 **Status, tasks, notices:**
 - Status items and task chips live in the status bar after the problem
   counts; clicking a chip or pressing Esc anywhere in the window cancels
-  the newest running task (Esc is consumed only then). Tasks also have
-  "Plugins: Cancel Task".
+  the newest running task (Esc is consumed only then). Esc is taken by a
+  keystroke interceptor, installed when the first task starts, so it acts
+  before any key binding (the editor's Escape would otherwise clear a
+  selection first); while a consent prompt or quick pick is open Esc is
+  theirs. Tasks also have "Plugins: Cancel Task".
 - `notify`, crashes, disables and "needs approval" become toasts and lines
   of "Plugins: Show Log", which also shows every plugin's log (reopen to
   refresh).
@@ -1695,5 +1730,6 @@ database that the plugin generates itself with writes on, then pages
   Deny for hosts and a read / read-and-write choice for workspace access.
   `ARCODE_PLUGIN_CONSENT` (`allow-once`, `allow-project`, `allow-always`,
   optional `+write`, or `deny`) answers every prompt without showing it,
-  for automated runs; answers are written to the plugin log.
+  for automated runs; answers are written to the plugin log. Only debug
+  builds read it; a release build always asks.
 - Quick picks use the status-bar list picker overlay.

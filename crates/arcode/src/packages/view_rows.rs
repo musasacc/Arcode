@@ -11,7 +11,7 @@ use super::badges::{badge, dep_tooltip, manager_color};
 use super::rows::{Row, relative_dir, version_text};
 use super::store::CheckState;
 use super::view::{PackagesView, ROW_HEIGHT};
-use super::view_actions::DepCommand;
+use super::view_actions::{DepCommand, can_add, removable};
 
 impl PackagesView {
     pub(super) fn render_row(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
@@ -48,6 +48,7 @@ impl PackagesView {
             location = format!("workspace · {location}");
         }
         let path = m.path.clone();
+        let addable = can_add(m);
         let check = store.check(&m.path).cloned();
         let running = check == Some(CheckState::Running);
         let tool = |id: &'static str, glyph: IconName, tip: &'static str| {
@@ -158,14 +159,14 @@ impl PackagesView {
                     .bg(c.surface)
                     .invisible()
                     .group_hover("pkg-section", |s| s.visible())
-                    .child(
-                        tool("pkg-add", IconName::Plus, "Add a package…").on_click(cx.listener(
-                            move |view, _, window, cx| {
+                    .when(addable, |el| {
+                        el.child(tool("pkg-add", IconName::Plus, "Add a package…").on_click(
+                            cx.listener(move |view, _, window, cx| {
                                 cx.stop_propagation();
                                 view.open_add(&p1, window, cx);
-                            },
-                        )),
-                    )
+                            }),
+                        ))
+                    })
                     .child(
                         tool("pkg-update-all", IconName::ArrowUp, "Update all").on_click(
                             cx.listener(move |view, _, _, cx| {
@@ -228,7 +229,7 @@ impl PackagesView {
         let confirming = self
             .confirm_remove
             .as_ref()
-            .is_some_and(|(p, n)| *p == m.path && *n == d.name);
+            .is_some_and(|key| key.matches(&m.path, d));
         let base = div()
             .id(("pkg-dep", ix))
             .group("pkg-row")
@@ -273,6 +274,7 @@ impl PackagesView {
         let newer = self.newer(&m.path, d, cx);
         let detail = dep_tooltip(d);
         let has_docs = m.manager.docs_url(&d.package).is_some();
+        let can_remove = removable(m, d);
         let action = |id: &'static str, glyph: IconName, tip: &'static str, kind: DepCommand| {
             icon_button((id, ix), glyph)
                 .size(px(20.))
@@ -300,12 +302,14 @@ impl PackagesView {
                 "Update",
                 DepCommand::Update,
             ))
-            .child(action(
-                "pkg-dep-remove",
-                IconName::Trash,
-                "Remove…",
-                DepCommand::Remove,
-            ))
+            .when(can_remove, |el| {
+                el.child(action(
+                    "pkg-dep-remove",
+                    IconName::Trash,
+                    "Remove…",
+                    DepCommand::Remove,
+                ))
+            })
             .when(has_docs, |el| {
                 el.child(action(
                     "pkg-dep-docs",

@@ -96,6 +96,9 @@ impl PanelView {
 
     /// Issues the next page fetch the cache asks for, if any.
     fn pump_fetch(&mut self, id: NodeId, cx: &mut Context<Self>) {
+        if self.retired {
+            return;
+        }
         let Some(state) = self.tables.get_mut(&id) else {
             return;
         };

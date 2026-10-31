@@ -162,12 +162,27 @@ pub fn read_manifest(path: &Path, root: &Path) -> Option<ProjectManifest> {
     Some(m)
 }
 
+/// Reads a regular file of at most [`MAX_FILE`] bytes. FIFOs, devices
+/// (a symlink to `/dev/zero` that a repository can hold) and other special
+/// files are refused: reading them could block or never end.
 pub(super) fn read_text(path: &Path) -> Result<String, String> {
+    use std::io::Read;
     let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
+    if !meta.is_file() {
+        return Err(format!("{} is not a regular file", file_name(path)));
+    }
     if meta.len() > MAX_FILE {
         return Err(format!("{} is too large to read", file_name(path)));
     }
-    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    // The size can change between the check and the read.
+    file.take(MAX_FILE + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > MAX_FILE {
+        return Err(format!("{} is too large to read", file_name(path)));
+    }
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
@@ -210,7 +225,7 @@ fn read_cargo(path: &Path, root: &Path) -> ProjectManifest {
     let dir = path.parent().unwrap_or(root).to_path_buf();
     let inherited = fsutil::ancestors(&dir, Some(root))
         .into_iter()
-        .filter_map(|d| std::fs::read_to_string(d.join("Cargo.toml")).ok())
+        .filter_map(|d| read_text(&d.join("Cargo.toml")).ok())
         .map(|t| cargo_deps::workspace_requirements(&t))
         .find(|w| !w.is_empty())
         .unwrap_or_default();
@@ -218,6 +233,7 @@ fn read_cargo(path: &Path, root: &Path) -> ProjectManifest {
         let c = cargo_deps::parse(text, &inherited)?;
         m.name = c.name;
         m.workspace_root = c.is_workspace;
+        m.virtual_manifest = c.is_virtual;
         m.deps = c.deps;
         Ok(())
     });
@@ -266,7 +282,7 @@ fn read_node(path: &Path, root: &Path) -> ProjectManifest {
     };
     m.lockfile = Some(lock.clone());
     if pm == NodePackageManager::Yarn {
-        let berry_lock = std::fs::read_to_string(&lock).is_ok_and(|t| t.contains("__metadata:"));
+        let berry_lock = read_text(&lock).is_ok_and(|t| t.contains("__metadata:"));
         m.yarn_berry = berry_lock || decided.join(".yarnrc.yml").is_file();
     }
     if lock.extension().is_some_and(|e| e == "lockb") {

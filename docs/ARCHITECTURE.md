@@ -45,7 +45,11 @@ that is not drawing lives in small, UI-agnostic crates with their own tests.
   it through non-blocking handles; events come back over a channel whose
   receiver is runtime-agnostic, polled by a GPUI task.
 - `arcode-terminal` runs alacritty's PTY event loop on its own thread and
-  signals "wakeup" (redraw needed) over a channel.
+  signals "wakeup" (redraw needed) over a channel. Closing a terminal
+  hangs up its child and, on Linux, what the child started in its process
+  group (`hangup.rs`: stopped first so nothing forks past the hangup), as
+  a real terminal hangup would; a child still running after a second is
+  killed (`reaper.rs`).
 
 ## Diagnostics
 
@@ -109,6 +113,16 @@ switches (`diagnostics`, `completion`, `hover`, `signature_help`,
 - **Crashes**: when a server instance fails or stops, its diagnostics are
   removed (all of that server's when no other instance of it runs, else
   those of files under its root) instead of going stale.
+- **Server processes**: on Unix each server leads its own process group,
+  killed once the server exits or is killed and when its client or the
+  manager is dropped (`client/group.rs`), so wrapper scripts and launchers
+  never leave their real server or helpers behind. On quit the app also
+  kills every group still listed (`arcode_lsp::kill_all_servers`), since
+  servers stopping on a background thread would be cut off mid-shutdown.
+  A signal that ends the app (Ctrl+C or a hangup of the terminal it was
+  started from, `SIGTERM`) runs no quit callback and, with servers in
+  their own groups, no longer reaches them, so the app installs a handler
+  that kills the groups first (`arcode_lsp::kill_servers_on_signals`).
 - **Status bar**: one entry per started server of the active file's
   language with its state (`lsp_bridge::status_view`). Clicking one opens
   a menu with the configured command, Restart Server
@@ -838,9 +852,23 @@ click, in the background, cancellable: `cargo update --dry-run --verbose`,
 --format json`, `yarn outdated --json`, `pip list --outdated --format json`
 (the virtualenv's interpreter; `pipenv run` for Pipenv), `poetry show
 --outdated`, `go list -m -u -json all`, `composer outdated --format=json`,
-`bundle outdated --parseable`. Output that cannot be read (or a manager
-without such a command, like Bun) is shown by running the command in a
-terminal tab instead.
+`bundle outdated --parseable`. Output that cannot be read is written to a
+temporary file that a terminal tab prints (`cat`, `findstr` on Windows), so
+the check does not run twice; a manager without such a command (Bun) runs
+its own `outdated` in a terminal tab. A finished command's tab is labelled
+"(done)", "(exit N)" or "(stopped)" (`TerminalView::exit_code`).
+
+A Cargo virtual manifest (`[workspace]` without `[package]`) offers no Add…
+or Remove (cargo cannot tell which member to change), and
+`[workspace.dependencies]` entries cannot be removed with cargo either;
+Update works everywhere. Removing a target-specific dependency passes
+`--target <cfg>`. The view keys the removal confirmation and the context
+menu by (manifest, name, kind, group), so a name declared twice (`tokio` in
+`[dependencies]` and `[dev-dependencies]`) removes the right entry, and a
+rescan closes a menu whose row now shows another dependency. Python names
+from a check match the manifest's PEP 503-normalized. Files are read only
+when they are regular files of bounded size (a FIFO or a symlink to a
+device in a repository cannot block or exhaust the scan).
 
 ## Settings, themes, first run, tour and low-end mode
 

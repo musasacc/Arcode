@@ -28,6 +28,9 @@ use crate::uri::path_to_uri;
 
 /// Default limit for [`LspManager::shutdown_all`].
 const SHUTDOWN_ALL_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long dropping the manager waits for its tasks (and so the servers'
+/// process groups) to be dropped.
+const DROP_WAIT: Duration = Duration::from_millis(250);
 
 struct OpenDoc {
     uri: Uri,
@@ -345,8 +348,15 @@ impl LspManager {
 impl Drop for LspManager {
     fn drop(&mut self) {
         if let Some(runtime) = self.runtime.take() {
-            // Dropping tasks drops the children, which are `kill_on_drop`.
-            runtime.shutdown_background();
+            // Dropping tasks drops the children, which are `kill_on_drop`,
+            // and kills the process groups they started. Outside a runtime
+            // wait briefly for that, so it also happens when the app exits
+            // right after; inside one, blocking is not allowed.
+            if Handle::try_current().is_ok() {
+                runtime.shutdown_background();
+            } else {
+                runtime.shutdown_timeout(DROP_WAIT);
+            }
         }
     }
 }

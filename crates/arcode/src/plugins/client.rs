@@ -233,14 +233,14 @@ impl PluginClient {
 
     /// Tells the manager which project is open (stops instances when it
     /// changes). Does nothing before the manager exists or when the
-    /// project is the same.
-    pub fn set_project(&self, root: Option<PathBuf>, name: Option<String>) {
+    /// project is the same. True when it stopped every instance.
+    pub fn set_project(&self, root: Option<PathBuf>, name: Option<String>) -> bool {
         self.index.set_root(root.clone());
         let current = self
             .manager()
             .and_then(|m| m.project().map(|p| p.root.clone()));
         if current == root || !self.is_loaded() {
-            return;
+            return false;
         }
         let project = root.map(|root| ProjectContext {
             name: name.unwrap_or_else(|| {
@@ -250,7 +250,7 @@ impl PluginClient {
             }),
             root,
         });
-        self.with_mut(|m| m.set_project(project));
+        self.with_mut(|m| m.set_project(project)).is_some()
     }
 
     /// Re-reads every manifest with `dev` as the unpacked plugins.

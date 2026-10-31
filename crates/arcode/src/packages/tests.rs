@@ -11,7 +11,7 @@ use super::rows::Row;
 use super::*;
 use crate::test_support::{init, settle};
 
-fn write(root: &Path, rel: &str, text: &str) {
+pub(super) fn write(root: &Path, rel: &str, text: &str) {
     let path = root.join(rel);
     fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
     fs::write(path, text).expect("write");
@@ -54,7 +54,7 @@ pub(crate) fn project() -> (tempfile::TempDir, PathBuf) {
     (dir, root)
 }
 
-fn view_for<'a>(
+pub(super) fn view_for<'a>(
     root: &Path,
     cx: &'a mut TestAppContext,
 ) -> (Entity<PackagesView>, &'a mut VisualTestContext) {
@@ -68,7 +68,7 @@ fn view_for<'a>(
     (view, cx)
 }
 
-fn events(
+pub(super) fn events(
     view: &Entity<PackagesView>,
     cx: &mut VisualTestContext,
 ) -> Arc<Mutex<Vec<PackagesEvent>>> {

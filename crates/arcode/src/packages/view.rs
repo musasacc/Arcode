@@ -15,6 +15,7 @@ use gpui::{
 use super::forms::{AddForm, DepMenu};
 use super::rows::{Row, build_rows, target_manifest};
 use super::store::PackagesStore;
+use super::view_actions::DepKey;
 use crate::text_field::{TextChanged, TextField};
 
 /// Height of every list row.
@@ -64,8 +65,8 @@ pub struct PackagesView {
     pub(super) add: Option<AddForm>,
     /// The dependency context menu, while open.
     pub(super) menu: Option<DepMenu>,
-    /// (manifest, dependency name) whose removal waits for confirmation.
-    pub(super) confirm_remove: Option<(PathBuf, String)>,
+    /// The dependency whose removal waits for confirmation.
+    pub(super) confirm_remove: Option<DepKey>,
     pending: Vec<(PackagesRequest, Option<PathBuf>)>,
     _subs: Vec<Subscription>,
 }
@@ -84,6 +85,7 @@ impl PackagesView {
         let filter = cx.new(|cx| TextField::new("Filter packages", cx));
         let subs = vec![
             cx.observe_in(&store, window, |view, _, window, cx| {
+                view.forget_stale_targets(cx);
                 view.rebuild(cx);
                 view.run_pending(window, cx);
             }),

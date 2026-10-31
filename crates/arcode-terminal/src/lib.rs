@@ -8,11 +8,15 @@
 
 mod color;
 mod events;
+#[cfg(unix)]
+mod hangup;
 mod input;
 pub mod keys;
 mod options;
 mod reaper;
 mod replies;
+#[cfg(all(test, unix))]
+mod review_reaper;
 mod selection;
 mod size;
 mod snapshot;

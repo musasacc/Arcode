@@ -45,10 +45,11 @@ impl TerminalPanel {
             move |panel, view, event, _, cx| match event {
                 TerminalViewEvent::Exited => {
                     let id = view.entity_id();
+                    let status = exit_label(view.read(cx).exit_code());
                     if let Some(name) = panel.names.get(&id).cloned() {
                         panel
                             .names
-                            .insert(id, SharedString::from(format!("{name} (done)")));
+                            .insert(id, SharedString::from(format!("{name} ({status})")));
                     }
                     if let Some(f) = on_exit.take() {
                         f(cx);
@@ -69,5 +70,27 @@ impl TerminalPanel {
         self.error = None;
         cx.notify();
         Ok(())
+    }
+}
+
+/// How a finished program's tab is labelled: "done" after success, else
+/// the exit code ("exit 1"), or "stopped" when it was killed.
+pub fn exit_label(code: Option<i32>) -> String {
+    match code {
+        Some(0) => "done".to_string(),
+        Some(code) => format!("exit {code}"),
+        None => "stopped".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::exit_label;
+
+    #[test]
+    fn exit_labels() {
+        assert_eq!(exit_label(Some(0)), "done");
+        assert_eq!(exit_label(Some(101)), "exit 101");
+        assert_eq!(exit_label(None), "stopped");
     }
 }

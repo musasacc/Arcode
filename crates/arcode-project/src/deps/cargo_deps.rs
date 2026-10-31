@@ -12,6 +12,8 @@ use super::{DepKind, DepSource, Dependency};
 pub(crate) struct CargoManifest {
     pub name: Option<String>,
     pub is_workspace: bool,
+    /// `[workspace]` without `[package]`.
+    pub is_virtual: bool,
     pub deps: Vec<Dependency>,
 }
 
@@ -36,6 +38,8 @@ pub(crate) fn parse(
             .and_then(Value::as_str)
             .map(str::to_string),
         is_workspace: table.get("workspace").is_some_and(Value::is_table),
+        is_virtual: table.get("workspace").is_some_and(Value::is_table)
+            && table.get("package").is_none(),
         deps: Vec::new(),
     };
     for (section, kind) in KINDS {

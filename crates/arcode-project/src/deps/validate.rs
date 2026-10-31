@@ -59,6 +59,23 @@ pub fn validate_version(version: &str, cmd_shim: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Accepts a Cargo target as written in `[target.'...'.dependencies]`: a
+/// triple (`x86_64-pc-windows-gnu`) or a `cfg(...)` expression
+/// (`cfg(target_os = "linux")`), passed to `cargo remove --target`.
+pub fn validate_cargo_target(target: &str) -> Result<(), String> {
+    let bad = target.is_empty()
+        || target.len() > MAX_VERSION * 2
+        || target.starts_with('-')
+        || target.chars().any(|c| {
+            !(c.is_ascii_alphanumeric()
+                || matches!(c, '_' | '-' | '.' | '(' | ')' | '=' | '"' | ',' | ' '))
+        });
+    match bad {
+        true => Err(format!("Unexpected Cargo target {target:?}")),
+        false => Ok(()),
+    }
+}
+
 fn describe(c: char) -> String {
     if c.is_whitespace() {
         "spaces".to_string()
@@ -126,5 +143,20 @@ mod tests {
         assert!(validate_version("^1.2", true).is_err());
         assert!(validate_version(">=1", true).is_err());
         assert!(validate_version("~1.2", true).is_ok());
+    }
+
+    #[test]
+    fn cargo_targets() {
+        for ok in [
+            "cfg(windows)",
+            "cfg(target_os = \"linux\")",
+            "cfg(all(unix, not(target_os = \"macos\")))",
+            "x86_64-pc-windows-gnu",
+        ] {
+            assert!(validate_cargo_target(ok).is_ok(), "{ok}");
+        }
+        for bad in ["", "--target", "cfg(x);rm", "cfg($(x))", "a|b", "x\ny"] {
+            assert!(validate_cargo_target(bad).is_err(), "{bad:?}");
+        }
     }
 }
