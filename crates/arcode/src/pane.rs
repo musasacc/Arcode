@@ -90,6 +90,8 @@ pub struct Pane {
     crumbs: breadcrumb::Crumbs,
     /// The pane is wide enough for the breadcrumb (measured when drawn).
     wide: bool,
+    /// The tabs overflow the strip (a hairline then ends the tab area).
+    tabs_overflow: bool,
     /// The list of open tabs under the `…` button is shown.
     tab_menu_open: bool,
     /// Whether the workspace frames this pane (the ember mark on its
@@ -132,6 +134,7 @@ impl Pane {
             root: None,
             crumbs: Default::default(),
             wide: true,
+            tabs_overflow: false,
             tab_menu_open: false,
             framed: None,
             scrolled_to: None,
