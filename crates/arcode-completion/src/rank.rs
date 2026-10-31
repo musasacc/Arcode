@@ -1,8 +1,8 @@
 //! Fuzzy ranking of completion candidates with nucleo-matcher.
 
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry as Slot;
+use std::collections::{HashMap, HashSet};
 
 use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};

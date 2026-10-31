@@ -145,9 +145,17 @@ mod tests {
     #[test]
     fn rebuild_only_for_rust_files_folders_and_manifests() {
         let rename = |a: &str, b: &str| FileChange::Renamed(p(a), p(b));
-        assert!(needs_crate_graph_rebuild(&[rename("/w/main.rs", "/w/app.rs")]));
-        assert!(needs_crate_graph_rebuild(&[rename("/w/notes.txt", "/w/lib.rs")]));
-        assert!(needs_crate_graph_rebuild(&[FileChange::Deleted(p("/w/src"))]));
+        assert!(needs_crate_graph_rebuild(&[rename(
+            "/w/main.rs",
+            "/w/app.rs"
+        )]));
+        assert!(needs_crate_graph_rebuild(&[rename(
+            "/w/notes.txt",
+            "/w/lib.rs"
+        )]));
+        assert!(needs_crate_graph_rebuild(&[FileChange::Deleted(p(
+            "/w/src"
+        ))]));
         assert!(needs_crate_graph_rebuild(&[FileChange::Created(p(
             "/w/b/Cargo.toml"
         ))]));

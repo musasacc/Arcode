@@ -147,11 +147,25 @@ impl Workspace {
     }
 
     /// The branch shown in the title and status bars: from the git store
-    /// once it has read `HEAD`, else read directly from the project.
+    /// once it has read `HEAD`, else read directly from the project. A
+    /// repository nested in a project folder that is no repository itself
+    /// only names its branch (as `repo: branch`) while a file of it is
+    /// active: the folder as a whole has no branch.
     pub fn branch_label(&self, cx: &gpui::App) -> Option<String> {
-        self.git
-            .store
-            .read(cx)
+        let store = self.git.store.read(cx);
+        let root = self.project.as_ref().map(|p| p.root.as_path());
+        if let (Some(repo), Some(root)) = (store.active_repo(), root)
+            && !root.starts_with(&repo.workdir)
+        {
+            let active = self.active_editor(cx);
+            let file = active.as_ref().and_then(|e| e.read(cx).path());
+            if !file.is_some_and(|f| f.starts_with(&repo.workdir)) {
+                return None;
+            }
+            let name = repo.workdir.file_name()?.to_string_lossy();
+            return store.branch_label().map(|b| format!("{name}: {b}"));
+        }
+        store
             .branch_label()
             .or_else(|| self.project.as_ref().and_then(Project::branch))
     }
@@ -185,11 +199,7 @@ impl Workspace {
                     || SharedString::new_static(e.language().name),
                     |l| SharedString::from(l.name.clone()),
                 );
-                (
-                    Some(name),
-                    Some((pos.line, pos.column)),
-                    status,
-                )
+                (Some(name), Some((pos.line, pos.column)), status)
             }
             None => (None, None, None),
         };

@@ -145,6 +145,9 @@ pub fn parse_outdated(
             let found = dry_run_lines(stderr);
             (success || !found.is_empty()).then_some(found)
         }
+        // Offline, pip warns per package on stderr and still prints `[]`
+        // with status 0: that is no "everything is current".
+        OutdatedFormat::PipJson if pip_unreachable(stderr) => None,
         _ if quiet => success.then(Vec::new),
         OutdatedFormat::NpmJson => npm_json(stdout),
         OutdatedFormat::YarnJson => yarn_json(stdout),
@@ -220,6 +223,17 @@ fn yarn_json(stdout: &str) -> Option<Vec<OutdatedPackage>> {
         }
     }
     table.then_some(out)
+}
+
+/// Whether pip could not reach the package index for some package.
+fn pip_unreachable(stderr: &str) -> bool {
+    [
+        "Retrying (Retry(",
+        "Could not fetch URL",
+        "Failed to establish a new connection",
+    ]
+    .iter()
+    .any(|needle| stderr.contains(needle))
 }
 
 fn pip_json(stdout: &str) -> Option<Vec<OutdatedPackage>> {

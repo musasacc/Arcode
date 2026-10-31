@@ -108,7 +108,7 @@ fn lenses_send_and_render_a_json_response() {
     );
     // History has the exchange; the network log has the status.
     assert!(w.iter().any(|w| matches!(w, Widget::KeyValues(kv)
-        if kv.iter().any(|(k, v)| k.ends_with(&format!("POST {}", c.server.url("/items?x=1"))) && v.starts_with("201 · ")))));
+        if kv.iter().any(|(_, v)| v.starts_with(&format!("POST {} → 201 · ", c.server.url("/items?x=1")))))));
     let log: Vec<NetworkOutcome> = c
         .instance()
         .network_log()
@@ -176,7 +176,7 @@ fn cancel_during_a_slow_response() {
     );
     assert!(
         w.iter().any(
-            |w| matches!(w, Widget::KeyValues(kv) if kv.iter().any(|(_, v)| v == "cancelled"))
+            |w| matches!(w, Widget::KeyValues(kv) if kv.iter().any(|(_, v)| v.ends_with(" → cancelled")))
         )
     );
     assert!(c.saw(|o| matches!(o, PluginOutput::TaskFinished { .. })));
