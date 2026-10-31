@@ -83,6 +83,13 @@ pub fn human(d: Duration) -> String {
 }
 
 /// Slices of guest execution (plus charged host time) against one call.
+///
+/// Guest time is the larger of the epoch slices seen and the wall time
+/// the guest ran (measured at each epoch callback, minus host imports):
+/// a ticker that falls behind (timer coalescing on a loaded macOS
+/// machine) or several epochs that pass while the guest thread is
+/// descheduled (one callback for all of them) would otherwise let a
+/// guest run well past its budget.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SliceBudget {
     budget: Duration,
@@ -90,33 +97,65 @@ pub struct SliceBudget {
     used: u64,
     host: Duration,
     started: Instant,
+    /// Wall time the guest ran up to `resumed`.
+    guest: Duration,
+    /// When the guest last started running (`None` inside a host import).
+    resumed: Option<Instant>,
 }
 
 impl SliceBudget {
     /// A budget of `budget` worth of [`TICK`]s (at least one).
     pub fn new(budget: Duration) -> Self {
         let limit = (budget.as_nanos() / TICK.as_nanos()).max(1);
+        let now = Instant::now();
         Self {
             budget,
             limit: u64::try_from(limit).unwrap_or(u64::MAX),
             used: 0,
             host: Duration::ZERO,
-            started: Instant::now(),
+            started: now,
+            guest: Duration::ZERO,
+            resumed: Some(now),
         }
     }
 
     /// Raises the budget (`host.begin-task`); what was used still counts.
     pub fn raise_to(&mut self, budget: Duration) {
-        let (used, host, started) = (self.used, self.host, self.started);
+        let kept = *self;
         *self = Self::new(budget.max(self.budget));
-        (self.used, self.host, self.started) = (used, host, started);
+        (self.used, self.host, self.started) = (kept.used, kept.host, kept.started);
+        (self.guest, self.resumed) = (kept.guest, kept.resumed);
     }
 
-    /// Slices used: guest slices plus charged host time in whole ticks.
+    /// Slices used: guest slices (at least the guest's wall time) plus
+    /// charged host time, in whole ticks.
     fn slices(&self) -> u64 {
-        let host = self.host.as_nanos() / TICK.as_nanos();
+        let ticks = |d: Duration| u64::try_from(d.as_nanos() / TICK.as_nanos()).unwrap_or(u64::MAX);
         self.used
-            .saturating_add(u64::try_from(host).unwrap_or(u64::MAX))
+            .max(ticks(self.guest))
+            .saturating_add(ticks(self.host))
+    }
+
+    /// Adds the guest's run time up to `now` (and restarts it from `now`).
+    fn clock_guest(&mut self, now: Instant) {
+        if let Some(since) = self.resumed {
+            self.guest = self
+                .guest
+                .saturating_add(now.saturating_duration_since(since));
+            self.resumed = Some(now);
+        }
+    }
+
+    /// The guest calls into the host: its clock stops (the import's time
+    /// is charged by [`SliceBudget::charge_host`]).
+    pub fn pause(&mut self) {
+        self.clock_guest(Instant::now());
+        self.resumed = None;
+    }
+
+    /// The guest runs again after a host import.
+    pub fn resume(&mut self) {
+        self.resumed = Some(Instant::now());
     }
 
     /// Budget left (zero once used up).
@@ -164,9 +203,11 @@ impl SliceBudget {
         self.used
     }
 
-    /// Charges one slice; called from the epoch callback.
+    /// Charges one slice (and the guest's run time); called from the
+    /// epoch callback.
     pub fn charge(&mut self, cancel: &CancelToken, grace: Duration) -> Result<(), Interrupt> {
         self.used += 1;
+        self.clock_guest(Instant::now());
         self.check(cancel, grace)
     }
 }
@@ -329,6 +370,26 @@ mod tests {
         std::thread::sleep(Duration::from_millis(30));
         let mut b = SliceBudget::new(Duration::from_secs(60));
         assert_eq!(b.charge(&token, Duration::from_millis(20)), Ok(()));
+    }
+
+    /// Ticks lost by a late ticker, or epochs that passed while the guest
+    /// was descheduled (one callback), still count: the wall time the
+    /// guest ran does.
+    #[test]
+    fn guest_run_time_counts_when_ticks_are_lost() {
+        let token = CancelToken::new();
+        let mut b = SliceBudget::new(Duration::from_millis(30));
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(
+            b.charge(&token, Duration::from_secs(2)),
+            Err(Interrupt::Budget(Duration::from_millis(30)))
+        );
+        // Time inside a host import is not guest time (charged apart).
+        let mut b = SliceBudget::new(Duration::from_millis(30));
+        b.pause();
+        std::thread::sleep(Duration::from_millis(50));
+        b.resume();
+        assert_eq!(b.charge(&token, Duration::from_secs(2)), Ok(()));
     }
 
     #[test]

@@ -77,9 +77,12 @@ fn spin_traps_within_budget_while_another_instance_answers() {
         Ok(CallOutput::Done)
     );
 
-    // The budget counts guest CPU slices, so wall time can only exceed it
-    // when the machine is busy elsewhere (other test binaries, builds).
-    // Allow a few attempts for that, but every attempt must trap on budget.
+    // The budget counts the guest's run time, checked at each epoch tick,
+    // so the trap comes at most about one (possibly late) tick after the
+    // budget: macOS runners deliver 10 ms ticks ~25 ms apart. Wall time can
+    // exceed that only when the machine is busy elsewhere (other test
+    // binaries, builds): allow a few attempts for that, but every attempt
+    // must trap on budget.
     let mut times = Vec::new();
     for _ in 0..3 {
         // Re-activate outside the timed window after the trap.
@@ -94,14 +97,14 @@ fn spin_traps_within_budget_while_another_instance_answers() {
         assert!(elapsed >= ms(300), "trapped early: {elapsed:?}");
         assert!(answers >= 5, "echo kept answering ({answers} calls)");
         times.push(elapsed);
-        if elapsed <= ms(330) {
+        if elapsed <= ms(400) {
             break;
         }
     }
     eprintln!("spin: wall time to trap {times:?}");
     assert!(
-        times.iter().any(|t| *t <= ms(330)),
-        "budget + 30 ms exceeded: {times:?}"
+        times.iter().any(|t| *t <= ms(400)),
+        "budget + 100 ms exceeded: {times:?}"
     );
     assert!(app.wait_for(|o| matches!(o, PluginOutput::Crashed { reason, disabled: false, .. } if reason == "exceeded 300 ms CPU")));
 }

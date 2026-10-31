@@ -313,6 +313,24 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 mod tests {
     use super::*;
 
+    /// Undoes [`encode_path`].
+    fn decode(encoded: &str) -> Vec<u8> {
+        let bytes = encoded.as_bytes();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'%' {
+                let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap();
+                out.push(u8::from_str_radix(hex, 16).unwrap());
+                i += 3;
+            } else {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+        out
+    }
+
     #[test]
     fn dates_are_formatted() {
         assert_eq!(deletion_date(UNIX_EPOCH), "1970-01-01T00:00:00");
@@ -330,8 +348,15 @@ mod tests {
         assert!(!file.exists());
         assert_eq!(std::fs::read_to_string(&to).unwrap(), "x");
         let info = std::fs::read_to_string(trash.join("info/a b.txt.trashinfo")).unwrap();
-        assert!(info.starts_with("[Trash Info]\nPath=/"), "{info}");
+        assert!(info.starts_with("[Trash Info]\nPath="), "{info}");
         assert!(info.contains("a%20b.txt\nDeletionDate="), "{info}");
+        // `Path=` decodes back to the absolute path: on Unix it starts with
+        // `/`; on Windows (where only tests use `trash_into`, the app uses
+        // the Recycle Bin) it starts with the drive.
+        let stored = info.lines().find_map(|l| l.strip_prefix("Path=")).unwrap();
+        let absolute = std::path::absolute(&file).unwrap();
+        assert_eq!(decode(stored), path_bytes(&absolute).into_owned(), "{info}");
+        assert_eq!(stored.starts_with('/'), absolute.starts_with("/"));
 
         // A second file of the same name gets a new slot; folders work too.
         let folder = dir.path().join("a b.txt");

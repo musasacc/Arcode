@@ -248,6 +248,7 @@ impl CallState {
     /// Call hook: the guest called into the host.
     pub fn enter_host(&mut self) {
         if self.host_since.is_none() {
+            self.budget.pause();
             self.host_since = Some((Instant::now(), self.waited));
         }
     }
@@ -260,6 +261,7 @@ impl CallState {
         };
         let waits = self.waited.saturating_sub(waited);
         let spent = since.elapsed().saturating_sub(waits);
+        self.budget.resume();
         self.budget.charge_host(spent, &self.cancel, grace)
     }
 }
