@@ -11,11 +11,13 @@ pub mod edit;
 pub mod edit_value;
 mod files;
 mod git;
+mod inline_diagnostics;
 mod language;
 mod plugins;
 mod presets;
 mod search;
 mod sections;
+mod terminal;
 mod workspace;
 
 use std::collections::BTreeMap;
@@ -34,6 +36,7 @@ pub use debug::DebugSettings;
 pub use edit_value::{Guard, PRESET_MARK, SettingEdit, SettingValue, apply_edits};
 pub use files::FilesSettings;
 pub use git::GitSettings;
+pub use inline_diagnostics::InlineDiagnostics;
 pub use language::{
     LanguageSettings, LspFeatures, LspServerSettings, NamedServer, builtin_languages,
     builtin_servers,
@@ -41,9 +44,8 @@ pub use language::{
 pub use plugins::PluginSettings;
 pub use presets::{FirstRunChoices, keymap_edits, low_end_edits};
 pub use search::{SearchSettings, TodoSettings};
-pub use sections::{
-    DEFAULT_EDITOR_FONT, EditorSettings, Keymap, TerminalSettings, ThemeChoice, UiSettings,
-};
+pub use sections::{DEFAULT_EDITOR_FONT, EditorSettings, Keymap, ThemeChoice, UiSettings};
+pub use terminal::TerminalSettings;
 pub use workspace::WorkspaceSettings;
 
 /// The commented template written for new users; see [`Config::default_toml`].

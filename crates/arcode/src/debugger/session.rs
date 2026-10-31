@@ -43,6 +43,8 @@ pub enum WatchValue {
 pub struct Session {
     /// The configuration's name.
     pub name: String,
+    /// The debug adapter's name (`lldb-dap`, `gdb`).
+    pub adapter: String,
     /// What was started (for restart).
     pub choice: LaunchChoice,
     /// The adapter handle.

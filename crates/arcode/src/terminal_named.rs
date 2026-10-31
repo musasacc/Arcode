@@ -62,6 +62,7 @@ impl TerminalPanel {
                             panel.active = ix;
                         }
                         terminal.read(cx).run_command(&command);
+                        panel.track_run(&title, &terminal, false, cx);
                         cx.notify();
                         if let Some(f) = on_started {
                             f(Some(&terminal), cx);
@@ -86,9 +87,10 @@ impl TerminalPanel {
     ) {
         let terminal = self.new_terminal_in(cwd, window, cx);
         if let Some(terminal) = &terminal {
+            terminal.read(cx).run_command(command);
+            self.track_run(&title, terminal, false, cx);
             self.names
                 .insert(terminal.entity_id(), SharedString::from(title));
-            terminal.read(cx).run_command(command);
         }
         if let Some(f) = on_started {
             f(terminal.as_ref(), cx);
@@ -99,6 +101,6 @@ impl TerminalPanel {
 /// Whether an idle named terminal can be told from a busy one (Unix:
 /// the shell's foreground process group). Elsewhere a named terminal is
 /// treated as busy, so a new one is used.
-fn can_check_busy() -> bool {
+pub(super) fn can_check_busy() -> bool {
     cfg!(unix)
 }

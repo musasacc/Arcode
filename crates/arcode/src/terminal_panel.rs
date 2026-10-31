@@ -5,10 +5,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use arcode_terminal_view::{TerminalView, TerminalViewEvent};
-use arcode_ui_kit::{IconName, Tooltip, button, icon, icon_button, theme};
+use arcode_ui_kit::{IconName, button, icon, icon_button, pill_tab, theme};
 use gpui::{
-    App, Context, Entity, EntityId, FocusHandle, Focusable, SharedString, Subscription, Window,
-    div, prelude::*, px,
+    App, Context, Entity, EntityId, FocusHandle, Focusable, MouseButton, SharedString,
+    Subscription, Window, div, prelude::*, px,
 };
 
 use crate::actions::{NewTerminal, shortcut_label};
@@ -17,9 +17,12 @@ use crate::actions::{NewTerminal, shortcut_label};
 mod named;
 #[path = "terminal_program.rs"]
 mod program;
+#[path = "terminal_run.rs"]
+mod run;
 
 pub use named::OnStarted;
 pub use program::OnExit;
+pub use run::{LastRun, RunStatus, render_run_readout};
 
 /// Longest terminal title shown in a tab.
 const MAX_TITLE_CHARS: usize = 24;
@@ -35,6 +38,8 @@ pub struct TerminalPanel {
     subscriptions: Vec<(EntityId, Subscription)>,
     /// Fixed tab names (terminals started for a run command or a debuggee).
     names: HashMap<EntityId, SharedString>,
+    /// The last command started in a named terminal (the run readout).
+    last_run: Option<LastRun>,
 }
 
 impl Focusable for TerminalPanel {
@@ -54,6 +59,7 @@ impl TerminalPanel {
             focus_handle: cx.focus_handle(),
             subscriptions: Vec::new(),
             names: HashMap::new(),
+            last_run: None,
         }
     }
 
@@ -65,6 +71,7 @@ impl TerminalPanel {
             self.terminals.clear();
             self.subscriptions.clear();
             self.names.clear();
+            self.last_run = None;
             self.active = 0;
             self.error = None;
             cx.notify();
@@ -183,6 +190,8 @@ impl TerminalPanel {
         let Some(ix) = self.terminals.iter().position(|t| t.entity_id() == id) else {
             return;
         };
+        let code = self.terminals[ix].read(cx).exit_code();
+        self.run_terminal_exited(id, code);
         self.terminals.remove(ix);
         self.subscriptions.retain(|(sid, _)| *sid != id);
         self.names.remove(&id);
@@ -219,68 +228,62 @@ impl TerminalPanel {
     }
 }
 
-/// The terminal tab strip shown in the bottom panel header.
+/// The terminal sessions shown in the bottom panel header: 24 tall pills
+/// (the active one `hover` filled with its icon), then `+`.
 pub fn render_strip(panel: &Entity<TerminalPanel>, cx: &App) -> impl IntoElement + use<> {
-    let c = theme(cx).colors.clone();
     let p = panel.read(cx);
-    let many = p.terminals.len() > 1;
-    let tabs = p.terminals.iter().enumerate().map(|(ix, terminal)| {
-        let active = ix == p.active;
-        let full_title = p
-            .names
-            .get(&terminal.entity_id())
-            .cloned()
-            .unwrap_or_else(|| terminal.read(cx).title());
-        let title = truncate(&short_title(&full_title), MAX_TITLE_CHARS);
-        let select = panel.downgrade();
-        let close = panel.downgrade();
-        div()
-            .id(("terminal-tab", ix))
-            .flex()
-            .items_center()
-            .gap_1()
-            .h(px(22.))
-            .pl_1p5()
-            .pr_0p5()
-            .rounded_sm()
-            .cursor_pointer()
-            .text_color(if active { c.text } else { c.text_muted })
-            .when(active && many, |el| el.bg(c.surface_raised))
-            .hover(|s| s.bg(c.hover))
-            .child(
-                icon(if p.names.contains_key(&terminal.entity_id()) {
-                    IconName::Play
-                } else {
-                    IconName::Terminal
+    let tabs: Vec<_> = p
+        .terminals
+        .iter()
+        .enumerate()
+        .map(|(ix, terminal)| {
+            let active = ix == p.active;
+            let named = p.names.contains_key(&terminal.entity_id());
+            let full_title = p
+                .names
+                .get(&terminal.entity_id())
+                .cloned()
+                .unwrap_or_else(|| terminal.read(cx).title());
+            let title = truncate(&short_title(&full_title), MAX_TITLE_CHARS);
+            let select = panel.downgrade();
+            let close = panel.downgrade();
+            let middle = panel.downgrade();
+            let mut pill = pill_tab(("terminal-tab", ix), title)
+                .compact()
+                .active(active)
+                .tooltip(full_title)
+                .on_click(move |_, window, cx| {
+                    select.update(cx, |p, cx| p.activate(ix, window, cx)).ok();
                 })
-                .size(px(12.))
-                .color(c.text_muted),
-            )
-            .child(title)
-            .child(
-                icon_button(("close-terminal", ix), IconName::X)
-                    .size(px(16.))
-                    .tooltip("Kill terminal")
-                    .on_click(move |_, window, cx| {
-                        cx.stop_propagation();
-                        close.update(cx, |p, cx| p.close(ix, window, cx)).ok();
-                    }),
-            )
-            .tooltip(move |_, cx| Tooltip::text(full_title.clone(), cx))
-            .on_click(move |_, window, cx| {
-                select.update(cx, |p, cx| p.activate(ix, window, cx)).ok();
-            })
-    });
+                .on_close(move |_, window, cx| {
+                    close.update(cx, |p, cx| p.close(ix, window, cx)).ok();
+                });
+            if active {
+                pill = pill.icon(
+                    if named {
+                        IconName::Play
+                    } else {
+                        IconName::Terminal
+                    },
+                    None,
+                );
+            }
+            pill.build(cx)
+                .on_mouse_down(MouseButton::Middle, move |_, window, cx| {
+                    middle.update(cx, |p, cx| p.close(ix, window, cx)).ok();
+                })
+        })
+        .collect();
     div()
         .flex()
         .items_center()
-        .gap_0p5()
+        .gap(px(2.))
         .min_w_0()
         .overflow_hidden()
         .children(tabs)
         .child(
             icon_button("new-terminal", IconName::Plus)
-                .size(px(22.))
+                .size(px(26.))
                 .tooltip(format!(
                     "New terminal ({})",
                     shortcut_label("secondary-shift-`")
@@ -356,10 +359,10 @@ impl Render for TerminalPanel {
                     .into_any_element()
             }
         };
+        // No fill: the bottom panel's rounded fill shows through.
         div()
             .track_focus(&self.focus_handle)
             .size_full()
-            .bg(c.background)
             .child(content)
     }
 }

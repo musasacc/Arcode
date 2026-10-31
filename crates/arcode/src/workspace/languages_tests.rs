@@ -123,12 +123,12 @@ fn indentation_is_detected_picked_and_converted(cx: &mut TestAppContext) {
     fs::write(&file, "fn a() {\n\tif x {\n\t\ty();\n\t}\n}\n").expect("write");
     let (ws, cx) = open(cx);
     open_file(&ws, &root, &file, cx);
-    assert_eq!(status(&ws, cx).1, "Tab Size: 4");
+    assert_eq!(status(&ws, cx).1, "Tab size 4");
 
     cx.dispatch_action(ChangeIndentation);
     cx.run_until_parked();
     pick(&ws, "convert to spaces", cx);
-    assert_eq!(status(&ws, cx).1, "Spaces: 4");
+    assert_eq!(status(&ws, cx).1, "Spaces 4");
     let text = ws.read_with(cx, |ws, cx| {
         ws.active_editor(cx)
             .expect("editor")
@@ -142,11 +142,11 @@ fn indentation_is_detected_picked_and_converted(cx: &mut TestAppContext) {
     cx.dispatch_action(ChangeIndentation);
     cx.run_until_parked();
     pick(&ws, "spaces: 2", cx);
-    assert_eq!(status(&ws, cx).1, "Spaces: 2");
+    assert_eq!(status(&ws, cx).1, "Spaces 2");
     cx.dispatch_action(ChangeIndentation);
     cx.run_until_parked();
     pick(&ws, "language settings", cx);
-    assert_eq!(status(&ws, cx).1, "Spaces: 4");
+    assert_eq!(status(&ws, cx).1, "Spaces 4");
 }
 
 fn node_project() -> (tempfile::TempDir, PathBuf) {

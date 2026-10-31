@@ -2,8 +2,8 @@
 //! tab of the pane. Pages come after the editor tabs; at most one page per
 //! key is open in a pane.
 
-use arcode_ui_kit::{IconName, icon, theme};
-use gpui::{AnyView, Context, FocusHandle, MouseButton, SharedString, Window, div, prelude::*, px};
+use arcode_ui_kit::{IconName, pill_tab};
+use gpui::{AnyView, Context, FocusHandle, MouseButton, SharedString, Window, prelude::*};
 
 use super::{Pane, PaneEvent};
 
@@ -102,63 +102,20 @@ impl Pane {
         &self,
         ix: usize,
         page: &PageTab,
+        focused: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
-        let c = theme(cx).colors.clone();
         let active = self.active_page == Some(ix);
-        let group = SharedString::from(format!("page-tab-{}", page.key));
-        div()
-            .id(SharedString::from(format!("page-tab-{}", page.key)))
-            .group(group.clone())
-            .relative()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap_1p5()
-            .h_full()
-            .pl_3()
-            .pr_1p5()
-            .border_r_1()
-            .border_color(c.border)
-            .cursor_pointer()
-            .bg(if active { c.tab_active } else { c.tab_inactive })
-            .text_color(if active { c.text } else { c.text_muted })
-            .when(!active, |el| el.hover(|s| s.bg(c.hover)))
-            .child(icon(page.icon).size(px(14.)).color(c.accent))
-            .child(page.title.clone())
-            .child(
-                div()
-                    .id(SharedString::from(format!("close-page-{}", page.key)))
-                    .size(px(18.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded_sm()
-                    .hover(|s| s.bg(c.hover))
-                    .when(!active, |el| {
-                        el.opacity(0.).group_hover(group, |s| s.opacity(1.))
-                    })
-                    .child(icon(IconName::X).size(px(12.)).color(c.text_muted))
-                    .on_click(cx.listener(move |pane, _, window, cx| {
-                        cx.stop_propagation();
-                        pane.close_page(ix, window, cx);
-                    })),
-            )
-            .when(active, |el| {
-                el.child(
-                    div()
-                        .absolute()
-                        .left_0()
-                        .right_0()
-                        .bottom_0()
-                        .h(px(2.))
-                        .bg(c.accent),
-                )
-            })
+        pill_tab(SharedString::from(format!("page-tab-{}", page.key)), page.title.clone())
+            .icon(page.icon, None)
+            .active(active)
+            .focused(focused)
+            .on_click(cx.listener(move |pane, _, window, cx| pane.activate_page(ix, window, cx)))
+            .on_close(cx.listener(move |pane, _, window, cx| pane.close_page(ix, window, cx)))
+            .build(cx)
             .on_mouse_down(
                 MouseButton::Middle,
                 cx.listener(move |pane, _, window, cx| pane.close_page(ix, window, cx)),
             )
-            .on_click(cx.listener(move |pane, _, window, cx| pane.activate_page(ix, window, cx)))
     }
 }

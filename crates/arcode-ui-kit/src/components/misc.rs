@@ -3,9 +3,11 @@ use gpui::{
     Window, div, prelude::*, px,
 };
 
-use crate::{Elevated, theme};
+use crate::metrics::type_scale;
+use crate::{Elevated, theme, ui_font_family};
 
-/// A small floating label shown on hover.
+/// A small floating label shown on hover: `panel_raised`, 1 px
+/// `border_strong`, radius 6, Inter 12, the small overlay shadow.
 pub struct Tooltip {
     text: SharedString,
 }
@@ -22,43 +24,21 @@ impl Render for Tooltip {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = &theme(cx).colors;
         div()
-            .px_2()
-            .py_1()
-            .rounded_md()
+            .px(px(8.))
+            .py(px(4.))
+            .rounded(px(6.))
             .border_1()
-            .border_color(c.border)
-            .bg(c.surface_raised)
+            .border_color(c.border_strong)
+            .bg(c.panel_raised())
             .text_color(c.text)
-            .text_xs()
+            .text_size(type_scale(cx).meta)
+            .font_family(ui_font_family(cx))
             .elevated(cx)
             .child(self.text.clone())
     }
 }
 
-/// A keyboard shortcut hint such as `Ctrl+P`.
-#[derive(IntoElement)]
-pub struct Kbd(SharedString);
-
-pub fn kbd(keys: impl Into<SharedString>) -> Kbd {
-    Kbd(keys.into())
-}
-
-impl RenderOnce for Kbd {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let c = &theme(cx).colors;
-        div()
-            .px_1p5()
-            .rounded_sm()
-            .border_1()
-            .border_color(c.border)
-            .bg(c.surface)
-            .text_color(c.text_muted)
-            .text_xs()
-            .child(self.0)
-    }
-}
-
-/// A 1px separator line.
+/// A 1 px hairline in `border`.
 #[derive(IntoElement)]
 pub struct Divider {
     vertical: bool,

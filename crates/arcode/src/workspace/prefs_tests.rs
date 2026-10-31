@@ -82,7 +82,7 @@ fn theme_picker_previews_and_restores(cx: &mut TestAppContext) {
     let (ws, cx, _dir, path) = open_with_config(cx, Some("[ui]\ntheme = \"dark\"\n"));
     cx.update(|_, cx| crate::prefs::store::reload(cx));
     cx.run_until_parked();
-    assert_eq!(theme_name(cx), "Arcode Dark");
+    assert_eq!(theme_name(cx), "Arcode Ember");
     ws.update_in(cx, |ws, window, cx| {
         ws.open_theme_picker(crate::prefs::pickers::ThemeSlot::Main, window, cx)
     });
@@ -93,7 +93,7 @@ fn theme_picker_previews_and_restores(cx: &mut TestAppContext) {
     assert_eq!(theme_name(cx), "Arcode Midnight", "highlight previews");
     picker.update(cx, |_, cx| cx.emit(ListPickerEvent::Dismissed));
     cx.run_until_parked();
-    assert_eq!(theme_name(cx), "Arcode Dark", "dismiss restores");
+    assert_eq!(theme_name(cx), "Arcode Ember", "dismiss restores");
     assert!(ws.read_with(cx, |ws, _| ws.prefs_picker().is_none()));
 
     ws.update_in(cx, |ws, window, cx| {
@@ -217,7 +217,7 @@ fn tour_walks_the_steps_and_restores_the_panel(cx: &mut TestAppContext) {
     ws.read_with(cx, |ws, _| {
         assert!(ws.tour().is_some_and(|t| t.is_last()));
         // Bounds of drawn targets were recorded.
-        assert!(ws.tour_anchors().get(TourTarget::StatusBar).is_some());
+        assert!(ws.tour_anchors().get(TourTarget::Footer).is_some());
         assert!(ws.tour_anchors().get(TourTarget::SearchBox).is_some());
     });
     cx.simulate_keystrokes("enter");

@@ -1,32 +1,31 @@
 //! A pane: a strip of editor tabs above the active editor.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use arcode_editor::{Editor, EditorEvent};
-use arcode_ui_kit::{IconName, icon_button, theme};
 use gpui::{
     App, Context, Entity, EntityId, EventEmitter, FocusHandle, Focusable, PromptLevel,
-    SharedString, Subscription, Window, div, prelude::*, px,
+    SharedString, Subscription, Window, div, prelude::*,
 };
 
-use crate::actions::{
-    self, CloseTab, Find, FindNext, FindPrevious, Replace, SplitRight, shortcut_label,
-};
+use crate::actions::{self, CloseTab, Find, FindNext, FindPrevious, Replace};
 use crate::find_bar::FindBar;
 
+pub(crate) mod breadcrumb;
 mod close_save;
 mod detach;
 mod disk_bar;
 mod find;
 mod page;
+mod strip;
 mod tab;
 
 pub use disk_bar::{CompareWithDisk, KeepMyChanges, ReloadFromDisk};
 pub use page::PageTab;
 
-/// Height of the tab strip.
-pub const TAB_BAR_HEIGHT: f32 = 34.;
+/// Height of the tab strip (docs/DESIGN.md 6.6).
+pub const TAB_BAR_HEIGHT: f32 = 38.;
 
 /// Events emitted by a [`Pane`].
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -86,6 +85,19 @@ pub struct Pane {
     active_page: Option<usize>,
     /// Scrolls the tab bar to show the active tab.
     tab_scroll: gpui::ScrollHandle,
+    /// The project root (breadcrumb paths are relative to it).
+    root: Option<PathBuf>,
+    /// The active editor's outline for the breadcrumb.
+    crumbs: breadcrumb::Crumbs,
+    /// The pane is wide enough for the breadcrumb (measured when drawn).
+    wide: bool,
+    /// The list of open tabs under the `…` button is shown.
+    tab_menu_open: bool,
+    /// Whether the workspace frames this pane (the ember mark on its
+    /// active tab); `None` until told, then focus decides.
+    framed: Option<bool>,
+    /// The active tab the strip last scrolled to (see `render_tab_strip`).
+    scrolled_to: Option<usize>,
     _focus_sub: Option<Subscription>,
 }
 
@@ -117,6 +129,12 @@ impl Pane {
             pages: Vec::new(),
             active_page: None,
             tab_scroll: gpui::ScrollHandle::new(),
+            root: None,
+            crumbs: Default::default(),
+            wide: true,
+            tab_menu_open: false,
+            framed: None,
+            scrolled_to: None,
             _focus_sub: Some(sub),
         }
     }
@@ -132,6 +150,12 @@ impl Pane {
             Some(_) => None,
             None => self.items.get(self.active),
         }
+    }
+
+    /// Sets whether this pane is the framed panel's active pane (read at
+    /// the next render, which follows in the same frame: no notify).
+    pub fn set_framed(&mut self, framed: bool) {
+        self.framed = Some(framed);
     }
 
     /// Sets whether the close-pane button is offered.
@@ -313,62 +337,8 @@ impl Pane {
 }
 
 impl Render for Pane {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let c = theme(cx).colors.clone();
-        let mut tabs: Vec<_> = self
-            .items
-            .clone()
-            .iter()
-            .enumerate()
-            .map(|(ix, e)| self.render_tab(ix, e, cx).into_any_element())
-            .collect();
-        for (ix, page) in self.pages.clone().iter().enumerate() {
-            tabs.push(self.render_page_tab(ix, page, cx).into_any_element());
-        }
-        let tab_bar = div()
-            .flex()
-            .flex_none()
-            .h(px(TAB_BAR_HEIGHT))
-            .bg(c.tab_inactive)
-            .border_b_1()
-            .border_color(c.border)
-            .child(
-                div()
-                    .id("tabs")
-                    .flex()
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .overflow_x_scroll()
-                    .track_scroll(&self.tab_scroll)
-                    .children(tabs),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .gap_0p5()
-                    .px_1()
-                    .child(
-                        icon_button("split-right", IconName::Columns)
-                            .size(px(24.))
-                            .tooltip(format!("Split right ({})", shortcut_label("secondary-\\")))
-                            .on_click(|_, window, cx| {
-                                window.dispatch_action(Box::new(SplitRight), cx)
-                            }),
-                    )
-                    .when(self.closable && !self.has_tabs(), |el| {
-                        el.child(
-                            icon_button("close-pane", IconName::X)
-                                .size(px(24.))
-                                .tooltip("Close pane")
-                                .on_click(
-                                    cx.listener(|_, _, _, cx| cx.emit(PaneEvent::CloseRequested)),
-                                ),
-                        )
-                    }),
-            );
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let tab_bar = self.render_tab_strip(window, cx);
         let page = self.active_page().map(|p| p.view.clone());
         let body = match self.active_editor() {
             _ if page.is_some() => div().flex_1().min_h_0().children(page).into_any_element(),
@@ -413,10 +383,17 @@ impl Render for Pane {
                     window.focus(&pane.focus_handle);
                 }
             }))
+            .on_key_down(cx.listener(|pane, event: &gpui::KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape" && pane.tab_menu_open {
+                    pane.tab_menu_open = false;
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
+            // No fill: the editor panel's rounded fill shows through.
             .size_full()
             .flex()
             .flex_col()
-            .bg(c.background)
             .child(tab_bar)
             .child(body)
     }

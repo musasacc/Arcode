@@ -2,7 +2,6 @@
 //! `arcode-project`, or one the user picked or typed), and its dropdown
 //! listing every detected command.
 
-use arcode_ui_kit::Elevated;
 use std::path::{Path, PathBuf};
 
 use arcode_project::{RunCommand, default_run_command, detect_run_commands};
@@ -190,25 +189,19 @@ impl Workspace {
         cx: &gpui::App,
     ) -> Stateful<Div> {
         let c = theme(cx).colors.clone();
-        div()
-            .id(id)
-            .flex()
-            .items_center()
-            .gap_2()
-            .h(px(28.))
-            .px_2()
-            .mx_1()
-            .rounded_md()
-            .cursor_pointer()
-            .hover(|s| s.bg(c.hover))
-            .child(icon(glyph).size(px(13.)).color(c.text_muted))
+        // A popover row (docs/DESIGN.md 6.12): 26 tall, radius 6, solid hover.
+        arcode_ui_kit::list_row(id, false, cx)
+            .mx(px(0.))
+            .h(px(26.))
+            .gap(px(8.))
+            .child(icon(glyph).size(px(14.)).color(c.text_muted))
             .child(div().flex_1().min_w_0().truncate().child(label))
             .when_some(detail, |el, d| {
                 el.child(
                     div()
                         .flex_none()
-                        .text_xs()
-                        .text_color(c.text_disabled)
+                        .text_size(arcode_ui_kit::type_scale(cx).meta)
+                        .text_color(c.text_muted)
                         .child(d),
                 )
             })
@@ -224,17 +217,10 @@ impl Workspace {
         let mut root = root;
         if let Some(commands) = &self.debug.run.menu {
             let current = self.run_command_line();
-            let mut menu = div()
+            let mut menu = arcode_ui_kit::popover(cx)
                 .w(px(380.))
-                .py_1()
-                .flex()
-                .flex_col()
-                .rounded_lg()
-                .border_1()
-                .border_color(c.border)
-                .bg(c.surface_raised)
-                .elevated(cx)
-                .text_sm()
+                .text_size(arcode_ui_kit::type_scale(cx).body)
+                .text_color(c.text)
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
             if commands.is_empty() {
                 menu = menu.child(
@@ -267,12 +253,12 @@ impl Workspace {
                 );
             }
             menu = menu
-                .child(div().my_1().h(px(1.)).bg(c.border))
+                .child(div().my(px(4.)).h(px(1.)).bg(c.border))
                 .child(
                     Self::run_menu_row(
                         "run-edit",
                         IconName::Type,
-                        "Edit Run Command…".into(),
+                        "Edit run command…".into(),
                         None,
                         cx,
                     )
@@ -282,7 +268,7 @@ impl Workspace {
                     Self::run_menu_row(
                         "run-debug",
                         IconName::Bug,
-                        "Run and Debug…".into(),
+                        "Run and debug…".into(),
                         None,
                         cx,
                     )
@@ -320,8 +306,11 @@ impl Workspace {
                     .child(
                         div()
                             .absolute()
+                            // Under the Run split button (its right edge is
+                            // 82 px from the window's: padding, Settings,
+                            // Debug and the gaps between them).
                             .top(px(TITLE_BAR_HEIGHT - 2.))
-                            .right(px(44.))
+                            .right(px(82.))
                             .child(super::overlays::fade_in("run-menu-anim", menu, cx)),
                     ),
             );

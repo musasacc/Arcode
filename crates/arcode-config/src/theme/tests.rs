@@ -31,7 +31,9 @@ const REQUIRED_SYNTAX: &[&str] = &[
     "tag",
 ];
 
-const BUILTIN_FILES: [&str; 3] = [
+const BUILTIN_FILES: [&str; 5] = [
+    include_str!("../../themes/arcode-ember.toml"),
+    include_str!("../../themes/arcode-chalk.toml"),
     include_str!("../../themes/arcode-dark.toml"),
     include_str!("../../themes/arcode-light.toml"),
     include_str!("../../themes/arcode-midnight.toml"),
@@ -45,6 +47,11 @@ fn builtins_parse_without_warnings() {
     }
     let registry = ThemeRegistry::builtin();
     assert_eq!(registry.names(), BUILTIN_THEME_NAMES);
+    assert_eq!(registry.names()[..2], ["Arcode Ember", "Arcode Chalk"]);
+    assert_eq!(
+        registry.get("Arcode Chalk").unwrap().appearance,
+        Appearance::Light
+    );
     assert_eq!(
         registry.get("Arcode Light").unwrap().appearance,
         Appearance::Light
@@ -150,7 +157,7 @@ fn partial_user_theme_inherits_from_same_appearance() {
     "##;
     let (name, warnings) = registry.add_user_theme(source, None).unwrap();
     assert!(warnings.is_empty(), "{warnings:?}");
-    let light = registry.get("Arcode Light").unwrap().clone();
+    let light = registry.get("Arcode Chalk").unwrap().clone();
     let paper = registry.get(&name).unwrap();
     assert_eq!(paper.ui.background, Color::rgb(0xff, 0xff, 0xf0));
     assert_eq!(paper.ui.text, light.ui.text);
@@ -186,7 +193,7 @@ fn user_theme_extends_named_theme() {
     assert_eq!(warnings.len(), 1);
     assert_eq!(
         registry.get("X").unwrap().ui,
-        registry.get("Arcode Light").unwrap().ui
+        registry.get("Arcode Chalk").unwrap().ui
     );
 }
 
@@ -207,7 +214,7 @@ fn invalid_theme_values_warn() {
     let (_, warnings) = registry.add_user_theme(source, None).unwrap();
     assert_eq!(warnings.len(), 6, "{warnings:?}");
     let odd = registry.get("Odd").unwrap();
-    let dark = registry.get("Arcode Dark").unwrap();
+    let dark = registry.get("Arcode Ember").unwrap();
     assert_eq!(odd.appearance, Appearance::Dark, "defaults to dark");
     assert_eq!(odd.ui.background, dark.ui.background);
     assert_eq!(odd.syntax_style("string"), dark.syntax_style("string"));
@@ -233,7 +240,7 @@ fn user_theme_can_replace_builtin() {
     registry
         .add_user_theme("name = \"Arcode Dark\"\n[ui]\naccent = \"#ff00ff\"", None)
         .unwrap();
-    assert_eq!(registry.names().len(), 3);
+    assert_eq!(registry.names().len(), 5);
     let dark = registry.get("Arcode Dark").unwrap();
     assert_eq!(dark.ui.accent, Color::rgb(255, 0, 255));
 }
@@ -255,13 +262,15 @@ fn resolve_choices() {
     assert_eq!(resolve(C::Light, d, l, true), "Solar");
     assert_eq!(resolve(C::Named("solar".into()), d, l, true), "Solar");
     // Unknown names fall back to the built-in of the relevant appearance.
-    assert_eq!(resolve(C::Named("Gone".into()), d, l, true), "Arcode Dark");
+    assert_eq!(resolve(C::Named("Gone".into()), d, l, true), "Arcode Ember");
     assert_eq!(
         resolve(C::Named("Gone".into()), d, l, false),
-        "Arcode Light"
+        "Arcode Chalk"
     );
-    assert_eq!(resolve(C::Light, d, "Missing", true), "Arcode Light");
-    assert_eq!(resolve(C::System, "Missing", l, true), "Arcode Dark");
+    assert_eq!(resolve(C::Light, d, "Missing", true), "Arcode Chalk");
+    assert_eq!(resolve(C::System, "Missing", l, true), "Arcode Ember");
+    // Configs that name a Classic theme keep it.
+    assert_eq!(resolve(C::Dark, "Arcode Dark", l, true), "Arcode Dark");
 }
 
 #[test]
@@ -279,6 +288,8 @@ fn load_from_directory() {
     assert_eq!(
         registry.names(),
         [
+            "Arcode Ember",
+            "Arcode Chalk",
             "Arcode Dark",
             "Arcode Light",
             "Arcode Midnight",
@@ -289,25 +300,26 @@ fn load_from_directory() {
     assert_eq!(warnings.len(), 2, "{warnings:?}");
     assert!(warnings[0].contains("b-broken.toml"));
     assert!(warnings[1].contains("replaces"));
-    // The later duplicate (no appearance) inherits from Arcode Dark.
+    // The later duplicate (no appearance) inherits from Arcode Ember.
     assert_eq!(registry.get("Ok").unwrap().appearance, Appearance::Dark);
 }
 
 #[test]
 fn load_missing_or_no_dir() {
     let (registry, warnings) = ThemeRegistry::load(None);
-    assert_eq!(registry.themes().len(), 3);
+    assert_eq!(registry.themes().len(), 5);
     assert!(warnings.is_empty());
     let dir = tempfile::tempdir().unwrap();
     let (registry, warnings) = ThemeRegistry::load(Some(&dir.path().join("missing")));
-    assert_eq!(registry.themes().len(), 3);
+    assert_eq!(registry.themes().len(), 5);
     assert!(warnings.is_empty());
 }
 
 #[test]
 fn fallback_and_insert() {
     let mut registry = ThemeRegistry::default();
-    assert_eq!(registry.fallback(Appearance::Light).name, "Arcode Light");
+    assert_eq!(registry.fallback(Appearance::Light).name, "Arcode Chalk");
+    assert_eq!(registry.fallback(Appearance::Dark).name, "Arcode Ember");
     let mut copy = registry.get("Arcode Light").unwrap().clone();
     copy.name = "Copy".into();
     assert!(registry.insert(copy.clone()).is_none());

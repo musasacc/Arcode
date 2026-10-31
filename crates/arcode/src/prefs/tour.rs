@@ -51,8 +51,9 @@ pub enum TourTarget {
     RunButton,
     /// The bottom panel (terminal).
     TerminalPanel,
-    /// The status bar.
-    StatusBar,
+    /// The footer along the bottom of the window (it replaced the status
+    /// bar).
+    Footer,
     /// The settings gear in the title bar.
     SettingsButton,
 }
@@ -87,8 +88,8 @@ pub fn steps() -> Vec<TourStep> {
         ),
         step(
             TourTarget::ActivityBar,
-            "Activity bar",
-            "Files, Search, Source Control, Run and Debug, Languages and TODOs. Click the active icon again to hide the sidebar.".into(),
+            "Icon rail",
+            "Files, Search, Source control, Run and debug, Plugins, Todo and Packages. Click the active icon again to hide the sidebar; the two icons at the bottom show or hide the sidebar and the panel.".into(),
             true,
         ),
         step(
@@ -120,8 +121,8 @@ pub fn steps() -> Vec<TourStep> {
             true,
         ),
         step(
-            TourTarget::StatusBar,
-            "Status bar",
+            TourTarget::Footer,
+            "Footer",
             "Branch, errors and warnings, cursor position, indentation, line endings, language and language servers. Most entries can be clicked.".into(),
             false,
         ),
@@ -285,7 +286,7 @@ mod tests {
             TourTarget::SearchBox,
             TourTarget::RunButton,
             TourTarget::TerminalPanel,
-            TourTarget::StatusBar,
+            TourTarget::Footer,
         ] {
             assert!(targets.contains(&t), "{t:?}");
         }
@@ -311,12 +312,12 @@ mod tests {
         // Title bar element: below it, centered on it.
         let p = callout_origin(Some(bounds(600., 5., 80., 26.)), viewport);
         assert_eq!((f32::from(p.x), f32::from(p.y)), (480., 43.));
-        // Status bar: above it.
-        let p = callout_origin(Some(bounds(0., 776., 1280., 24.)), viewport);
-        assert_eq!(f32::from(p.y), 776. - GAP - CALLOUT_HEIGHT);
-        // Full-height activity bar: to its right, kept on screen.
-        let p = callout_origin(Some(bounds(0., 36., 44., 740.)), viewport);
-        assert_eq!(f32::from(p.x), 44. + GAP);
+        // Footer (26 tall, right of the rail): above it.
+        let p = callout_origin(Some(bounds(46., 774., 1234., 26.)), viewport);
+        assert_eq!(f32::from(p.y), 774. - GAP - CALLOUT_HEIGHT);
+        // Full-height icon rail: to its right, kept on screen.
+        let p = callout_origin(Some(bounds(0., 40., 46., 734.)), viewport);
+        assert_eq!(f32::from(p.x), 46. + GAP);
         // Near the left edge: clamped into the window.
         let p = callout_origin(Some(bounds(0., 5., 20., 20.)), viewport);
         assert_eq!(f32::from(p.x), MARGIN);

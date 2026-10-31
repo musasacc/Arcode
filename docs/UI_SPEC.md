@@ -4,53 +4,78 @@ Shared reference for the GPUI crates. Read `docs/ARCHITECTURE.md` first.
 
 ## Look and feel
 
-- Flat, soft rounded corners (4-8px), 1px borders in `colors.border`, no
-  heavy shadows except popovers (`shadow_md`).
-- One accent (`colors.accent`) for focus, selection markers, primary buttons;
-  `accent_alt` sparingly (e.g. modified indicators).
-- UI font: system UI font (or `settings.ui.font_family`) at
-  `settings.ui.font_size` (13px). Editor/terminal font:
-  `settings.editor.font_family` (bundled "JetBrains Mono") at
+The visual identity, Arcode Ember (dark) and Arcode Chalk (light), is
+defined in `docs/DESIGN.md`: tokens, type, metrics, every component and
+the rules of what Arcode must not look like. That file replaces this
+section; the layout and behaviour below still apply. In short (DESIGN.md
+section 1):
+
+- The window background is the **canvas**. The sidebar, the editor (all
+  split panes) and the bottom panel are separate rounded panels (radius
+  10, 1 px `border`) with 6 px of canvas between them. The title bar, the
+  icon rail and the footer have no fill of their own.
+- One warm accent, **ember**, marks where you are (the focused panel's
+  1 px edge, the 7 px ember diamond on the focused pane's active tab, the
+  current frame and the paused readout, the active rail icon, matched
+  letters, the caret) plus the one primary action on a surface.
+  Everything else is warm neutrals plus the status colours.
+- Not VS Code: no full-width coloured status bar, no activity bar fill
+  or left accent bar, no tab underlines, no UPPERCASE headers (sentence
+  case everywhere), no blue chrome accent, no Dark+ / Light+ syntax.
+  Not JetBrains, Fleet, Zed, Sublime, Nova, Anthropic or Claude either
+  (DESIGN.md 1).
+- Status is never colour alone (icons, wavy vs straight underlines,
+  triangles for deleted lines). Hover, selection and bands are solid.
+- UI font: the bundled Inter (or `settings.ui.font_family`) at
+  `settings.ui.font_size` (13px), sizes from `arcode_ui_kit::type_scale`.
+  Code, terminal and every number the app reports (readouts): JetBrains
+  Mono. Editor font `settings.editor.font_family` at
   `settings.editor.font_size`, line height `font_size * line_height`.
+- Panels never have shadows. Overlays use `arcode_ui_kit::Elevated`
+  (`.elevated(cx)`, `.elevated_lg(cx)`): one shadow layer, none in low-end
+  mode.
 - Animations 100-150 ms via `arcode_ui_kit::animation_duration(cx)`; when it
   returns `None` (low-end mode or disabled) do not animate at all. The
   sidebar and bottom panel slide, popups, dialogs and toasts fade in.
-- Popup shadows go through `arcode_ui_kit::Elevated` (`.elevated(cx)`), which
-  draws none in low-end mode.
 - Never schedule frames continuously. No cursor blink unless
   `settings.editor.cursor_blink` is on (then use a timer that toggles and
   notifies, paused when the window is not focused).
 
-## Shared crate: `arcode-ui-kit` (already written)
+## Shared crate: `arcode-ui-kit`
 
 - `theme(cx) -> &UiTheme`: `colors: ThemeColors` (Hsla fields named like the
-  theme TOML `[ui]` keys), `terminal: TerminalColors`, `syntax(capture) ->
+  theme TOML `[ui]` keys, plus `panel()` / `panel_raised()`, `shadow` and
+  `accent_hover`), `terminal: TerminalColors`, `syntax(capture) ->
   HighlightStyle` with dotted-prefix fallback, `is_dark`.
 - `settings(cx) -> &arcode_config::Config`, `animation_duration(cx)`.
-- `Assets` (AssetSource with icons), `load_fonts(cx)`, `BUNDLED_MONO_FONT`.
-- `icon(IconName::Folder)`, `button(id, label)`, `icon_button(id, icon)`,
-  `Tooltip::text(text, cx)`, `kbd("Ctrl+P")`, `divider()`.
+- `Assets` (AssetSource with icons), `load_fonts(cx)`, `BUNDLED_MONO_FONT`,
+  `BUNDLED_UI_FONT`, `ui_font_family(cx)`, `mono_font_family()`.
+- `metrics::*` (sizes of DESIGN.md 5.1) and `type_scale(cx)`.
+- Components: see "Kit components for the redesign" at the end of
+  `docs/DESIGN.md` (panels, title rows, section headers, list rows,
+  overlays, pill tabs, ember mark, unsaved ring, logo, readouts, badges,
+  kbd chips, buttons, switch, segmented control, stepper, tooltip).
 
 ## Layout (app crate `arcode`)
 
 ```
-+--------------------------------------------------------------------------+
-| [project v]  [branch]        [ Search files  Ctrl+P ]      [Run] [gear]  |  title bar (36px)
-+--+-----------+-----------------------------------------------------------+
-|A | Explorer  | tab | tab | tab                                 [split]  |
-|c |  file     +-----------------------------------------------------------+
-|t |  tree     |                                                           |
-|i |           |   editor (split panes)                                    |
-|v |           |                                                           |
-|i |           +-----------------------------------------------------------+
-|t |           | Terminal | Problems | Todo | Debug                    [x] |
-|y |           |   panel content                                           |
-+--+-----------+-----------------------------------------------------------+
-| branch | 2 errors | Ln 12, Col 4 | Spaces: 4 | UTF-8 | LF | Rust | rust-analyzer: ready |  status bar (24px)
-+--------------------------------------------------------------------------+
+canvas ────────────────────────────────────────────────────────────────────
+ [spark] project ⌄  ⑂ branch    [ Search files  > commands Ctrl P ]  [▷ Run ⌄] 🐞 ⚙   title bar (40px, no fill)
+ ┌rail┐ ╭ Files project ─╮ ╭ ◆ tab ×  tab ○  tab ──────── breadcrumb ⧉ … ╮
+ │ ▣  │ │ file tree      │ │ editor (split panes share this one panel)   │
+ │ ⌕  │ │                │ ╰─────────────────────────────────────────────╯
+ │ ⑂  │ │                │ ╭ Terminal  Problems 2  Todo  Debug ── run ✕ ╮
+ │ …  │ │                │ │ panel content                               │
+ │ ◧ ▭│ ╰────────────────╯ ╰─────────────────────────────────────────────╯
+        ⑂ branch  ⊗ 1 ⚠ 1                 Ln 12, Col 4  Spaces 4  UTF-8  LF  Rust  ● rust-analyzer   footer (26px, no fill)
 ```
 
-- Activity bar (44px): Files, Search, Git, Debug, Plugins, Todo, Packages. The
+- Panels float on the canvas with 6px gaps (the resize handles live in
+  the gaps); a hidden sidebar or bottom panel lets the editor panel grow
+  to the rail or the footer. Exactly one panel (the focused one) has an
+  ember edge.
+- Icon rail (46px, no fill): Files, Search, Git, Debug, Plugins, Todo,
+  Packages, then the sidebar and bottom panel toggles at the bottom. The
   Plugins view has two tabs. "Installed" lists the WASM plugins (bundled,
   installed, unpacked) as cards: name, version, description, state
   (inactive / active / crashed / disabled), source, an enable switch, the
@@ -78,8 +103,8 @@ Shared reference for the GPUI crates. Read `docs/ARCHITECTURE.md` first.
   list (name, optional version, dev switch; Enter adds, Escape closes).
   A Cargo virtual workspace root has no Add…, and its
   `[workspace.dependencies]` rows no Remove.
-- Status bar, right side: cursor, indentation, encoding, line ending,
-  language, language servers. Clicking the indentation, line ending or
+- Footer (the former status bar), right side: cursor, indentation,
+  encoding, line ending, language, language servers. Clicking the indentation, line ending or
   language opens a small filterable picker (Ctrl+K M also picks the
   language; the language picker can add a `[files] associations` entry).
 - Package banner: when the project (or an opened file) has a manifest
@@ -98,7 +123,7 @@ Shared reference for the GPUI crates. Read `docs/ARCHITECTURE.md` first.
   Right / Left expand / collapse (or step into / out of a folder), Home /
   End, Enter or Space opens. Rows can be dragged onto a folder to move
   them. Changes made outside Arcode appear by themselves.
-- Bottom panel: tabs Terminal, Problems, Todo, Debug. Toggle with Ctrl+J
+- Bottom panel: pill tabs Terminal, Problems, Todo, Debug. Toggle with Ctrl+J
   (Cmd+J on macOS). The Debug tab has the debug toolbar, the call stack,
   variables and watches, and the debug console (see `docs/DEBUGGING.md`).
 - Run and debug: run buttons in the gutter next to mains and tests (Run /
@@ -109,10 +134,13 @@ Shared reference for the GPUI crates. Read `docs/ARCHITECTURE.md` first.
   "New Project…", recent projects list (click to open, a button to open
   in a new window, x to remove), key hints.
 - Settings (gear in the title bar, Ctrl+, / Cmd+,): a "Settings" tab with
-  the sections Appearance (theme cards that preview on hover, follow
-  system / dark / light, dark and light themes, UI size, animations,
+  the sections Appearance (theme cards that preview on hover: Follow
+  system, Arcode Ember, Arcode Chalk, then the Classic Arcode Dark, Arcode
+  Light and Arcode Midnight; follow system / dark / light, dark and light
+  themes, UI size, animations,
   low-end mode, perf stats), Editor, Fonts (editor and UI font pickers over
-  the system fonts plus the bundled JetBrains Mono, size, line height,
+  the system fonts plus the bundled JetBrains Mono; the UI picker starts
+  with the default "Inter" and "System UI Font", size, line height,
   ligatures, a preview with ligature, CJK and emoji samples), Terminal,
   Languages (enable switches), Keymap (read-only, filterable) and Advanced
   (workspace, search, debug and large-file options, Reload, Start Tour,
@@ -123,12 +151,12 @@ Shared reference for the GPUI crates. Read `docs/ARCHITECTURE.md` first.
   narrow (split) pane the section list shows only icons and controls wrap
   below their labels.
 - First run (no `config.toml`): a modal welcome dialog with theme (live
-  preview), editor font, keymap (default or Vim) and performance mode
+  preview; Arcode Ember and Arcode Chalk first, then the Classic themes), editor font, keymap (default or Vim) and performance mode
   (normal or low-end); it writes `config.toml`, then offers the tour. Skip
   always closes it, even when the file cannot be written. While the dialog
   or the tour is up, workspace shortcuts do nothing. The tour ("Help:
   Start Tour") dims the window around the project dropdown, the activity
-  bar, the search box, the Run button, the terminal panel, the status bar
+  rail, the search box, the Run button, the terminal panel, the footer
   and the settings gear in turn, with a callout and Back / Next / Skip
   (arrows, Enter, Escape).
 - "New Project…" opens a dialog: name, location (Browse…), a template
@@ -169,7 +197,7 @@ add a cursor above / below (Ctrl+Alt+Up / Down, Cmd+Alt on macOS, or
 Shift+Alt+Up / Down), Alt+click adds or removes a cursor, Alt+Shift+drag or a middle-button
 drag makes a box selection, cursor undo (Ctrl+U), Escape back to one
 cursor. Vim mode (`editor.vim_mode`, or "Editor: Toggle Vim Mode") shows
-its mode, pending keys and command line at the left of the status bar.
+its mode, pending keys and command line at the left of the footer.
 
 Lines (in an editor): move line up / down (Alt+Up / Down), duplicate
 line down / up, i.e. Copy Line Down / Up (Ctrl+Shift+Alt+Down / Up,

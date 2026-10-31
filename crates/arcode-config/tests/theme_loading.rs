@@ -31,10 +31,10 @@ fn extends_chain_across_files_in_any_order() {
         !a.appearance.is_dark(),
         "appearance inherited through chain"
     );
-    let light = registry.get("Arcode Light").unwrap();
+    let light = registry.get("Arcode Chalk").unwrap();
     assert_eq!(a.ui.background, light.ui.background);
     // Display order still follows file order.
-    assert_eq!(&registry.names()[3..], ["A", "B", "C"]);
+    assert_eq!(&registry.names()[5..], ["A", "B", "C"]);
 }
 
 #[test]
@@ -54,8 +54,8 @@ fn extends_cycle_warns_and_falls_back_to_builtin() {
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(warnings[0].contains("cycle"), "{warnings:?}");
     assert!(warnings[0].contains("y.toml"), "{warnings:?}");
-    let dark = registry.get("Arcode Dark").unwrap();
-    // Y broke the cycle (inherits Arcode Dark); X extends Y.
+    let dark = registry.get("Arcode Ember").unwrap();
+    // Y broke the cycle (inherits Arcode Ember); X extends Y.
     let y = registry.get("Y").unwrap();
     assert_eq!(y.ui.accent, dark.ui.accent);
     let x = registry.get("X").unwrap();
@@ -109,7 +109,7 @@ fn self_named_extends_uses_builtin_and_broken_target_warns() {
 #[test]
 fn nested_syntax_tables_flatten_into_dotted_captures() {
     let mut registry = ThemeRegistry::builtin();
-    let dark = registry.get("Arcode Dark").unwrap().clone();
+    let dark = registry.get("Arcode Ember").unwrap().clone();
     let source = r##"
         name = "Nested"
         [syntax]
@@ -156,7 +156,7 @@ fn nested_syntax_tables_flatten_into_dotted_captures() {
 #[test]
 fn invalid_nested_syntax_values_warn_without_touching_parent() {
     let mut registry = ThemeRegistry::builtin();
-    let dark = registry.get("Arcode Dark").unwrap().clone();
+    let dark = registry.get("Arcode Ember").unwrap().clone();
     let source = r##"
         name = "Bad"
         [syntax]

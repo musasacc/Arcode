@@ -17,7 +17,10 @@ impl FirstRunDialog {
         for (value, label) in THEME_CARDS {
             let selected = self.choices.theme.as_str().eq_ignore_ascii_case(value);
             let (dark, light) = match value {
-                "system" => (themes.get("Arcode Dark"), themes.get("Arcode Light")),
+                "system" => (
+                    themes.get(arcode_config::DEFAULT_DARK_THEME),
+                    themes.get(arcode_config::DEFAULT_LIGHT_THEME),
+                ),
                 name => (themes.get(name), None),
             };
             let value = value.to_owned();

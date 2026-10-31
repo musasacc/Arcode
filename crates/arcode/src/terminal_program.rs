@@ -45,7 +45,9 @@ impl TerminalPanel {
             move |panel, view, event, _, cx| match event {
                 TerminalViewEvent::Exited => {
                     let id = view.entity_id();
-                    let status = exit_label(view.read(cx).exit_code());
+                    let code = view.read(cx).exit_code();
+                    panel.run_terminal_exited(id, code);
+                    let status = exit_label(code);
                     if let Some(name) = panel.names.get(&id).cloned() {
                         panel
                             .names
@@ -65,6 +67,7 @@ impl TerminalPanel {
             view.entity_id(),
             SharedString::from(command.display.clone()),
         );
+        self.track_run(&command.display, &view, true, cx);
         self.terminals.push(view);
         self.active = self.terminals.len() - 1;
         self.error = None;

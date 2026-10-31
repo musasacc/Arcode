@@ -150,6 +150,16 @@ impl Workspace {
         for pane in &self.panes {
             pane.update(cx, |pane, cx| pane.set_closable(closable, cx));
         }
+        self.sync_pane_roots(cx);
+    }
+
+    /// Tells every pane the project root (its breadcrumb paths are
+    /// relative to it).
+    pub(super) fn sync_pane_roots(&mut self, cx: &mut Context<Self>) {
+        let root = self.project_root().map(Path::to_path_buf);
+        for pane in &self.panes {
+            pane.update(cx, |pane, cx| pane.set_project_root(root.clone(), cx));
+        }
     }
 }
 

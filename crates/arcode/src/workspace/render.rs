@@ -1,20 +1,66 @@
-//! Layout of the workspace: title bar, activity bar, sidebar, panes,
-//! bottom panel and status bar, plus divider dragging.
+//! Layout of the workspace (docs/DESIGN.md 6.1): the canvas with the
+//! title bar, the icon rail and the footer drawn on it, and the sidebar,
+//! editor and bottom panels floating on it with 6 px gaps that hold the
+//! resize handles; plus divider dragging.
 
-use arcode_ui_kit::{settings, theme};
-use gpui::{Context, CursorStyle, Div, MouseButton, MouseMoveEvent, Window, div, prelude::*, px};
+use arcode_ui_kit::metrics::GAP;
+use arcode_ui_kit::{panel, panel_border, settings, theme};
+use gpui::{
+    App, Context, CursorStyle, Div, MouseButton, MouseMoveEvent, Window, div, prelude::*, px,
+};
 
 use super::anim::Slider;
+use super::frame::{self, FramedPanel};
 use super::{Resize, Workspace};
-use crate::activity_bar::{self, Activity};
+use crate::activity_bar::{self, Activity, RailState};
 use crate::bottom_panel;
 use crate::prefs::tour::TourTarget;
 use crate::sidebar;
 use crate::status_bar;
 use crate::{title_bar, welcome};
 
-/// Width of the invisible drag handle on dividers.
-const HANDLE: f32 = 6.;
+/// Drawn last inside a panel: canvas-coloured slivers outside its rounded
+/// corners and the 1 px edge again on top. GPUI clips children to a
+/// square, so a child that fills the panel (a view background, a row band)
+/// would otherwise square off the 10 px corners and cover the edge's arcs.
+/// Two quads, no listeners (clicks pass through).
+pub(crate) fn corner_caps(focused: bool, cx: &App) -> Div {
+    let c = &theme(cx).colors;
+    let radius = arcode_ui_kit::metrics::PANEL_RADIUS;
+    // Absolute children sit in the padding box, 1 px inside the edge.
+    let edge = px(-1.);
+    let ring = px(6.);
+    div()
+        .absolute()
+        .inset_0()
+        .child(arcode_ui_kit::border_width(
+            div()
+                .absolute()
+                .top(edge - ring)
+                .left(edge - ring)
+                .right(edge - ring)
+                .bottom(edge - ring)
+                .rounded(radius + ring)
+                .border_color(c.canvas),
+            ring,
+        ))
+        .child(
+            div()
+                .absolute()
+                .top(edge)
+                .left(edge)
+                .right(edge)
+                .bottom(edge)
+                .rounded(radius)
+                .border_1()
+                .border_color(panel_border(focused, cx)),
+        )
+}
+
+/// A resize handle filling the gap it sits in.
+fn handle(id: &'static str, cursor: CursorStyle) -> gpui::Stateful<Div> {
+    div().id(id).absolute().cursor(cursor)
+}
 
 impl Workspace {
     fn on_mouse_move(
@@ -33,21 +79,24 @@ impl Workspace {
         }
         match resizing {
             Resize::Sidebar => {
-                let x = event.position.x - px(activity_bar::ACTIVITY_BAR_WIDTH);
-                self.sidebar_width = x.clamp(px(sidebar::MIN_WIDTH), px(sidebar::MAX_WIDTH));
+                self.sidebar_width = frame::sidebar_width_at(
+                    event.position.x,
+                    px(sidebar::MIN_WIDTH),
+                    px(sidebar::MAX_WIDTH),
+                );
             }
             Resize::BottomPanel => {
-                let bottom = window.viewport_size().height - px(24.);
-                let max = (window.viewport_size().height * 0.75).max(px(bottom_panel::MIN_HEIGHT));
-                self.bottom_panel_height =
-                    (bottom - event.position.y).clamp(px(bottom_panel::MIN_HEIGHT), max);
+                self.bottom_panel_height = frame::bottom_height_at(
+                    event.position.y,
+                    window.viewport_size().height,
+                    px(bottom_panel::MIN_HEIGHT),
+                );
             }
         }
         cx.notify();
     }
 
-    fn render_sidebar(&self, cx: &mut Context<Self>) -> Div {
-        let c = theme(cx).colors.clone();
+    fn render_sidebar(&self, framed: bool, cx: &mut Context<Self>) -> Div {
         let content = match (self.activity, &self.file_tree) {
             (Activity::Files, Some(tree)) => tree.clone().into_any_element(),
             (Activity::Files, None) => sidebar::no_folder(cx).into_any_element(),
@@ -65,87 +114,110 @@ impl Workspace {
             #[cfg(not(feature = "plugins"))]
             (Activity::Extension, _) => div().into_any_element(),
         };
+        // The panel plus the gap to its right, which holds the handle; both
+        // slide together.
         div()
             .relative()
+            .flex()
             .flex_none()
-            .w(self.sidebar_width)
+            .w(frame::sidebar_slot(self.sidebar_width))
             .h_full()
-            .bg(c.surface)
-            .border_r_1()
-            .border_color(c.border)
-            .child(content)
+            .pr(GAP)
             .child(
-                div()
-                    .id("sidebar-resize")
-                    .absolute()
+                panel(framed, cx)
+                    .relative()
+                    .track_focus(&self.shell.sidebar_focus)
+                    .flex_1()
+                    .h_full()
+                    .child(content)
+                    .child(corner_caps(framed, cx)),
+            )
+            .child(
+                handle("sidebar-resize", CursorStyle::ResizeLeftRight)
                     .top_0()
                     .bottom_0()
-                    .right(px(-HANDLE / 2.))
-                    .w(px(HANDLE))
-                    .cursor(CursorStyle::ResizeLeftRight)
+                    .right_0()
+                    .w(frame::HANDLE)
                     .on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(|ws, _, _, cx| ws.start_resize(Resize::Sidebar, cx)),
+                        cx.listener(|ws, _, window, cx| {
+                            // Keep keyboard focus where it is while dragging.
+                            window.prevent_default();
+                            ws.start_resize(Resize::Sidebar, cx)
+                        }),
                     ),
             )
     }
 
-    fn render_bottom_panel(&self, cx: &mut Context<Self>) -> Div {
-        let c = theme(cx).colors.clone();
+    fn render_bottom_panel(&self, framed: bool, cx: &mut Context<Self>) -> Div {
+        self.bottom_panel
+            .update(cx, |panel, _| panel.set_framed(framed));
+        // The gap above the panel holds the handle and slides with it.
         div()
             .relative()
+            .flex()
+            .flex_col()
             .flex_none()
-            .h(self.bottom_panel_height)
-            .border_t_1()
-            .border_color(c.border)
-            .child(self.bottom_panel.clone())
-            .child(self.prefs.anchors.recorder(TourTarget::TerminalPanel))
+            .w_full()
+            .h(frame::bottom_slot(self.bottom_panel_height))
+            .pt(GAP)
             .child(
-                div()
-                    .id("panel-resize")
-                    .absolute()
+                panel(framed, cx)
+                    .relative()
+                    .track_focus(&self.shell.bottom_focus)
+                    .flex_1()
+                    .w_full()
+                    .child(self.bottom_panel.clone())
+                    .child(self.prefs.anchors.recorder(TourTarget::TerminalPanel))
+                    .child(corner_caps(framed, cx)),
+            )
+            .child(
+                handle("panel-resize", CursorStyle::ResizeUpDown)
                     .left_0()
                     .right_0()
-                    .top(px(-HANDLE / 2.))
-                    .h(px(HANDLE))
-                    .cursor(CursorStyle::ResizeUpDown)
+                    .top_0()
+                    .h(frame::HANDLE)
                     .on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(|ws, _, _, cx| ws.start_resize(Resize::BottomPanel, cx)),
+                        cx.listener(|ws, _, window, cx| {
+                            window.prevent_default();
+                            ws.start_resize(Resize::BottomPanel, cx)
+                        }),
                     ),
             )
     }
 
-    fn render_panes(&self, cx: &mut Context<Self>) -> Div {
+    /// The editor panel: every split pane lives in it, divided by 1 px
+    /// hairlines (no accent line over the active pane: the ember mark on
+    /// its active tab shows where you are).
+    fn render_editor_panel(&self, framed: bool, cx: &mut Context<Self>) -> Div {
         let c = theme(cx).colors.clone();
-        let many = self.panes.len() > 1;
         let mut row = div().flex().flex_1().min_h_0().w_full();
         for (ix, pane) in self.panes.iter().enumerate() {
             if ix > 0 {
                 row = row.child(div().w(px(1.)).h_full().flex_none().bg(c.border));
             }
-            let active = ix == self.active_pane;
+            // The ember mark goes on the framed panel's active pane.
+            let ember = framed && ix == self.active_pane;
+            pane.update(cx, |pane, _| pane.set_framed(ember));
             row = row.child(
                 div()
                     .relative()
                     .flex_1()
                     .min_w_0()
                     .h_full()
-                    .child(pane.clone())
-                    .when(many && active, |el| {
-                        el.child(
-                            div()
-                                .absolute()
-                                .top_0()
-                                .left_0()
-                                .right_0()
-                                .h(px(1.))
-                                .bg(c.accent),
-                        )
-                    }),
+                    .child(pane.clone()),
             );
         }
-        row
+        panel(framed, cx)
+            .relative()
+            .track_focus(&self.shell.editor_focus)
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .children(self.render_package_banner(cx))
+            .child(row)
+            .child(corner_caps(framed, cx))
     }
 }
 
@@ -157,7 +229,14 @@ impl Render for Workspace {
         let ui = settings(cx).ui.clone();
         let welcome = self.shows_welcome(cx);
         let body = if welcome {
-            div().flex_1().min_h_0().child(welcome::render(self, cx))
+            // One unframed panel fills the body, 6 px of canvas at the sides.
+            div().flex().flex_1().min_h_0().px(GAP).child(
+                panel(false, cx)
+                    .relative()
+                    .flex_1()
+                    .child(welcome::render(self, cx))
+                    .child(corner_caps(false, cx)),
+            )
         } else {
             let activity = self.activity;
             #[cfg(feature = "plugins")]
@@ -174,9 +253,15 @@ impl Render for Workspace {
             };
             #[cfg(not(feature = "plugins"))]
             let extras = Vec::new();
+            let rail = RailState {
+                active: activity,
+                sidebar_visible: self.sidebar_visible,
+                bottom_visible: self.bottom_panel_visible,
+                git_changes: self.git_change_count(cx),
+                todos: self.features.todo.read(cx).count(),
+            };
             let bar = activity_bar::render(
-                activity,
-                self.sidebar_visible,
+                rail,
                 {
                     let this = cx.entity().downgrade();
                     std::rc::Rc::new(move |activity, _: &mut Window, cx: &mut gpui::App| {
@@ -195,14 +280,24 @@ impl Render for Workspace {
                 .child(self.prefs.anchors.recorder(TourTarget::ActivityBar));
             let show_sidebar = self.sidebar_visible || self.sliding_closed(Slider::Sidebar);
             let show_panel = self.bottom_panel_visible || self.sliding_closed(Slider::Panel);
+            // Focus moves the frame only on focus events (they redraw);
+            // nothing animates it.
+            let framed = self.shell.update_frame(
+                self.sidebar_visible,
+                self.bottom_panel_visible,
+                window,
+                cx,
+            );
             div()
                 .flex()
                 .flex_1()
                 .min_h_0()
+                .pr(GAP)
                 .child(bar)
                 .when(show_sidebar, |el| {
-                    let sidebar = self.render_sidebar(cx);
-                    el.child(self.slide_wrap(Slider::Sidebar, sidebar, self.sidebar_width, cx))
+                    let sidebar = self.render_sidebar(framed == FramedPanel::Sidebar, cx);
+                    let slot = frame::sidebar_slot(self.sidebar_width);
+                    el.child(self.slide_wrap(Slider::Sidebar, sidebar, slot, cx))
                 })
                 .child(
                     div()
@@ -211,12 +306,11 @@ impl Render for Workspace {
                         .flex_1()
                         .min_w_0()
                         .h_full()
-                        .children(self.render_package_banner(cx))
-                        .child(self.render_panes(cx))
+                        .child(self.render_editor_panel(framed == FramedPanel::Editor, cx))
                         .when(show_panel, |el| {
-                            let panel = self.render_bottom_panel(cx);
-                            let height = self.bottom_panel_height;
-                            el.child(self.slide_wrap(Slider::Panel, panel, height, cx))
+                            let panel = self.render_bottom_panel(framed == FramedPanel::Bottom, cx);
+                            let slot = frame::bottom_slot(self.bottom_panel_height);
+                            el.child(self.slide_wrap(Slider::Panel, panel, slot, cx))
                         }),
                 )
         };
@@ -234,10 +328,10 @@ impl Render for Workspace {
             .size_full()
             .flex()
             .flex_col()
-            .bg(c.background)
+            .bg(c.canvas)
             .text_color(c.text)
             .text_size(px(ui.font_size))
-            .when_some(ui.font_family.clone(), |el, family| el.font_family(family))
+            .font_family(arcode_ui_kit::ui_font_family(cx))
             .when(self.resizing.is_some(), |el| {
                 el.cursor(match self.resizing {
                     Some(Resize::BottomPanel) => CursorStyle::ResizeUpDown,
@@ -269,8 +363,15 @@ impl Render for Workspace {
                 div()
                     .relative()
                     .flex_none()
-                    .child(self.status_bar.clone())
-                    .child(self.prefs.anchors.recorder(TourTarget::StatusBar)),
+                    .map(|el| {
+                        if welcome {
+                            let memory = self.status_bar.read(cx).memory_mib();
+                            el.child(status_bar::welcome_footer(memory, cx))
+                        } else {
+                            el.child(self.status_bar.clone())
+                        }
+                    })
+                    .child(self.prefs.anchors.recorder(TourTarget::Footer)),
             );
         let root = self.register_actions(root, cx);
         let root = self.register_git_actions(root, cx);

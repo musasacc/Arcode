@@ -35,6 +35,11 @@ hover = "#ffffff12"
 diff_added = "#7fdc8a"
 diff_modified = "#7aa7ff"
 diff_deleted = "#ff6b78"
+canvas = "#080b11"
+pill = "#1a2233"
+border_strong = "#616a7c"
+selection_inactive = "#1c2536"
+paused_line = "#2d2821"
 
 [syntax]
 keyword = { color = "#d29bff" }

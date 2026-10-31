@@ -148,6 +148,7 @@ impl Debugger {
         });
         self.session = Some(Session {
             name: choice.name.clone(),
+            adapter,
             choice,
             handle,
             state: SessionState::Initializing,

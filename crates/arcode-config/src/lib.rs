@@ -21,15 +21,16 @@ mod lenient;
 
 pub use config::{
     CompletionSettings, Config, DebugSettings, EditorSettings, FilesSettings, FirstRunChoices,
-    GitSettings, Keymap, LanguageSettings, LspFeatures, LspServerSettings, NamedServer,
-    PluginSettings, SearchSettings, SettingEdit, SettingValue, TerminalSettings, ThemeChoice,
-    TodoSettings, UiSettings, WorkspaceSettings, apply_edits, keymap_edits, low_end_edits,
+    GitSettings, InlineDiagnostics, Keymap, LanguageSettings, LspFeatures, LspServerSettings,
+    NamedServer, PluginSettings, SearchSettings, SettingEdit, SettingValue, TerminalSettings,
+    ThemeChoice, TodoSettings, UiSettings, WorkspaceSettings, apply_edits, keymap_edits,
+    low_end_edits,
 };
 pub use state::{
     AppState, FileSession, LayoutSession, PaneSession, ProjectSession, RecentProject,
     SavedBreakpoint, SavedSelection, WindowState,
 };
 pub use theme::{
-    Appearance, Color, ColorParseError, SyntaxStyle, TerminalColors, Theme, ThemeError,
-    ThemeRegistry, UiColors,
+    Appearance, Color, ColorParseError, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, SyntaxStyle,
+    TerminalColors, Theme, ThemeError, ThemeRegistry, UiColors,
 };

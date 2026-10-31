@@ -74,5 +74,7 @@ in the body becomes your indentation unit.
 ## License
 
 Licensed under either of Apache License 2.0 (`LICENSE-APACHE`) or MIT
-(`LICENSE-MIT`) at your option. The bundled JetBrains Mono font is under the
-SIL Open Font License (`assets/fonts/jetbrains-mono/OFL.txt`).
+(`LICENSE-MIT`) at your option. The bundled fonts are under the SIL Open
+Font License: JetBrains Mono (`assets/fonts/jetbrains-mono/OFL.txt`) and
+Inter, the UI font (`assets/fonts/inter/OFL.txt`). The icons are Lucide
+(ISC, `assets/icons/LICENSE`).

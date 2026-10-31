@@ -6,10 +6,24 @@ use std::sync::OnceLock;
 use super::{Appearance, Theme, ThemeError, loader};
 use crate::config::ThemeChoice;
 
-/// Names of the built-in themes, in display order.
-pub const BUILTIN_THEME_NAMES: [&str; 3] = ["Arcode Dark", "Arcode Light", "Arcode Midnight"];
+/// Names of the built-in themes, in display order: Arcode Ember and Arcode
+/// Chalk (the defaults), then the Classic themes.
+pub const BUILTIN_THEME_NAMES: [&str; 5] = [
+    "Arcode Ember",
+    "Arcode Chalk",
+    "Arcode Dark",
+    "Arcode Light",
+    "Arcode Midnight",
+];
 
-const BUILTIN_SOURCES: [&str; 3] = [
+/// The default dark theme (also the base of dark user themes).
+pub const DEFAULT_DARK_THEME: &str = BUILTIN_THEME_NAMES[0];
+/// The default light theme (also the base of light user themes).
+pub const DEFAULT_LIGHT_THEME: &str = BUILTIN_THEME_NAMES[1];
+
+const BUILTIN_SOURCES: [&str; 5] = [
+    include_str!("../../themes/arcode-ember.toml"),
+    include_str!("../../themes/arcode-chalk.toml"),
     include_str!("../../themes/arcode-dark.toml"),
     include_str!("../../themes/arcode-light.toml"),
     include_str!("../../themes/arcode-midnight.toml"),
@@ -34,8 +48,8 @@ fn builtin_themes() -> &'static [Theme] {
 /// The built-in theme a user theme inherits from by default.
 pub(super) fn builtin_base(appearance: Appearance) -> &'static Theme {
     let name = match appearance {
-        Appearance::Dark => BUILTIN_THEME_NAMES[0],
-        Appearance::Light => BUILTIN_THEME_NAMES[1],
+        Appearance::Dark => DEFAULT_DARK_THEME,
+        Appearance::Light => DEFAULT_LIGHT_THEME,
     };
     let themes = builtin_themes();
     themes.iter().find(|t| t.name == name).unwrap_or(&themes[0])
@@ -123,12 +137,12 @@ impl ThemeRegistry {
         })
     }
 
-    /// The default theme for an appearance (`Arcode Dark` / `Arcode Light`,
+    /// The default theme for an appearance (`Arcode Ember` / `Arcode Chalk`,
     /// or a user replacement of it).
     pub fn fallback(&self, appearance: Appearance) -> &Theme {
         let name = match appearance {
-            Appearance::Dark => BUILTIN_THEME_NAMES[0],
-            Appearance::Light => BUILTIN_THEME_NAMES[1],
+            Appearance::Dark => DEFAULT_DARK_THEME,
+            Appearance::Light => DEFAULT_LIGHT_THEME,
         };
         self.get(name)
             .or_else(|| self.themes.iter().find(|t| t.appearance == appearance))

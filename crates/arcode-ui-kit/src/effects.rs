@@ -6,9 +6,10 @@
 
 use std::time::Duration;
 
-use gpui::{App, Styled};
+use gpui::{App, BoxShadow, Styled, point, px};
 
-use crate::{BUNDLED_MONO_FONT, Settings};
+use crate::theme::shadow_color;
+use crate::{ActiveTheme, BUNDLED_MONO_FONT, Settings};
 
 /// Whether low-end mode is on (off when no settings are installed, as in
 /// some tests).
@@ -27,17 +28,41 @@ pub fn debounce(base_ms: u64, cx: &App) -> Duration {
     Duration::from_millis(ms)
 }
 
-/// Shadows for floating surfaces that follow low-end mode.
+/// The one-layer overlay shadow: `offset_y` down, `blur` wide, in the
+/// theme's `shadow` color (black in dark themes, warm brown in light ones).
+fn overlay_shadow(offset_y: f32, blur: f32, cx: &App) -> Vec<BoxShadow> {
+    let color = cx
+        .try_global::<ActiveTheme>()
+        .map_or_else(|| shadow_color(true), |t| t.0.colors.shadow);
+    vec![BoxShadow {
+        color,
+        offset: point(px(0.), px(offset_y)),
+        blur_radius: px(blur),
+        spread_radius: px(0.),
+    }]
+}
+
+/// Shadows for floating surfaces that follow low-end mode. Panels never
+/// have shadows; only overlays do, one layer each (cheap on integrated
+/// GPUs), and none at all in low-end mode, where overlays keep their
+/// `border_strong` edge so they stay distinct.
 pub trait Elevated: Styled + Sized {
-    /// A medium popover shadow, or none in low-end mode (popups keep their
-    /// border, so they stay distinct).
+    /// Popovers, menus, tooltips, toasts: offset 8, blur 16.
     fn elevated(self, cx: &App) -> Self {
-        if low_end(cx) { self } else { self.shadow_md() }
+        if low_end(cx) {
+            self
+        } else {
+            self.shadow(overlay_shadow(8., 16., cx))
+        }
     }
 
-    /// A large shadow for dialogs, or none in low-end mode.
+    /// The palette and dialogs: offset 12, blur 24.
     fn elevated_lg(self, cx: &App) -> Self {
-        if low_end(cx) { self } else { self.shadow_lg() }
+        if low_end(cx) {
+            self
+        } else {
+            self.shadow(overlay_shadow(12., 24., cx))
+        }
     }
 }
 
