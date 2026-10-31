@@ -16,6 +16,7 @@ pub mod console;
 pub mod control;
 mod editors;
 mod events;
+mod inline_values;
 mod inspect;
 pub mod launch;
 mod line_follow;

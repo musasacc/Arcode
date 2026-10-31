@@ -4,10 +4,11 @@
 
 use std::ops::Range;
 
-use arcode_ui_kit::{settings, theme};
+use arcode_ui_kit::metrics::WEIGHT_SEMIBOLD;
+use arcode_ui_kit::{popover, readout, settings, theme, type_scale, ui_font_family};
 use gpui::{
-    Context, FontWeight, HighlightStyle, IntoElement, ParentElement, Render, SharedString, Styled,
-    StyledText, UnderlineStyle, Window, div, prelude::*, px,
+    Context, HighlightStyle, IntoElement, ParentElement, Render, SharedString, Styled, StyledText,
+    UnderlineStyle, Window, div, prelude::*, px,
 };
 
 use super::docs::{blocks_for, render_blocks};
@@ -46,7 +47,6 @@ impl Render for SignatureView {
         let colors = theme(cx).colors.clone();
         let config = settings(cx);
         let mono = SharedString::from(config.editor.font_family.clone());
-        let font_size = px(config.ui.font_size);
         let Some(help) = &self.help else {
             return div().into_any_element();
         };
@@ -56,7 +56,7 @@ impl Render for SignatureView {
         let active = active_parameter(help, sig).and_then(|i| sig.parameters.get(i));
         let highlight = HighlightStyle {
             color: Some(colors.accent),
-            font_weight: Some(FontWeight::BOLD),
+            font_weight: Some(WEIGHT_SEMIBOLD),
             underline: Some(UnderlineStyle {
                 thickness: px(1.),
                 color: Some(colors.accent),
@@ -72,12 +72,8 @@ impl Render for SignatureView {
             .collect();
         let label =
             StyledText::new(SharedString::from(sig.label.clone())).with_highlights(highlights);
-        let counter = (help.signatures.len() > 1).then(|| {
-            div()
-                .flex_none()
-                .text_color(colors.text_muted)
-                .child(format!("{}/{}", self.shown + 1, help.signatures.len()))
-        });
+        let counter = (help.signatures.len() > 1)
+            .then(|| readout(format!("{}/{}", self.shown + 1, help.signatures.len())));
         let param_docs = active
             .and_then(|p| p.documentation.as_ref())
             .map(|d| render_blocks(&blocks_for(d), cx));
@@ -85,35 +81,27 @@ impl Render for SignatureView {
             .documentation
             .as_ref()
             .map(|d| render_blocks(&blocks_for(d), cx));
-        let mut body = div()
+        let mut body = popover(cx)
             .id("signature-help")
             .occlude()
             .max_w(px(600.))
             .max_h(px(220.))
             .overflow_y_scroll()
-            .px_2()
-            .py_1()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .bg(colors.surface_raised)
-            .border_1()
-            .border_color(colors.border)
-            .rounded_md()
-            .shadow_md()
-            .text_size(font_size)
+            .px(px(10.))
+            .py(px(6.))
+            .gap(px(4.))
+            .font_family(ui_font_family(cx))
+            .text_size(type_scale(cx).body)
             .text_color(colors.text)
             .child(
                 div()
                     .flex()
                     .flex_row()
+                    .items_center()
                     .gap_2()
                     .children(counter)
                     .child(div().font_family(mono).child(label)),
             );
-        if let Some(family) = &config.ui.font_family {
-            body = body.font_family(SharedString::from(family.clone()));
-        }
         if let Some(docs) = param_docs {
             body = body.child(div().flex().flex_col().gap_1().children(docs));
         }

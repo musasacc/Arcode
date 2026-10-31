@@ -9,7 +9,8 @@ use gpui::SharedString;
 
 use super::{
     BackgroundHighlight, CodeLens, CursorShape, EditorPopover, GutterDecoration, GutterLane,
-    HighlightRange, InterceptorId, KeyInterceptor, LensPlacement, VirtualText, VirtualTextPosition,
+    HighlightRange, InterceptorId, KeyInterceptor, LensPlacement, PausedLine, VirtualText,
+    VirtualTextPosition,
 };
 
 /// A hovered code lens item: set, line and item id.
@@ -27,6 +28,8 @@ pub(crate) struct ExtState {
     pub interceptors: Vec<(InterceptorId, i32, KeyInterceptor)>,
     pub cursor_shape: CursorShape,
     pub hovered_lens: Option<LensTarget>,
+    /// The debugger's paused line, if it is in this editor.
+    pub paused: Option<PausedLine>,
     pub next_id: u64,
 }
 
@@ -156,6 +159,12 @@ impl ExtState {
         }
         for (_, popover) in &mut self.popovers {
             popover.anchor = map_point(popover.anchor, edit).unwrap_or(edit.start_point);
+        }
+        if let Some(paused) = &mut self.paused {
+            match map_line(paused.line, edit) {
+                Some(line) => paused.line = line,
+                None => self.paused = None,
+            }
         }
         self.hovered_lens = None;
     }
@@ -349,5 +358,22 @@ mod tests {
         // Replacing text across an end drops it.
         assert_eq!(map_range(&r, &edit(text, 2..5, "")), None);
         assert_eq!(map_range(&r, &edit(text, 0..3, "")), None);
+    }
+
+    #[test]
+    fn paused_line_follows_edits_and_drops_with_its_line() {
+        let mut s = ExtState {
+            paused: Some(PausedLine {
+                line: 2,
+                label: "paused".into(),
+                values: Vec::new(),
+            }),
+            ..Default::default()
+        };
+        s.adjust_for_edit(&edit("a\nb\nc\nd\n", 0..0, "x\n"));
+        assert_eq!(s.paused.as_ref().map(|p| p.line), Some(3));
+        // Deleting lines 2..4 ("b\nc\n" after the insert) removes it.
+        s.adjust_for_edit(&edit("x\na\nb\nc\nd\n", 4..8, ""));
+        assert_eq!(s.paused, None);
     }
 }

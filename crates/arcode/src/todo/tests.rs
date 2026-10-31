@@ -108,3 +108,23 @@ fn views_filter_by_tag_and_open_items(cx: &mut TestAppContext) {
         }]
     );
 }
+
+#[test]
+fn tags_use_status_colors_never_the_accent() {
+    let registry = arcode_config::ThemeRegistry::builtin();
+    for name in ["Arcode Ember", "Arcode Chalk"] {
+        let theme = registry.get(name).expect("built-in theme").clone();
+        let theme = arcode_ui_kit::UiTheme::new(std::sync::Arc::new(theme));
+        check_tag_colors(&theme.colors);
+    }
+}
+
+fn check_tag_colors(c: &arcode_ui_kit::ThemeColors) {
+    assert_eq!(tag_color("FIXME", c), c.error);
+    assert_eq!(tag_color("@bug", c), c.error);
+    assert_eq!(tag_color("HACK", c), c.warning);
+    assert_eq!(tag_color("NOTE", c), c.info);
+    for tag in ["TODO", "PERF", "todo"] {
+        assert_ne!(tag_color(tag, c), c.accent, "{tag}");
+    }
+}

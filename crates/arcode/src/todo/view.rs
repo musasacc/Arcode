@@ -5,7 +5,9 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use arcode_ui_kit::metrics::{ROW_RADIUS, icon_size};
-use arcode_ui_kit::{IconName, ThemeColors, badge, icon, icon_button, readout, theme};
+use arcode_ui_kit::{
+    IconName, ThemeColors, badge, icon, icon_button, readout, theme, truncated, type_scale,
+};
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, Hsla, SharedString,
     Subscription, UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
@@ -62,13 +64,14 @@ impl Focusable for TodoView {
     }
 }
 
-/// The theme color of a tag.
+/// The theme color of a tag. Plain TODOs and custom tags are `success`,
+/// never the accent, which only marks where you are (docs/DESIGN.md 1).
 pub fn tag_color(tag: &str, c: &ThemeColors) -> Hsla {
     match tag.trim_start_matches('@').to_ascii_uppercase().as_str() {
         "FIXME" | "BUG" => c.error,
         "HACK" | "XXX" => c.warning,
         "NOTE" => c.info,
-        _ => c.accent,
+        _ => c.success,
     }
 }
 
@@ -171,7 +174,7 @@ impl TodoView {
                     .rounded_full()
                     .border_1()
                     .cursor_pointer()
-                    .text_xs()
+                    .text_size(type_scale(cx).meta)
                     .border_color(if on { color } else { c.border })
                     .when(on, |el| el.bg(c.pill))
                     .when(!on, |el| el.hover(|s| s.bg(c.hover)))
@@ -237,16 +240,13 @@ impl TodoView {
                         .size(icon_size::ROW)
                         .color(file_icon_color),
                 )
-                .child(div().flex_none().text_color(c.text).child(name))
-                .child(
+                .child(crate::sidebar::name_then_hint(
+                    div().text_color(c.text).child(truncated(name)),
                     div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_xs()
+                        .text_size(type_scale(cx).meta)
                         .text_color(c.text_muted)
-                        .child(dir),
-                )
+                        .child(truncated(dir).start()),
+                ))
                 .child(badge(count.to_string()))
                 .into_any_element()
             }
@@ -265,7 +265,7 @@ impl TodoView {
                         div()
                             .flex_none()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_xs()
+                            .text_size(type_scale(cx).meta)
                             .text_color(color)
                             .child(item.tag.clone()),
                     )
@@ -273,15 +273,15 @@ impl TodoView {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .truncate()
+                            .overflow_hidden()
                             .text_color(c.text)
-                            .child(text),
+                            .child(truncated(text)),
                     )
                     .when_some(item.author.clone(), |el, a| {
                         el.child(
                             div()
                                 .flex_none()
-                                .text_xs()
+                                .text_size(type_scale(cx).meta)
                                 .text_color(c.text_muted)
                                 .child(a),
                         )
@@ -313,7 +313,7 @@ impl TodoView {
             .justify_center()
             .gap_2()
             .p_4()
-            .text_sm()
+            .text_size(type_scale(cx).body)
             .text_color(c.text_muted)
             .child(
                 icon(IconName::ListTodo)
@@ -374,7 +374,7 @@ impl Render for TodoView {
             .size_full()
             .flex()
             .flex_col()
-            .text_sm()
+            .text_size(type_scale(cx).body)
             .child(top)
             .when(self.placement == TodoPlacement::Sidebar, |el| {
                 el.child(self.render_chips(cx))

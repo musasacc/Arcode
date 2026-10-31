@@ -116,6 +116,7 @@ fn diagnostics_come_first_and_docs_follow(cx: &mut TestAppContext) {
                 severity: DiagnosticSeverity::Error,
                 message: "cannot find function `helper`".into(),
                 source: "rustc".into(),
+                code: None,
             }],
             cx,
         )
@@ -212,6 +213,7 @@ fn moving_within_one_diagnostic_does_not_redraw(cx: &mut TestAppContext) {
                 severity: DiagnosticSeverity::Error,
                 message: "bad call".into(),
                 source: String::new(),
+                code: None,
             }],
             cx,
         )

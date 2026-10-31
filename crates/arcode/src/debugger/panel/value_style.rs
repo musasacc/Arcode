@@ -5,8 +5,8 @@
 
 use std::ops::Range;
 
-use arcode_ui_kit::theme;
-use gpui::{App, HighlightStyle, SharedString, StyledText};
+use arcode_ui_kit::{Truncated, theme, truncated};
+use gpui::{App, HighlightStyle, SharedString};
 
 /// What a span of a value is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,14 +130,15 @@ pub fn strip_paths(text: &str) -> String {
     out
 }
 
-/// `value` as text coloured with the theme's syntax colours.
-pub fn styled_value(value: SharedString, cx: &App) -> StyledText {
+/// `value` as text coloured with the theme's syntax colours, ending in
+/// `…` when it does not fit.
+pub fn styled_value(value: SharedString, cx: &App) -> Truncated {
     let t = theme(cx);
     let highlights: Vec<(Range<usize>, HighlightStyle)> = value_spans(&value)
         .into_iter()
         .map(|(range, role)| (range, t.syntax(role.capture())))
         .collect();
-    StyledText::new(value).with_highlights(highlights)
+    truncated(value).highlights(highlights)
 }
 
 #[cfg(test)]

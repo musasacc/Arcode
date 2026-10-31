@@ -5,7 +5,9 @@
 
 use arcode_dap::Variable;
 use arcode_ui_kit::metrics::{ROW_H_DENSE, ROW_INSET, ROW_RADIUS, WEIGHT_MEDIUM, type_scale};
-use arcode_ui_kit::{IconName, Tooltip, icon, icon_button, mono_font_family, theme, unsaved_ring};
+use arcode_ui_kit::{
+    IconName, Tooltip, icon, icon_button, mono_font_family, theme, truncated, unsaved_ring,
+};
 use gpui::{AnyElement, App, ElementId, Entity, SharedString, div, prelude::*, px};
 
 use super::value_style::{strip_paths, styled_value};
@@ -256,20 +258,24 @@ pub fn render_row(
                             .overflow_hidden()
                             .child(
                                 div()
-                                    .flex_none()
+                                    .flex()
+                                    .flex_shrink()
+                                    .min_w_0()
                                     .max_w(px(180.))
                                     .overflow_hidden()
                                     .text_color(name_color)
-                                    .child(row.name.clone()),
+                                    .child(truncated(row.name.clone())),
                             )
                             .when_some(type_, |el, t| {
                                 el.child(
                                     div()
-                                        .flex_none()
+                                        .flex()
+                                        .flex_shrink()
+                                        .min_w_0()
                                         .max_w(px(140.))
                                         .overflow_hidden()
                                         .text_color(c.text_muted)
-                                        .child(SharedString::from(format!(": {t}"))),
+                                        .child(truncated(format!(": {t}"))),
                                 )
                             })
                             .when_some(value, |el, value| {
@@ -281,13 +287,14 @@ pub fn render_row(
                                 )
                                 .child(
                                     div()
+                                        .flex()
                                         .flex_1()
                                         .min_w_0()
                                         .overflow_hidden()
                                         .text_color(if row.error { c.error } else { c.text })
                                         .map(|el| {
                                             if row.error {
-                                                el.child(value)
+                                                el.child(truncated(value))
                                             } else {
                                                 el.child(styled_value(value, cx))
                                             }

@@ -6,9 +6,12 @@
 //! min-content width so flex parents can shrink it, and truncates to the
 //! width it is actually given when painting.
 
+use std::ops::Range;
+
 use gpui::{
-    App, AvailableSpace, Bounds, Element, ElementId, GlobalElementId, InspectorElementId,
-    IntoElement, LayoutId, Pixels, SharedString, Style, Window, px, size,
+    App, AvailableSpace, Bounds, Element, ElementId, GlobalElementId, HighlightStyle,
+    InspectorElementId, IntoElement, LayoutId, Pixels, SharedString, Style, TextRun, TextStyle,
+    Window, px, size,
 };
 
 /// Where the ellipsis goes when text does not fit.
@@ -80,6 +83,7 @@ pub fn truncate_to_width(
 pub struct Truncated {
     text: SharedString,
     mode: TruncateMode,
+    highlights: Vec<(Range<usize>, HighlightStyle)>,
 }
 
 /// A label truncated at the end (`name…`).
@@ -87,6 +91,7 @@ pub fn truncated(text: impl Into<SharedString>) -> Truncated {
     Truncated {
         text: text.into(),
         mode: TruncateMode::End,
+        highlights: Vec::new(),
     }
 }
 
@@ -106,6 +111,42 @@ impl Truncated {
     pub fn middle(self) -> Self {
         self.mode(TruncateMode::Middle)
     }
+
+    /// Styles byte ranges of the text (sorted, not overlapping), like
+    /// `StyledText::with_highlights`: syntax-coloured values. Kept on the
+    /// part left before an end ellipsis; a start or middle ellipsis drops
+    /// them when the text is cut.
+    pub fn highlights(mut self, highlights: Vec<(Range<usize>, HighlightStyle)>) -> Self {
+        self.highlights = highlights;
+        self
+    }
+}
+
+/// The text runs for `text` in `style` with `highlights` applied to the
+/// first `kept` bytes (the rest, e.g. an ellipsis, in the plain style).
+fn runs_for(
+    text: &str,
+    kept: usize,
+    style: &TextStyle,
+    highlights: &[(Range<usize>, HighlightStyle)],
+) -> Vec<TextRun> {
+    let mut runs = Vec::new();
+    let mut ix = 0;
+    for (range, highlight) in highlights {
+        let (start, end) = (range.start.max(ix), range.end.min(kept));
+        if start >= end {
+            continue;
+        }
+        if ix < start {
+            runs.push(style.to_run(start - ix));
+        }
+        runs.push(style.clone().highlight(*highlight).to_run(end - start));
+        ix = end;
+    }
+    if ix < text.len() {
+        runs.push(style.to_run(text.len() - ix));
+    }
+    runs
 }
 
 fn measure_text(text: &str, window: &mut Window) -> Pixels {
@@ -198,11 +239,20 @@ impl Element for Truncated {
         let text = truncate_to_width(&self.text, max, self.mode, |t| measure_text(t, window));
         let style = window.text_style();
         let font_size = style.font_size.to_pixels(window.rem_size());
-        let run = style.to_run(text.len());
+        // Highlights hold on the untouched text, or on the head an end
+        // ellipsis keeps.
+        let kept = if text.len() == self.text.len() {
+            text.len()
+        } else if self.mode == TruncateMode::End {
+            text.len() - ELLIPSIS.len()
+        } else {
+            0
+        };
+        let runs = runs_for(&text, kept, &style, &self.highlights);
         let line =
             window
                 .text_system()
-                .shape_line(SharedString::from(text), font_size, &[run], None);
+                .shape_line(SharedString::from(text), font_size, &runs, None);
         let line_height = window.line_height();
         let y = bounds.top() + (bounds.size.height - line_height) * 0.5;
         if let Err(err) = line.paint(gpui::point(bounds.left(), y), line_height, window, cx) {
@@ -253,6 +303,27 @@ mod tests {
             "…"
         );
         assert_eq!(truncate_to_width("", px(0.), TruncateMode::End, w), "");
+    }
+
+    #[test]
+    fn highlights_stop_at_the_ellipsis() {
+        let style = TextStyle::default();
+        let bold = HighlightStyle {
+            font_weight: Some(gpui::FontWeight::BOLD),
+            ..Default::default()
+        };
+        let lens = |runs: Vec<TextRun>| runs.iter().map(|r| r.len).collect::<Vec<_>>();
+        // `ab` plain, `cdef` bold, `gh` plain; uncut.
+        let marks = vec![(2..6, bold)];
+        assert_eq!(lens(runs_for("abcdefgh", 8, &style, &marks)), [2, 4, 2]);
+        // Cut to `abcd…`: the bold run ends at the cut, the ellipsis is plain.
+        let cut = format!("abcd{ELLIPSIS}");
+        let runs = runs_for(&cut, 4, &style, &marks);
+        assert_eq!(lens(runs.clone()), [2, 2, ELLIPSIS.len()]);
+        assert_eq!(runs[1].font.weight, gpui::FontWeight::BOLD);
+        assert_eq!(runs[2].font.weight, style.font_weight);
+        // Nothing kept: one plain run.
+        assert_eq!(lens(runs_for(&cut, 0, &style, &marks)), [cut.len()]);
     }
 
     #[test]

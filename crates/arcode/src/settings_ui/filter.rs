@@ -111,6 +111,8 @@ impl SettingsPage {
                         div()
                             .flex_1()
                             .min_w_0()
+                            .h_full()
+                            .flex()
                             .overflow_hidden()
                             .child(self.filter.clone()),
                     ),

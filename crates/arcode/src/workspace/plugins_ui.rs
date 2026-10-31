@@ -25,11 +25,19 @@ impl Workspace {
         self.plugins_page_output(&output, cx);
         match output {
             PluginOutput::Notify {
-                plugin, message, ..
+                plugin,
+                level,
+                message,
             } => {
+                use arcode_plugin_host::bindings::Level;
                 let text = format!("{}: {message}", self.plugins.client.plugin_name(&plugin));
                 self.plugins.log(text.clone());
-                self.show_toast(text, cx);
+                let level = match level {
+                    Level::Error => super::ToastLevel::Error,
+                    Level::Warn => super::ToastLevel::Warning,
+                    _ => super::ToastLevel::Info,
+                };
+                self.show_toast_as(text, level, cx);
             }
             PluginOutput::Status {
                 plugin,
@@ -123,7 +131,7 @@ impl Workspace {
                     format!("{name} stopped: {reason}")
                 };
                 self.plugins.log(text.clone());
-                self.show_toast(text, cx);
+                self.show_toast_as(text, super::ToastLevel::Error, cx);
                 let views: Vec<Entity<PanelView>> = self
                     .plugins
                     .panels

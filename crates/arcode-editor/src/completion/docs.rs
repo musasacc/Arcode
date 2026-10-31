@@ -221,7 +221,7 @@ pub(crate) fn render_blocks(blocks: &[Block], cx: &App) -> Vec<AnyElement> {
         .iter()
         .map(|block| match block {
             Block::Heading(inline) => div()
-                .font_weight(FontWeight::BOLD)
+                .font_weight(FontWeight::SEMIBOLD)
                 .child(styled(inline, cx))
                 .into_any_element(),
             Block::Paragraph(inline) => div().child(styled(inline, cx)).into_any_element(),
@@ -233,11 +233,12 @@ pub(crate) fn render_blocks(blocks: &[Block], cx: &App) -> Vec<AnyElement> {
                 .into_any_element(),
             Block::Code { language, text } => {
                 let spans = super::code_highlight::highlight(language.as_deref(), text);
+                // Code sits on the editor's own `panel` fill.
                 div()
-                    .px_1p5()
-                    .py_1()
-                    .rounded_sm()
-                    .bg(colors.background)
+                    .px(px(8.))
+                    .py(px(5.))
+                    .rounded(px(6.))
+                    .bg(colors.panel())
                     .font_family(mono.clone())
                     .children(text.lines().enumerate().map(|(i, l)| {
                         let line = if l.is_empty() { " " } else { l };

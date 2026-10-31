@@ -29,8 +29,9 @@ use crate::Editor;
 /// order; a lane takes space only while it has decorations or was made
 /// visible with [`Editor::set_gutter_lane_visible`](crate::Editor::set_gutter_lane_visible).
 ///
-/// Left of the line numbers: `Breakpoints`, `Runnables`, then the built-in
-/// diagnostic marker. Right of the line numbers: `Changes`.
+/// Left of the line numbers: `Breakpoints`, then `Runnables`, which shares
+/// its column with the built-in light bulb and diagnostic dots (a run
+/// button wins on its line). Right of the line numbers: `Changes`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum GutterLane {
     /// Breakpoint dots. Clicking anywhere in this lane emits
@@ -64,7 +65,8 @@ pub enum ChangeKind {
     Added,
     /// Lines modified (`diff_modified`).
     Modified,
-    /// Lines deleted below this line (`diff_deleted`, drawn as a wedge).
+    /// Lines deleted below this line (`diff_deleted`, drawn as a triangle
+    /// on the line boundary under it).
     Deleted,
 }
 
@@ -88,6 +90,22 @@ pub enum DotStyle {
     Ring,
     /// A filled dot with a small hole (conditional breakpoint).
     Conditional,
+    /// The debugger's paused frame: a larger filled dot with an arrow cut
+    /// out of it in the editor background color.
+    PausedFrame,
+}
+
+/// The line a debugger is paused on. The editor paints it with the
+/// `paused_line` band, a "paused" lens after the text and the `values`
+/// (inline debug values) after the lens. Follows edits like other marks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PausedLine {
+    /// Zero-based buffer line.
+    pub line: usize,
+    /// Lens label, e.g. `"paused · breakpoint"`.
+    pub label: SharedString,
+    /// Inline values, e.g. `["r = Rect { w: 3, h: 4 }", "total = 6"]`.
+    pub values: Vec<SharedString>,
 }
 
 /// What a gutter decoration shows.

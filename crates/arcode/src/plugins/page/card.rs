@@ -1,6 +1,8 @@
 //! One plugin's card on the Plugins page.
 
-use arcode_ui_kit::{ButtonStyle, IconName, button, icon, icon_button, switch, theme};
+use arcode_ui_kit::{
+    ButtonStyle, IconName, button, icon, icon_button, switch, theme, truncated, type_scale,
+};
 use gpui::{Context, SharedString, div, prelude::*, px};
 
 use super::rows::{PluginRow, Status};
@@ -49,10 +51,11 @@ pub(super) fn render(
                 )
                 .child(
                     div()
-                        .truncate()
+                        .min_w_0()
+                        .overflow_hidden()
                         .font_weight(gpui::FontWeight::SEMIBOLD)
                         .text_color(if enabled { c.text } else { c.text_muted })
-                        .child(row.name.clone()),
+                        .child(truncated(row.name.clone())),
                 )
                 .child(
                     div()
@@ -99,8 +102,8 @@ pub(super) fn render(
             .child(
                 div()
                     .text_color(c.text_disabled)
-                    .truncate()
-                    .child(row.dir.display().to_string()),
+                    .overflow_hidden()
+                    .child(truncated(row.dir.display().to_string())),
             )
     });
     let grants = row.grants.iter().enumerate().map(|(ix, grant)| {
@@ -197,7 +200,7 @@ pub(super) fn render(
         .rounded_md()
         .border_1()
         .border_color(c.border)
-        .text_xs()
+        .text_size(type_scale(cx).meta)
         .child(header)
         .when_some(row.description.clone(), |el, d| {
             el.child(div().text_color(c.text_muted).child(d))

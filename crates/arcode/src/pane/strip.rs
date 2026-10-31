@@ -3,12 +3,21 @@
 //!
 //! Tabs keep their size and scroll horizontally when they do not fit; the
 //! breadcrumb gives way from the left and hides in narrow panes.
+//!
+//! The active tab is scrolled into view from the strip's own last layout
+//! (its bounds and the tabs' bounds of the same frame), again whenever the
+//! active tab or the strip's bounds change, so a strip laid out first at
+//! another size or scale never stays scrolled past it. Scrolling the strip
+//! by hand changes neither, so it is left alone.
 
 use arcode_ui_kit::metrics::{CONTROL_H_PANEL, TAB_STRIP_H};
 use arcode_ui_kit::{
     IconName, icon, icon_button, list_row, popover, theme, truncated, unsaved_ring,
 };
-use gpui::{AnyElement, Context, Pixels, Window, anchored, canvas, deferred, div, prelude::*, px};
+use gpui::{
+    AnyElement, Bounds, Context, Pixels, Window, anchored, canvas, deferred, div, point,
+    prelude::*, px,
+};
 
 use super::{Pane, PaneEvent};
 use crate::actions::{SplitRight, shortcut_label};
@@ -20,6 +29,28 @@ pub const BREADCRUMB_MIN_PANE_WIDTH: Pixels = px(520.);
 /// Whether a pane `width` wide shows the breadcrumb.
 pub fn shows_breadcrumb(width: Pixels) -> bool {
     width >= BREADCRUMB_MIN_PANE_WIDTH
+}
+
+/// The horizontal scroll offset (0 or below, down to `-max`) that shows a
+/// tab laid out at `tab` in a strip at `strip`, when the strip is now
+/// scrolled by `offset`; `None` when the tab is in view already. A tab
+/// wider than the strip is shown from its left edge.
+pub fn reveal_offset(
+    strip: Bounds<Pixels>,
+    tab: Bounds<Pixels>,
+    offset: Pixels,
+    max: Pixels,
+) -> Option<Pixels> {
+    let (left, right) = (tab.left() + offset, tab.right() + offset);
+    let target = if tab.size.width >= strip.size.width || left < strip.left() {
+        strip.left() - tab.left()
+    } else if right > strip.right() {
+        strip.right() - tab.right()
+    } else {
+        return None;
+    };
+    let target = target.clamp(-max.max(px(0.)), px(0.));
+    ((target - offset).abs() >= px(0.5)).then_some(target)
 }
 
 impl Pane {
@@ -44,40 +75,33 @@ impl Pane {
                     .into_any_element(),
             );
         }
-        // Activating a tab scrolls it into view with the strip's width of
-        // the frame before; the breadcrumb may have changed width since, so
-        // scroll once more on the next frame.
         let active_tab = match self.active_page {
             Some(page) => self.items.len() + page,
             None => self.active,
         };
-        if self.scrolled_to != Some(active_tab) {
-            self.scrolled_to = Some(active_tab);
-            cx.on_next_frame(window, move |pane, _, cx| {
-                pane.tab_scroll.scroll_to_item(active_tab);
-                cx.notify();
-            });
-        }
         let breadcrumb = if self.wide {
             self.render_breadcrumb(cx)
         } else {
             None
         };
         let c = theme(cx).colors.clone();
-        // Measures the strip so the breadcrumb can hide in narrow panes; a
-        // new frame is asked for only when the answer flips.
+        // Measures the strip so the breadcrumb can hide in narrow panes,
+        // and keeps the active tab in view; a new frame is asked for only
+        // when either changes something.
         let pane = cx.entity().downgrade();
-        let wide = self.wide;
         let measure = canvas(
             move |bounds, _, cx| {
                 let now = shows_breadcrumb(bounds.size.width);
-                if now != wide {
-                    pane.update(cx, |pane, cx| {
+                pane.update(cx, |pane, cx| {
+                    if now != pane.wide {
                         pane.wide = now;
                         cx.notify();
-                    })
-                    .ok();
-                }
+                    }
+                    if pane.reveal_active_tab(active_tab) {
+                        cx.notify();
+                    }
+                })
+                .ok();
             },
             |_, _, _, _| {},
         )
@@ -150,6 +174,31 @@ impl Pane {
                         )
                     }),
             )
+    }
+
+    /// Scrolls the tab at `ix` into view when it or the strip's bounds
+    /// changed since the last time, using the layout of the frame before
+    /// (strip and tabs measured together). Returns whether to draw once
+    /// more: to confirm the new layout, or because the tab is not laid out
+    /// yet.
+    fn reveal_active_tab(&mut self, ix: usize) -> bool {
+        if ix >= self.items.len() + self.pages.len() {
+            return false;
+        }
+        let strip = self.tab_scroll.bounds();
+        if self.scrolled_to == Some((ix, strip)) {
+            return false;
+        }
+        let Some(tab) = self.tab_scroll.bounds_for_item(ix) else {
+            return true;
+        };
+        self.scrolled_to = Some((ix, strip));
+        let offset = self.tab_scroll.offset();
+        let max = self.tab_scroll.max_offset().width;
+        if let Some(x) = reveal_offset(strip, tab, offset.x, max) {
+            self.tab_scroll.set_offset(point(x, offset.y));
+        }
+        true
     }
 
     /// The list of open tabs under the `…` button: the way to reach a tab
@@ -242,6 +291,50 @@ impl Pane {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn b(left: f32, width: f32) -> Bounds<Pixels> {
+        Bounds::new(point(px(left), px(0.)), gpui::size(px(width), px(26.)))
+    }
+
+    #[test]
+    fn the_active_tab_is_scrolled_into_view() {
+        let strip = b(100., 300.);
+        // In view: left alone.
+        assert_eq!(reveal_offset(strip, b(100., 80.), px(0.), px(200.)), None);
+        assert_eq!(
+            reveal_offset(strip, b(450., 80.), px(-200.), px(200.)),
+            None
+        );
+        // Cut at the right: scrolled so its right edge meets the strip's.
+        assert_eq!(
+            reveal_offset(strip, b(360., 80.), px(0.), px(200.)),
+            Some(px(-40.))
+        );
+        // Cut at the left (scrolled too far, e.g. from a layout at another
+        // scale): scrolled back so its left edge meets the strip's.
+        assert_eq!(
+            reveal_offset(strip, b(100., 80.), px(-10.), px(10.)),
+            Some(px(0.))
+        );
+        assert_eq!(
+            reveal_offset(strip, b(200., 80.), px(-150.), px(200.)),
+            Some(px(-100.))
+        );
+        // Never past the end of the tabs.
+        assert_eq!(
+            reveal_offset(strip, b(500., 80.), px(0.), px(120.)),
+            Some(px(-120.))
+        );
+        // Wider than the strip: shown from its left edge, once.
+        assert_eq!(
+            reveal_offset(strip, b(150., 400.), px(0.), px(300.)),
+            Some(px(-50.))
+        );
+        assert_eq!(
+            reveal_offset(strip, b(150., 400.), px(-50.), px(300.)),
+            None
+        );
+    }
 
     #[test]
     fn the_breadcrumb_hides_in_narrow_panes() {

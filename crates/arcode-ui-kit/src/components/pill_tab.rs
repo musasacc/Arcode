@@ -33,6 +33,7 @@ pub struct PillTab {
     label_color: Option<Hsla>,
     size: TabSize,
     max_label_w: gpui::Pixels,
+    icon_only: bool,
     tooltip: Option<SharedString>,
     on_click: Option<ClickHandler>,
     on_close: Option<ClickHandler>,
@@ -56,6 +57,7 @@ pub fn pill_tab(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Pil
         strikethrough: false,
         label_color: None,
         max_label_w: px(220.),
+        icon_only: false,
         tooltip: None,
         on_click: None,
         on_close: None,
@@ -148,6 +150,13 @@ impl PillTab {
     /// Longest label before it ends in `…` (220 by default).
     pub fn max_label_width(mut self, width: gpui::Pixels) -> Self {
         self.max_label_w = width;
+        self
+    }
+
+    /// Draws only the icon (and badge), not the label: bottom panel tabs
+    /// in a narrow panel. The label becomes the tooltip unless one is set.
+    pub fn icon_only(mut self, icon_only: bool) -> Self {
+        self.icon_only = icon_only;
         self
     }
 
@@ -265,15 +274,17 @@ impl PillTab {
                         .color(color.unwrap_or(c.text_muted)),
                 )
             })
-            .child(
-                div()
-                    .max_w(self.max_label_w)
-                    .min_w_0()
-                    .overflow_hidden()
-                    .when(self.italic, |el| el.italic())
-                    .when(self.strikethrough, |el| el.line_through())
-                    .child(truncated(self.label)),
-            )
+            .when(!self.icon_only, |el| {
+                el.child(
+                    div()
+                        .max_w(self.max_label_w)
+                        .min_w_0()
+                        .overflow_hidden()
+                        .when(self.italic, |el| el.italic())
+                        .when(self.strikethrough, |el| el.line_through())
+                        .child(truncated(self.label.clone())),
+                )
+            })
             .when_some(self.badge, |el, (text, color)| {
                 let mut b = badge(text);
                 if let Some(color) = color {
@@ -290,7 +301,11 @@ impl PillTab {
         if let Some(f) = self.on_click {
             el = el.on_click(move |event, window, cx| f(event, window, cx));
         }
-        if let Some(text) = self.tooltip {
+        let tooltip = match self.tooltip {
+            None if self.icon_only => Some(self.label),
+            tooltip => tooltip,
+        };
+        if let Some(text) = tooltip {
             el = el.tooltip(move |_, cx| -> AnyView { Tooltip::text(text.clone(), cx) });
         }
         el

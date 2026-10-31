@@ -183,6 +183,7 @@ fn diagnostics_follow_edits(cx: &mut TestAppContext) {
         severity: DiagnosticSeverity::Error,
         message: message.into(),
         source: "test".into(),
+        code: None,
     };
     editor.update(cx, |e, cx| {
         e.set_diagnostics(vec![diag(1, 8, 9, "y"), diag(2, 4, 5, "z")], cx)

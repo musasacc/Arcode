@@ -180,6 +180,7 @@ pub struct IconButton {
     id: ElementId,
     icon: IconName,
     size: Pixels,
+    width: Option<Pixels>,
     icon_size: Option<Pixels>,
     icon_color: Option<Hsla>,
     active: bool,
@@ -193,6 +194,7 @@ pub fn icon_button(id: impl Into<ElementId>, icon: IconName) -> IconButton {
         id: id.into(),
         icon,
         size: px(28.),
+        width: None,
         icon_size: None,
         icon_color: None,
         active: false,
@@ -211,6 +213,13 @@ impl IconButton {
     /// panel titles).
     pub fn size(mut self, size: Pixels) -> Self {
         self.size = size;
+        self
+    }
+
+    /// Makes the button wider than tall (the debug toolbar's 28x26
+    /// buttons); the icon size still follows the height.
+    pub fn width(mut self, width: Pixels) -> Self {
+        self.width = Some(width);
         self
     }
 
@@ -267,7 +276,8 @@ impl RenderOnce for IconButton {
             .flex_none()
             .items_center()
             .justify_center()
-            .size(self.size)
+            .h(self.size)
+            .w(self.width.unwrap_or(self.size))
             .rounded(ICON_BUTTON_RADIUS)
             .cursor_pointer()
             .when(self.active, |el| el.bg(c.pill))

@@ -3,8 +3,10 @@
 
 use std::path::PathBuf;
 
-use arcode_ui_kit::metrics::{ROW_RADIUS, WEIGHT_MEDIUM, icon_size};
-use arcode_ui_kit::{IconName, icon, icon_button, panel_title, readout, theme, truncated};
+use arcode_ui_kit::metrics::{
+    PANEL_TITLE_H, ROW_RADIUS, WEIGHT_MEDIUM, WEIGHT_SEMIBOLD, icon_size,
+};
+use arcode_ui_kit::{IconName, icon, icon_button, readout, theme, truncated, type_scale};
 use gpui::{
     AnyElement, Context, MouseButton, MouseDownEvent, SharedString, Window, canvas, div,
     prelude::*, px, uniform_list,
@@ -31,7 +33,7 @@ impl Render for DraggedEntry {
             .border_1()
             .border_color(c.border_strong)
             .bg(c.panel_raised())
-            .text_sm()
+            .text_size(type_scale(cx).body)
             .text_color(c.text)
             .child(self.name.clone())
     }
@@ -204,7 +206,11 @@ impl FileTree {
         let button = |id: &'static str, glyph: IconName, tip: &'static str| {
             icon_button(id, glyph).size(px(24.)).tooltip(tip)
         };
-        panel_title("Files", self.title.clone(), cx)
+        let buttons = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .ml(px(4.))
             .child(
                 button("tree-new-file", IconName::Plus, "New File…")
                     .on_click(|_, window, cx| window.dispatch_action(Box::new(NewFile), cx)),
@@ -224,7 +230,37 @@ impl FileTree {
                     "Collapse folders",
                 )
                 .on_click(cx.listener(|tree, _, _, cx| tree.collapse_all(cx))),
+            );
+        // `panel_title`'s metrics, but the project name can shrink to
+        // nothing (its gap lives inside it) and the buttons sit edge to
+        // edge, so all four fit at the narrowest sidebar.
+        let c = theme(cx).colors.clone();
+        let scale = type_scale(cx);
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .h(PANEL_TITLE_H)
+            .pl(px(14.))
+            .pr(px(8.))
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(scale.title)
+                    .font_weight(WEIGHT_SEMIBOLD)
+                    .text_color(c.text)
+                    .child("Files"),
             )
+            .child(
+                div().flex_1().min_w_0().overflow_hidden().child(
+                    div()
+                        .pl(px(8.))
+                        .text_size(scale.meta)
+                        .text_color(c.text_muted)
+                        .child(truncated(self.title.clone())),
+                ),
+            )
+            .child(buttons)
     }
 }
 
@@ -241,12 +277,12 @@ impl Render for FileTree {
         )
         .track_scroll(self.scroll.clone())
         .size_full()
-        .text_sm();
+        .text_size(type_scale(cx).body);
         let empty = self.rows.is_empty().then(|| {
             div()
                 .px(px(14.))
                 .py_2()
-                .text_sm()
+                .text_size(type_scale(cx).body)
                 .text_color(c.text_muted)
                 .child("This folder is empty.")
         });
@@ -259,7 +295,7 @@ impl Render for FileTree {
                 .border_1()
                 .border_color(c.error)
                 .bg(c.panel_raised())
-                .text_xs()
+                .text_size(type_scale(cx).meta)
                 .text_color(c.error)
                 .child(err)
         });

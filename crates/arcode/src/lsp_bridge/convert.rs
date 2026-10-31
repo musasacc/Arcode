@@ -103,6 +103,10 @@ pub fn editor_diagnostic(
         severity: severity(diagnostic),
         message: diagnostic.message.clone(),
         source: source_label(server, diagnostic).to_string(),
+        code: diagnostic.code.as_ref().map(|code| match code {
+            lsp_types::NumberOrString::Number(n) => n.to_string(),
+            lsp_types::NumberOrString::String(s) => s.clone(),
+        }),
     }
 }
 

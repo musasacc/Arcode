@@ -60,6 +60,7 @@ pub fn run_split(
     let scale = type_scale(cx);
     let command = ws.run_command_line();
     let anchors = ws.tour_anchors().clone();
+    let menu_open = ws.run_menu_open();
     let (fill, hover, fg, line) = if paused {
         (c.accent, c.accent_hover, c.accent_text, c.accent_text)
     } else {
@@ -129,12 +130,17 @@ pub fn run_split(
                 .size(icon_size::TOOLBAR)
                 .color(if paused { fg } else { c.text_muted }),
         )
-        .tooltip(|_, cx| -> AnyView { Tooltip::text("Pick a run command or edit it", cx) })
+        // No tooltip over the dropdown it opened.
+        .when(!menu_open, |el| {
+            el.tooltip(|_, cx| -> AnyView { Tooltip::text("Pick a run command or edit it", cx) })
+        })
         .on_click(|_, window, cx| window.dispatch_action(Box::new(PickRunCommand), cx));
+    // Shrinks (the command truncates) rather than spilling over the
+    // search field in a narrow window.
     div()
         .relative()
         .flex()
-        .flex_none()
+        .flex_shrink()
         .items_center()
         .h(CONTROL_H)
         .max_w(px(COMMAND_MAX_W + 120.))

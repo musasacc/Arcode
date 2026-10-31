@@ -6,12 +6,15 @@
 //! the chosen one where focus was before the palette opened. Later features
 //! call [`register`] (or add an entry to [`crate::actions::commands`]).
 
+mod icons;
 mod keys;
 pub mod palette;
 mod rank;
 
+use arcode_ui_kit::IconName;
 use gpui::{Action, App, Global, SharedString};
 
+pub use icons::{category_icon, command_icon};
 pub use keys::{binding_label, keystroke_label};
 pub use rank::{Candidate, Ranked, rank_commands};
 
@@ -36,6 +39,11 @@ impl Command {
         } else {
             format!("{}: {}", self.category, self.name)
         }
+    }
+
+    /// The palette icon: the command's own, else its category's.
+    pub fn icon(&self) -> IconName {
+        command_icon(&self.category, &self.name)
     }
 
     /// A fresh copy of the action to dispatch.

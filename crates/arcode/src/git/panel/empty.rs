@@ -1,7 +1,7 @@
 //! The states without a file list: no folder, loading, not a repository,
 //! and a status that could not be read.
 
-use arcode_ui_kit::{ButtonStyle, IconName, button, icon, theme};
+use arcode_ui_kit::{ButtonStyle, IconName, button, icon, theme, type_scale};
 use gpui::{App, Context, Div, SharedString, div, prelude::*, px};
 
 use super::{GitPanel, rows};
@@ -23,7 +23,7 @@ impl GitPanel {
             .gap_3()
             .px_4()
             .py_6()
-            .text_sm()
+            .text_size(type_scale(cx).body)
             .text_color(c.text_muted)
             .child(
                 icon(IconName::GitBranch)
@@ -58,7 +58,7 @@ pub(super) fn error_note(text: impl Into<SharedString>, cx: &App) -> Div {
         .gap_1p5()
         .px_3()
         .py_2()
-        .text_sm()
+        .text_size(type_scale(cx).body)
         .text_color(c.error)
         .child(
             div()

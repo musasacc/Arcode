@@ -75,7 +75,7 @@ impl Workspace {
                 })
                 .detach();
             }
-            Err(e) => self.show_toast(format!("{name}: {e}"), cx),
+            Err(e) => self.show_toast_as(format!("{name}: {e}"), super::ToastLevel::Error, cx),
         }
     }
 
@@ -92,7 +92,7 @@ impl Workspace {
             other => {
                 let message = format!("{name}: {other}");
                 self.plugins.log(message.clone());
-                self.show_toast(message, cx);
+                self.show_toast_as(message, super::ToastLevel::Error, cx);
             }
         }
     }

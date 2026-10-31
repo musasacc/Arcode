@@ -3,8 +3,10 @@
 
 use std::collections::HashMap;
 
-use arcode_ui_kit::Elevated;
-use arcode_ui_kit::{IconName, icon, theme};
+use arcode_ui_kit::metrics::WEIGHT_SEMIBOLD;
+use arcode_ui_kit::{
+    ButtonStyle, IconName, button, icon, overlay, theme, type_scale, ui_font_family,
+};
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyDownEvent, PromptButton,
     PromptHandle, PromptLevel, PromptResponse, RenderablePromptHandle, SharedString, WeakEntity,
@@ -97,38 +99,32 @@ impl Focusable for PromptDialog {
 impl Render for PromptDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = theme(cx).colors.clone();
+        let scale = type_scale(cx);
         let (icon_name, icon_color) = match self.level {
             PromptLevel::Critical => (IconName::CircleX, c.error),
             PromptLevel::Warning => (IconName::TriangleAlert, c.warning),
             PromptLevel::Info => (IconName::Info, c.info),
         };
-        let buttons = self.buttons.iter().enumerate().map(|(ix, label)| {
-            let primary = ix == 0;
-            div()
-                .id(ix)
-                .flex()
-                .items_center()
-                .h(px(28.))
-                .px_3()
-                .rounded_md()
-                .text_sm()
-                .cursor_pointer()
-                .when(primary, |el| {
-                    el.bg(c.accent)
-                        .text_color(c.accent_text)
-                        .hover(|s| s.bg(c.accent.opacity(0.85)))
-                })
-                .when(!primary, |el| {
-                    el.border_1()
-                        .border_color(c.border)
-                        .bg(c.surface)
-                        .text_color(c.text)
-                        .hover(|s| s.bg(c.hover))
-                })
-                .child(label.clone())
-                .on_click(cx.listener(move |_, _, _, cx| cx.emit(PromptResponse(ix))))
-        });
-        let dialog = div()
+        // The first button is the default (Enter): the one Primary, drawn
+        // last so it sits at the right; the rest are Secondary.
+        let buttons: Vec<_> = self
+            .buttons
+            .iter()
+            .enumerate()
+            .rev()
+            .map(|(ix, label)| {
+                let style = if ix == 0 {
+                    ButtonStyle::Primary
+                } else {
+                    ButtonStyle::Secondary
+                };
+                button(ix, label.clone())
+                    .style(style)
+                    .on_click(cx.listener(move |_, _, _, cx| cx.emit(PromptResponse(ix))))
+                    .into_any_element()
+            })
+            .collect();
+        let dialog = overlay(cx)
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
                 match event.keystroke.key.as_str() {
@@ -137,45 +133,51 @@ impl Render for PromptDialog {
                     _ => {}
                 }
             }))
-            .w(px(420.))
-            .p_4()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .rounded_lg()
-            .border_1()
-            .border_color(c.border)
-            .bg(c.surface_raised)
+            .w(px(440.))
+            .font_family(ui_font_family(cx))
+            .text_size(scale.body)
             .text_color(c.text)
-            .elevated(cx)
             .child(
                 div()
                     .flex()
-                    .gap_3()
+                    .gap(px(12.))
+                    .px(px(16.))
+                    .pt(px(16.))
                     .child(icon(icon_name).size(px(20.)).color(icon_color))
                     .child(
                         div()
                             .flex()
                             .flex_col()
-                            .gap_1()
+                            .gap(px(4.))
                             .min_w_0()
                             .child(
                                 div()
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_size(scale.title)
+                                    .font_weight(WEIGHT_SEMIBOLD)
                                     .child(self.message.clone()),
                             )
                             .when_some(self.detail.clone(), |el, detail| {
-                                el.child(div().text_sm().text_color(c.text_muted).child(detail))
+                                el.child(div().text_color(c.text_muted).child(detail))
                             }),
                     ),
             )
-            .child(div().flex().justify_end().gap_2().children(buttons.rev()));
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap(px(8.))
+                    .px(px(16.))
+                    .pt(px(16.))
+                    .pb(px(14.))
+                    .children(buttons),
+            );
+        // No dim behind dialogs (docs/DESIGN.md 5.2): the layer only blocks
+        // the window below.
         div()
             .size_full()
             .flex()
             .items_center()
             .justify_center()
-            .bg(gpui::black().opacity(0.3))
             .occlude()
             .child(dialog)
     }

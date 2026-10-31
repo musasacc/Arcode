@@ -117,7 +117,7 @@ impl Workspace {
         };
         match action_command(&m, action, cfg!(windows)) {
             Ok(command) => self.run_package_command(manifest, command, window, cx),
-            Err(err) => self.show_toast(err, cx),
+            Err(err) => self.show_toast_as(err, super::ToastLevel::Error, cx),
         }
     }
 

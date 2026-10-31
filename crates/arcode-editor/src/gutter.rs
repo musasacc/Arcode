@@ -1,8 +1,12 @@
-//! Gutter geometry and painting: decoration lanes, the diagnostic marker
-//! column and line numbers.
+//! Gutter geometry and painting: decoration lanes, the run / light bulb
+//! column, line numbers and the change lane.
+//!
+//! Left to right: breakpoint lane (16, while shown), run / light bulb
+//! column (16, always), line numbers (at least 30, one size under the code),
+//! change lane (14, always reserved so text never shifts), then a 6 px pad.
 
 use arcode_ui_kit::{IconName, ThemeColors};
-use gpui::{Bounds, Hsla, Pixels, SharedString, fill, point, px, size};
+use gpui::{Bounds, Hsla, Path, Pixels, SharedString, fill, point, px, size};
 
 use crate::Editor;
 use crate::diagnostics::line_severities;
@@ -10,68 +14,77 @@ use crate::ext::{ChangeKind, DotStyle, GutterLane, GutterMark};
 use crate::layout::{LayoutSnapshot, MARKER_WIDTH};
 use crate::paint::{Decorations, GutterIcon};
 
-/// Width of the breakpoint and runnable lanes.
+/// Width of the breakpoint lane and of the run / light bulb column.
 pub(crate) const LANE_WIDTH: Pixels = px(16.);
-/// Width of a change bar.
-const CHANGE_BAR: Pixels = px(3.);
+/// Minimum width of the line numbers.
+const NUMBERS_MIN: Pixels = px(30.);
+/// Width of the change lane.
+const CHANGE_LANE: Pixels = px(14.);
+/// Space between the gutter and the text.
+const TEXT_PAD: Pixels = px(6.);
+/// Change bar: x inside the change lane, width, corner radius.
+const BAR_X: Pixels = px(5.);
+const BAR_W: Pixels = px(3.);
+const BAR_RADIUS: Pixels = px(2.);
+/// Deleted-lines triangle: x inside the change lane, width, height.
+const WEDGE_X: Pixels = px(3.);
+const WEDGE_W: Pixels = px(6.);
+const WEDGE_H: Pixels = px(10.);
 
 /// Horizontal layout of the gutter, offsets from the editor's left edge.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct GutterGeometry {
     /// Active lanes: lane, left offset, width.
     pub lanes: Vec<(GutterLane, Pixels, Pixels)>,
-    /// Left offset of the diagnostic marker column.
+    /// Left offset of the run / light bulb column (also the diagnostic
+    /// dot column).
     pub marker_left: Pixels,
     /// Right edge of the line numbers.
     pub numbers_right: Pixels,
+    /// Left offset of the change lane.
+    pub changes_left: Pixels,
     /// Total gutter width.
     pub width: Pixels,
 }
 
 impl GutterGeometry {
-    /// Computes the geometry for the active `lanes`.
-    pub fn new(lanes: &[GutterLane], numbers: bool, char_width: Pixels, digits: usize) -> Self {
+    /// Computes the geometry for the active `lanes`; `digit_width` is the
+    /// advance of a digit in the line-number font.
+    pub fn new(lanes: &[GutterLane], numbers: bool, digit_width: Pixels, digits: usize) -> Self {
         let mut out = Vec::new();
         let mut x = Pixels::ZERO;
-        for lane in [GutterLane::Breakpoints, GutterLane::Runnables] {
-            if lanes.contains(&lane) {
-                out.push((lane, x, LANE_WIDTH));
-                x += LANE_WIDTH;
-            }
+        if lanes.contains(&GutterLane::Breakpoints) {
+            out.push((GutterLane::Breakpoints, x, LANE_WIDTH));
+            x += LANE_WIDTH;
         }
+        // Run buttons share the column of the light bulb and the dots.
         let marker_left = x;
-        x += MARKER_WIDTH;
-        let numbers_right = if numbers {
-            x += char_width * digits as f32 + px(6.);
-            let right = x;
-            x += px(12.);
-            right
-        } else {
-            x += px(6.);
-            x - px(6.)
-        };
-        if lanes.contains(&GutterLane::Changes) {
-            out.push((GutterLane::Changes, numbers_right + px(3.), CHANGE_BAR));
-            x += px(4.);
+        if lanes.contains(&GutterLane::Runnables) {
+            out.push((GutterLane::Runnables, x, LANE_WIDTH));
         }
+        x += MARKER_WIDTH;
+        if numbers {
+            x += NUMBERS_MIN.max((digit_width * digits as f32).ceil());
+        }
+        let numbers_right = x;
+        let changes_left = x;
+        if lanes.contains(&GutterLane::Changes) {
+            out.push((GutterLane::Changes, x, CHANGE_LANE));
+        }
+        x += CHANGE_LANE + TEXT_PAD;
         GutterGeometry {
             lanes: out,
             marker_left,
             numbers_right,
+            changes_left,
             width: x,
         }
     }
 
-    /// The lane under gutter-relative x `rel_x` (change bars get a few
-    /// extra pixels of hit area).
+    /// The lane under gutter-relative x `rel_x`.
     pub fn lane_at(&self, rel_x: Pixels) -> Option<GutterLane> {
         self.lanes.iter().find_map(|&(lane, left, width)| {
-            let slack = if lane == GutterLane::Changes {
-                px(3.)
-            } else {
-                Pixels::ZERO
-            };
-            (rel_x >= left - slack && rel_x < left + width + slack).then_some(lane)
+            (rel_x >= left && rel_x < left + width).then_some(lane)
         })
     }
 
@@ -81,6 +94,11 @@ impl GutterGeometry {
             .find(|(l, _, _)| *l == lane)
             .map(|&(_, left, width)| (left, width))
     }
+}
+
+/// The line-number font size: one pixel under the code (12 next to 13).
+pub(crate) fn number_font_size(font_size: Pixels) -> Pixels {
+    (font_size - px(1.)).round().max(px(8.))
 }
 
 /// Computes gutter decorations, markers and line numbers.
@@ -102,11 +120,19 @@ pub(crate) fn paint_gutter(
     let lh = layout.line_height;
     let g = &layout.gutter;
     let severities = line_severities(&editor.diagnostics, visible.clone());
+    let marks = editor.ext.gutter_in(visible.clone());
+    let has_run = |line: usize| {
+        marks
+            .iter()
+            .any(|m| m.line == line && m.lane == GutterLane::Runnables)
+    };
+    // A run button wins over the bulb on its line (Ctrl+. still opens the
+    // actions there).
     let bulb = editor
         .lang
         .actions
         .bulb
-        .filter(|(l, _)| visible.contains(l));
+        .filter(|(l, _)| visible.contains(l) && !has_run(*l));
     if let Some((line, quick)) = bulb {
         let s = px(13.).min(layout.line_height);
         let bounds = bulb_bounds(layout, line, s);
@@ -120,9 +146,15 @@ pub(crate) fn paint_gutter(
             },
         });
     }
-    for (line, severity) in visible.clone().zip(severities) {
+    let number_size = number_font_size(layout.style.font_size);
+    let paused = editor.ext.paused.as_ref().map(|p| p.line);
+    for (ix, (line, severity)) in visible.clone().zip(severities).enumerate() {
         let top = layout.line_top(line);
-        if let Some(sev) = severity.filter(|_| bulb.is_none_or(|(l, _)| l != line)) {
+        // A dot marks diagnostics that have no lens on their line (none
+        // for the setting, no room for one, or the paused lens instead).
+        let dot_shown =
+            !layout.lines[ix].diag_lens && bulb.is_none_or(|(l, _)| l != line) && !has_run(line);
+        if let Some(sev) = severity.filter(|_| dot_shown) {
             let dot = px(6.);
             let origin = point(
                 left + g.marker_left + (MARKER_WIDTH - dot) * 0.5,
@@ -136,17 +168,17 @@ pub(crate) fn paint_gutter(
         if !layout.style.show_line_numbers {
             continue;
         }
-        let color = if active.contains(&line) {
+        let color = if active.contains(&line) || paused == Some(line) {
             colors.gutter_text_active
         } else {
             colors.gutter_text
         };
         let label = SharedString::from((line + 1).to_string());
-        let shaped = Editor::shape_label(label, &layout.style, color, window);
+        let shaped = Editor::shape_label(label, &layout.style, number_size, color, window);
         let x = left + g.numbers_right - shaped.width;
         d.gutter_labels.push((point(x, top), shaped));
     }
-    for mark in editor.ext.gutter_in(visible) {
+    for mark in marks {
         let Some((lane_left, lane_w)) = g.lane(mark.lane) else {
             continue;
         };
@@ -155,15 +187,15 @@ pub(crate) fn paint_gutter(
         match &mark.mark {
             GutterMark::Change(kind) => {
                 let color = kind.color_key().resolve(colors);
-                let bounds = match kind {
-                    ChangeKind::Deleted => Bounds::new(
-                        point(x - px(1.), top - px(2.)),
-                        size(lane_w + px(2.), px(4.)),
-                    ),
-                    _ => Bounds::new(point(x, top), size(lane_w, lh)),
-                };
-                d.gutter_markers
-                    .push(fill(bounds, color).corner_radii(px(1.)));
+                match kind {
+                    ChangeKind::Deleted => d.gutter_paths.push((wedge(x, top + lh), color)),
+                    _ => {
+                        let bar =
+                            Bounds::new(point(x + BAR_X, top + px(1.)), size(BAR_W, lh - px(2.)));
+                        d.gutter_markers
+                            .push(fill(bar, color).corner_radii(BAR_RADIUS));
+                    }
+                }
             }
             GutterMark::Dot { color, style } => {
                 let color = color.resolve(colors);
@@ -182,8 +214,28 @@ pub(crate) fn paint_gutter(
     }
 }
 
-/// Where the light bulb of `line` is drawn: centered on the diagnostic
-/// marker column (it replaces the marker on that line).
+/// The deleted-lines triangle of the change lane at `lane_x`, pointing
+/// right and centred on the line boundary at `y`.
+fn wedge(lane_x: Pixels, y: Pixels) -> Path<Pixels> {
+    let [a, b, c] = wedge_points(lane_x, y);
+    let mut path = Path::new(a);
+    path.line_to(b);
+    path.line_to(c);
+    path
+}
+
+/// The corners of [`wedge`]: top left, tip, bottom left.
+fn wedge_points(lane_x: Pixels, y: Pixels) -> [gpui::Point<Pixels>; 3] {
+    let x = lane_x + WEDGE_X;
+    [
+        point(x, y - WEDGE_H * 0.5),
+        point(x + WEDGE_W, y),
+        point(x, y + WEDGE_H * 0.5),
+    ]
+}
+
+/// Where the light bulb of `line` is drawn: centered on the run / bulb
+/// column.
 pub(crate) fn bulb_bounds(layout: &LayoutSnapshot, line: usize, s: Pixels) -> Bounds<Pixels> {
     let left = layout.bounds.left() + layout.gutter.marker_left;
     let top = layout.line_top(line);
@@ -207,7 +259,12 @@ fn dot(
     style: DotStyle,
     background: Hsla,
 ) {
-    let r = px(10.).min(lh - px(2.));
+    let r = if style == DotStyle::PausedFrame {
+        px(14.)
+    } else {
+        px(10.)
+    }
+    .min(lh - px(2.));
     let origin = point(x + (lane_w - r) * 0.5, top + (lh - r) * 0.5);
     let bounds = Bounds::new(origin, size(r, r));
     match style {
@@ -216,7 +273,7 @@ fn dot(
             .push(fill(bounds, color).corner_radii(r * 0.5)),
         DotStyle::Ring => d.gutter_markers.push(
             gpui::outline(bounds, color, gpui::BorderStyle::Solid)
-                .border_widths(px(2.))
+                .border_widths(px(1.5))
                 .corner_radii(r * 0.5),
         ),
         DotStyle::Conditional => {
@@ -229,6 +286,20 @@ fn dot(
             );
             d.gutter_markers.push(fill(bar, background));
         }
+        DotStyle::PausedFrame => {
+            d.gutter_markers
+                .push(fill(bounds, color).corner_radii(r * 0.5));
+            // The arrow is cut out of the dot in the background color.
+            let s = (r - px(4.)).max(px(6.));
+            d.gutter_icons.push(GutterIcon {
+                bounds: Bounds::new(
+                    point(origin.x + (r - s) * 0.5, origin.y + (r - s) * 0.5),
+                    size(s, s),
+                ),
+                path: SharedString::new_static(IconName::ArrowRight.path()),
+                color: background,
+            });
+        }
     }
 }
 
@@ -239,22 +310,48 @@ mod tests {
     #[test]
     fn geometry_orders_lanes() {
         let all = GutterLane::ALL;
-        let g = GutterGeometry::new(&all, true, px(8.), 3);
+        let g = GutterGeometry::new(&all, true, px(7.), 3);
         assert_eq!(g.lanes[0], (GutterLane::Breakpoints, px(0.), LANE_WIDTH));
+        // Run buttons sit in the bulb column, right after the breakpoints.
         assert_eq!(g.lanes[1], (GutterLane::Runnables, LANE_WIDTH, LANE_WIDTH));
-        assert_eq!(g.marker_left, LANE_WIDTH * 2.);
-        assert_eq!(g.numbers_right, LANE_WIDTH * 2. + MARKER_WIDTH + px(30.));
-        assert_eq!(g.width, g.numbers_right + px(16.));
+        assert_eq!(g.marker_left, LANE_WIDTH);
+        // 16 + 16 + 30 (three digits fit the minimum) + 14 + 6 = 82.
+        assert_eq!(g.numbers_right, px(62.));
+        assert_eq!(g.lanes[2], (GutterLane::Changes, px(62.), CHANGE_LANE));
+        assert_eq!(g.width, px(82.));
         assert_eq!(g.lane_at(px(3.)), Some(GutterLane::Breakpoints));
         assert_eq!(g.lane_at(px(20.)), Some(GutterLane::Runnables));
         assert_eq!(
-            g.lane_at(g.numbers_right + px(1.)),
+            g.lane_at(g.numbers_right + px(6.)),
             Some(GutterLane::Changes)
         );
-        assert_eq!(g.lane_at(g.marker_left + px(2.)), None);
+        assert_eq!(g.lane_at(g.numbers_right - px(2.)), None);
 
-        let plain = GutterGeometry::new(&[], true, px(8.), 2);
+        // Long files widen the numbers; no lanes keep the bulb column and
+        // the change lane's space, so text does not move when marks come.
+        let wide = GutterGeometry::new(&[], true, px(7.2), 6);
+        assert_eq!(wide.numbers_right, MARKER_WIDTH + px(44.));
+        let plain = GutterGeometry::new(&[], true, px(7.), 2);
         assert!(plain.lanes.is_empty());
-        assert_eq!(plain.width, MARKER_WIDTH + px(16.) + px(18.));
+        assert_eq!(plain.width, MARKER_WIDTH + px(30.) + CHANGE_LANE + TEXT_PAD);
+        let with_changes = GutterGeometry::new(&[GutterLane::Changes], true, px(7.), 2);
+        assert_eq!(with_changes.width, plain.width);
+        let no_numbers = GutterGeometry::new(&[], false, px(7.), 2);
+        assert_eq!(no_numbers.width, MARKER_WIDTH + CHANGE_LANE + TEXT_PAD);
+    }
+
+    #[test]
+    fn numbers_are_one_size_under_the_code() {
+        assert_eq!(number_font_size(px(13.)), px(12.));
+        assert_eq!(number_font_size(px(15.5)), px(15.));
+        assert_eq!(number_font_size(px(6.)), px(8.));
+    }
+
+    #[test]
+    fn deleted_wedge_points_right_on_the_line_boundary() {
+        let [top, tip, bottom] = wedge_points(px(100.), px(40.));
+        assert_eq!(top, point(px(103.), px(35.)));
+        assert_eq!(tip, point(px(109.), px(40.)));
+        assert_eq!(bottom, point(px(103.), px(45.)));
     }
 }

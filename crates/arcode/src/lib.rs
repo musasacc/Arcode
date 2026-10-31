@@ -22,6 +22,7 @@ pub mod new_project;
 pub mod packages;
 pub mod pane;
 pub mod path_prompt;
+pub mod picker_frame;
 #[cfg(feature = "plugins")]
 pub mod plugins;
 pub mod prefs;

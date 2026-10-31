@@ -5,19 +5,19 @@
 
 use std::path::PathBuf;
 
-use arcode_ui_kit::metrics::{CONTROL_H_PANEL, TAB_STRIP_H};
-use arcode_ui_kit::{IconName, icon, icon_button, pill_tab, spacer, theme};
+use arcode_ui_kit::{IconName, icon, theme};
 use gpui::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
     SharedString, Subscription, Window, div, prelude::*, px,
 };
 
-use crate::actions::{ToggleBottomPanel, shortcut_label};
 use crate::debugger::panel::DebugPanel;
 use crate::lsp_bridge::LspBridge;
 use crate::problems::ProblemsPanel;
-use crate::terminal_panel::{self, TerminalPanel};
+use crate::terminal_panel::TerminalPanel;
 use crate::todo::{TodoStore, TodoView};
+
+mod header;
 
 /// Default panel height.
 pub const DEFAULT_HEIGHT: f32 = 240.;
@@ -87,6 +87,8 @@ pub struct BottomPanel {
     /// Whether the workspace frames the panel (the ember mark on the
     /// active tab); `None` until told, then focus decides.
     framed: Option<bool>,
+    /// The header is wide enough for the tab labels (measured when drawn).
+    tab_labels: bool,
     _subscriptions: [Subscription; 2],
 }
 
@@ -116,6 +118,7 @@ impl BottomPanel {
             todo: None,
             debug: None,
             framed: None,
+            tab_labels: true,
             _subscriptions: subscriptions,
         }
     }
@@ -243,43 +246,6 @@ impl BottomPanel {
         }
     }
 
-    /// The tab pills: Terminal, Problems, Todo and Debug with their count
-    /// badges; the active one carries the ember mark while the panel has
-    /// focus.
-    fn render_tabs(&self, focused: bool, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let c = theme(cx).colors.clone();
-        let problems = self.problems.read(cx);
-        let (problem_count, has_errors) = (problems.count(), problems.has_errors());
-        let todo_count = self.todo.as_ref().map_or(0, |(s, _, _)| s.read(cx).count());
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(3.))
-            .children(BottomTab::ALL.into_iter().map(|tab| {
-                let active = tab == self.active;
-                let count = match tab {
-                    BottomTab::Problems => problem_count,
-                    BottomTab::Todo => todo_count,
-                    _ => 0,
-                };
-                let mut pill = pill_tab(tab.label(), tab.label())
-                    .panel()
-                    .icon(tab.icon(), None)
-                    .active(active)
-                    .focused(focused)
-                    .on_click(cx.listener(move |panel, _, window, cx| {
-                        panel.set_active_tab(tab, cx);
-                        panel.focus(window, cx);
-                    }));
-                if count > 0 {
-                    let color = (tab == BottomTab::Problems && has_errors).then_some(c.error);
-                    pill = pill.badge(count.to_string(), color);
-                }
-                pill
-            }))
-    }
-
     /// The content of the active tab.
     fn render_content(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let c = theme(cx).colors.clone();
@@ -342,48 +308,7 @@ impl Render for BottomPanel {
         let focused = self
             .framed
             .unwrap_or_else(|| self.focus_handle.contains_focused(window, cx));
-        let debug_header = match (&self.debug, self.active) {
-            (Some(debug), BottomTab::Debug) => Some(debug.read(cx).render_header(cx)),
-            _ => None,
-        };
-        let readout = (self.active != BottomTab::Debug)
-            .then(|| terminal_panel::render_run_readout(&self.terminals, cx))
-            .flatten();
-        let mut header = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(4.))
-            .h(TAB_STRIP_H)
-            .px(px(6.))
-            .child(self.render_tabs(focused, cx));
-        header = match debug_header {
-            // Debug: the toolbar follows the tabs, the paused readout sits
-            // at the right.
-            Some((toolbar, status)) => header
-                .child(header_rule(c.border))
-                .child(toolbar)
-                .child(spacer())
-                .child(status)
-                .child(header_rule(c.border)),
-            None => header
-                .child(spacer())
-                .when_some(readout, |el, readout| {
-                    el.child(readout)
-                        .when(self.active == BottomTab::Terminal, |el| {
-                            el.child(header_rule(c.border))
-                        })
-                })
-                .when(self.active == BottomTab::Terminal, |el| {
-                    el.child(terminal_panel::render_strip(&self.terminals, cx))
-                }),
-        };
-        header = header.child(
-            icon_button("close-panel", IconName::X)
-                .size(CONTROL_H_PANEL)
-                .tooltip(format!("Close panel ({})", shortcut_label("secondary-j")))
-                .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleBottomPanel), cx)),
-        );
+        let header = self.render_header(focused, cx);
         // No fill: the panel's rounded fill shows through. The terminal
         // flows straight from the header; lists get a hairline under it.
         div()
@@ -397,9 +322,4 @@ impl Render for BottomPanel {
             })
             .child(self.render_content(cx))
     }
-}
-
-/// A 16 px tall vertical hairline between groups of header controls.
-fn header_rule(color: gpui::Hsla) -> gpui::Div {
-    div().flex_none().w(px(1.)).h(px(16.)).mx(px(2.)).bg(color)
 }

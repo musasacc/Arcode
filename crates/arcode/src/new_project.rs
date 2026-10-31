@@ -3,17 +3,20 @@
 //! in the new project's terminal only because the user picked it and
 //! clicked Create. Nothing is downloaded or installed here.
 
-use arcode_ui_kit::Elevated;
 use std::path::PathBuf;
 
 use arcode_project::templates::{ProjectTemplate, create_project, templates};
-use arcode_ui_kit::{ButtonStyle, IconName, button, icon, kbd, theme};
+use arcode_ui_kit::metrics::WEIGHT_SEMIBOLD;
+use arcode_ui_kit::{
+    ButtonStyle, IconName, button, icon, input_frame, list_row, theme, type_scale,
+};
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, PathPromptOptions,
     SharedString, Subscription, Window, actions, div, prelude::*, px,
 };
 
 use crate::path_prompt::expand_home;
+use crate::picker_frame::dialog_frame;
 use crate::text_field::{TextChanged, TextField};
 
 actions!(new_project, [Create, Dismiss]);
@@ -186,35 +189,29 @@ impl NewProjectDialog {
     ) -> impl IntoElement + use<> {
         let c = theme(cx).colors.clone();
         let selected = std::ptr::eq(t, self.template);
-        div()
-            .id(("template", ix))
-            .flex()
-            .items_center()
-            .gap_2()
+        list_row(("template", ix), selected, cx)
+            .mx(px(0.))
             .h(px(28.))
-            .px_2()
-            .rounded_md()
-            .cursor_pointer()
-            .border_1()
-            .border_color(if selected { c.accent } else { c.border })
-            .when(selected, |el| el.bg(c.selection))
-            .hover(|s| s.bg(c.hover))
+            .rounded(px(7.))
+            .gap(px(8.))
             .child(
+                // A radio: a ring, filled `accent` when chosen.
                 div()
                     .size(px(12.))
                     .flex_none()
                     .rounded_full()
                     .border_1()
-                    .border_color(if selected { c.accent } else { c.text_muted })
+                    .border_color(if selected { c.accent } else { c.border_strong })
                     .when(selected, |el| el.bg(c.accent)),
             )
-            .child(div().flex_none().text_sm().text_color(c.text).child(t.name))
+            .child(div().flex_none().text_color(c.text).child(t.name))
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
                     .overflow_hidden()
-                    .text_xs()
+                    .text_size(type_scale(cx).meta)
+                    .font_weight(gpui::FontWeight::NORMAL)
                     .text_color(c.text_muted)
                     .child(arcode_ui_kit::truncated(t.description)),
             )
@@ -223,26 +220,20 @@ impl NewProjectDialog {
 }
 
 impl Render for NewProjectDialog {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = theme(cx).colors.clone();
-        let field = |label: &'static str, input: Entity<TextField>| {
+        let meta = type_scale(cx).meta;
+        let field = |label: &'static str, input: Entity<TextField>, cx: &App| {
+            let focused = input.focus_handle(cx).is_focused(window);
             div()
                 .flex()
                 .flex_col()
-                .gap_1()
-                .child(div().text_xs().text_color(c.text_muted).child(label))
+                .gap(px(4.))
+                .child(div().text_size(meta).text_color(c.text_muted).child(label))
                 .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .h(px(30.))
+                    input_frame(focused, true, cx)
                         .min_w_0()
                         .overflow_hidden()
-                        .px_2()
-                        .rounded_md()
-                        .border_1()
-                        .border_color(c.border)
-                        .bg(c.background)
                         .child(input),
                 )
         };
@@ -261,53 +252,51 @@ impl Render for NewProjectDialog {
                 .map(|(ix, t)| self.render_template(ix, t, cx)),
         );
         let new_window = self.new_window;
-        div()
+        dialog_frame(px(520.), cx)
             .key_context(CONTEXT)
             .on_action(cx.listener(Self::create))
             .on_action(cx.listener(Self::dismiss))
-            .w(px(520.))
-            .flex()
-            .flex_col()
-            .gap_2()
-            .p_4()
-            .rounded_lg()
-            .border_1()
-            .border_color(c.border)
-            .bg(c.surface_raised)
-            .elevated(cx)
+            .gap(px(8.))
+            .p(px(16.))
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .gap_2()
-                    .text_color(c.text)
+                    .gap(px(8.))
+                    .pb(px(4.))
+                    .text_size(type_scale(cx).title)
+                    .font_weight(WEIGHT_SEMIBOLD)
                     .child(icon(IconName::Plus).size(px(16.)).color(c.accent))
-                    .child("New Project"),
+                    .child("New project"),
             )
-            .child(field("Name", self.name.clone()))
+            .child(field("Name", self.name.clone(), cx))
             .child(
                 div()
                     .flex()
                     .items_end()
                     .gap_2()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .child(field("Location", self.location.clone())),
-                    )
+                    .child(div().flex_1().min_w_0().child(field(
+                        "Location",
+                        self.location.clone(),
+                        cx,
+                    )))
                     .child(
                         button("np-browse", "Browse…")
                             .on_click(cx.listener(|d, _, window, cx| d.browse(window, cx))),
                     ),
             )
-            .child(div().text_xs().text_color(c.text_muted).child("Template"))
+            .child(
+                div()
+                    .text_size(meta)
+                    .text_color(c.text_muted)
+                    .child("Template"),
+            )
             .child(templates_list)
-            .child(div().text_xs().text_color(c.text_muted).child(note))
+            .child(div().text_size(meta).text_color(c.text_muted).child(note))
             .children(
                 self.error
                     .clone()
-                    .map(|err| div().text_xs().text_color(c.error).child(err)),
+                    .map(|err| div().text_size(meta).text_color(c.error).child(err)),
             )
             .child(
                 div()
@@ -319,19 +308,24 @@ impl Render for NewProjectDialog {
                             .id("np-new-window")
                             .flex()
                             .items_center()
-                            .gap_2()
+                            .gap(px(8.))
                             .cursor_pointer()
-                            .text_sm()
                             .text_color(c.text_muted)
                             .child(
+                                // Checkbox (docs/DESIGN.md 6.13): 14, radius 4.
                                 div()
                                     .size(px(14.))
                                     .flex()
+                                    .flex_none()
                                     .items_center()
                                     .justify_center()
-                                    .rounded_sm()
+                                    .rounded(px(4.))
                                     .border_1()
-                                    .border_color(c.border)
+                                    .border_color(if new_window {
+                                        c.accent
+                                    } else {
+                                        c.border_strong
+                                    })
                                     .when(new_window, |el| {
                                         el.bg(c.accent).child(
                                             icon(IconName::Check)
@@ -350,8 +344,7 @@ impl Render for NewProjectDialog {
                         div()
                             .flex()
                             .items_center()
-                            .gap_2()
-                            .child(kbd("Esc"))
+                            .gap(px(8.))
                             .child(
                                 button("np-cancel", "Cancel")
                                     .style(ButtonStyle::Ghost)

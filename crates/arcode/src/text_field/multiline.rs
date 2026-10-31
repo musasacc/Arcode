@@ -143,7 +143,7 @@ impl TextField {
         } else {
             field.text.clone()
         };
-        let color = if empty { c.text_disabled } else { c.text };
+        let color = if empty { c.text_muted } else { c.text };
         let cursor_line = field.text[..cursor.min(field.text.len())]
             .matches('\n')
             .count();

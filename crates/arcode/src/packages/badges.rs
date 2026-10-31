@@ -2,8 +2,8 @@
 //! tooltip text of a dependency row.
 
 use arcode_project::deps::{DepSource, Dependency, Manager};
-use arcode_ui_kit::ThemeColors;
-use gpui::{Div, Hsla, SharedString, div, prelude::*};
+use arcode_ui_kit::{ThemeColors, theme};
+use gpui::{App, Div, Hsla, SharedString, div, prelude::*, px};
 
 /// The badge color of a manager.
 pub fn manager_color(manager: Manager, c: &ThemeColors) -> Hsla {
@@ -11,20 +11,25 @@ pub fn manager_color(manager: Manager, c: &ThemeColors) -> Hsla {
         Manager::Cargo | Manager::Pnpm => c.warning,
         Manager::Npm | Manager::Bundler => c.error,
         Manager::Yarn | Manager::Go => c.info,
-        Manager::Uv | Manager::Poetry | Manager::Pipenv | Manager::Pip => c.accent,
+        Manager::Uv | Manager::Poetry | Manager::Pipenv | Manager::Pip => c.success,
         Manager::Composer => c.accent_alt,
         Manager::Bun => c.text_muted,
     }
 }
 
-/// A small rounded label.
-pub fn badge(text: impl Into<SharedString>, color: Hsla) -> Div {
+/// A small rounded label: a solid `pill` chip with the text in `color`
+/// (docs/DESIGN.md 6.13, no translucent fills).
+pub fn badge(text: impl Into<SharedString>, color: Hsla, cx: &App) -> Div {
     div()
         .flex_none()
-        .px_1()
-        .rounded_sm()
-        .text_xs()
-        .bg(color.opacity(0.15))
+        .h(px(16.))
+        .flex()
+        .items_center()
+        .px(px(5.))
+        .rounded(px(5.))
+        .text_size(arcode_ui_kit::type_scale(cx).micro)
+        .font_weight(arcode_ui_kit::metrics::WEIGHT_MEDIUM)
+        .bg(theme(cx).colors.pill)
         .text_color(color)
         .child(text.into())
 }

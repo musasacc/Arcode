@@ -5,8 +5,10 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use arcode_git::{FileStatus, StatusCode};
-use arcode_ui_kit::metrics::{ROW_RADIUS, WEIGHT_SEMIBOLD, icon_size};
-use arcode_ui_kit::{IconName, ThemeColors, badge, icon, icon_button, theme, type_scale};
+use arcode_ui_kit::metrics::{ROW_RADIUS, SECTION_H, WEIGHT_SEMIBOLD, icon_size};
+use arcode_ui_kit::{
+    IconName, ThemeColors, badge, icon, icon_button, theme, truncated, type_scale,
+};
 use gpui::{App, Context, Div, Hsla, SharedString, div, prelude::*, px};
 
 use super::GitPanel;
@@ -192,7 +194,7 @@ impl GitPanel {
             .flex()
             .items_center()
             .gap_1p5()
-            .h(px(ROW_HEIGHT))
+            .h(SECTION_H)
             .px_2()
             .rounded(ROW_RADIUS)
             .cursor_pointer()
@@ -302,29 +304,16 @@ impl GitPanel {
             .cursor_pointer()
             .hover(|s| s.bg(c.hover))
             .child(icon(file_icon_name).size(icon_size::ROW).color(icon_color))
-            .child(
+            // A long name ends in "…"; the folder after it gives way first.
+            .child(crate::sidebar::name_then_hint(
                 div()
-                    .flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_1p5()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .child(
-                        div()
-                            .flex_none()
-                            .when(deleted, |el| el.line_through())
-                            .child(name),
-                    )
-                    .child(
-                        div()
-                            .min_w_0()
-                            .text_size(type_scale(cx).meta)
-                            .text_color(c.text_muted)
-                            .truncate()
-                            .child(dir),
-                    ),
-            )
+                    .when(deleted, |el| el.line_through())
+                    .child(truncated(name)),
+                div()
+                    .text_size(type_scale(cx).meta)
+                    .text_color(c.text_muted)
+                    .child(truncated(dir).start()),
+            ))
             .child(actions)
             .child(
                 div()
@@ -346,7 +335,7 @@ pub fn note(text: impl Into<SharedString>, cx: &App) -> Div {
     div()
         .px_3()
         .py_2()
-        .text_sm()
+        .text_size(type_scale(cx).body)
         .text_color(c.text_muted)
         .child(text.into())
 }

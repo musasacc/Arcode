@@ -6,7 +6,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use arcode_ui_kit::{icon, settings, theme};
+use arcode_ui_kit::{icon, popover, theme, type_scale, ui_font_family};
 use gpui::{
     AnyElement, App, AvailableSpace, Bounds, IntoElement, ParentElement, Pixels, SharedString,
     Styled, Window, canvas, div, point, prelude::*, px, size,
@@ -77,27 +77,18 @@ fn popover_element(
     cx: &App,
 ) -> AnyElement {
     let colors = &theme(cx).colors;
-    let ui = &settings(cx).ui;
     let docs_height = px(MAX_DOCS_HEIGHT).min((room - px(80.)).max(px(120.)));
-    let mut body = div()
+    // A popover (docs/DESIGN.md 6.12); its sections bring their own padding.
+    let mut body = popover(cx)
         .id("hover-popover")
         .occlude()
-        .flex()
-        .flex_col()
-        .gap_1()
+        .p(px(0.))
         .max_w(px(MAX_WIDTH))
-        .bg(colors.surface_raised)
-        .border_1()
-        .border_color(colors.border)
-        .rounded_md()
-        .shadow_md()
-        .text_size(px(ui.font_size))
+        .font_family(ui_font_family(cx))
+        .text_size(type_scale(cx).body)
         .text_color(colors.text);
-    if let Some(family) = &ui.font_family {
-        body = body.font_family(SharedString::from(family.clone()));
-    }
     if !hover.diagnostics.is_empty() {
-        let mut rows = div().flex().flex_col().gap_1().px_2().py_1p5();
+        let mut rows = div().flex().flex_col().gap_1().px(px(10.)).py(px(8.));
         for d in &hover.diagnostics {
             let color = d.severity.color(colors);
             let mut row = div()
@@ -115,6 +106,7 @@ fn popover_element(
                 row = row.child(
                     div()
                         .flex_none()
+                        .text_size(type_scale(cx).meta)
                         .text_color(colors.text_muted)
                         .child(SharedString::from(d.source.clone())),
                 );
@@ -128,8 +120,8 @@ fn popover_element(
             .id("hover-docs")
             .max_h(docs_height)
             .overflow_y_scroll()
-            .px_2()
-            .py_1p5()
+            .px(px(10.))
+            .py(px(8.))
             .flex()
             .flex_col()
             .gap_1()

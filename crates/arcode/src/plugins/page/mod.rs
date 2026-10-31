@@ -24,7 +24,9 @@ use std::collections::HashSet;
 
 use arcode_plugin_host::PluginId;
 use arcode_plugin_host::grants::Capability;
-use arcode_ui_kit::{IconName, badge, icon_button, pill_tab, section_header, spacer, theme};
+use arcode_ui_kit::{
+    IconName, badge, icon_button, pill_tab, section_header, spacer, theme, type_scale,
+};
 use gpui::{Context, Entity, EventEmitter, IntoElement, SharedString, Window, div, prelude::*, px};
 
 use super::PluginClient;
@@ -155,6 +157,9 @@ impl PluginsPage {
         div()
             .flex()
             .flex_none()
+            // At the narrowest sidebar the second tab wraps instead of
+            // running under the panel edge.
+            .flex_wrap()
             .items_center()
             .gap(px(3.))
             .px(px(6.))
@@ -217,14 +222,14 @@ impl PluginsPage {
         let empty = (loaded && rows.is_empty()).then(|| {
             div()
                 .px_3()
-                .text_xs()
+                .text_size(type_scale(cx).meta)
                 .text_color(c.text_muted)
                 .child("No plugins. Install one from a folder (plugin.toml + plugin.wasm).")
         });
         let loading = (!loaded).then(|| {
             div()
                 .px_3()
-                .text_xs()
+                .text_size(type_scale(cx).meta)
                 .text_color(c.text_muted)
                 .child("Plugins are not loaded yet.")
         });

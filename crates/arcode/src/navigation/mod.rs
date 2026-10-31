@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use arcode_editor::Editor;
 use gpui::{
     AppContext, Context, Entity, Focusable, InteractiveElement, MouseButton, ParentElement,
-    Stateful, Styled, Subscription, Task, WeakEntity, Window, div, px,
+    Stateful, Styled, Subscription, Task, WeakEntity, Window, div,
 };
 
 use crate::actions::{GoBack, GoForward, ShowDocumentSymbols, ShowWorkspaceSymbols};
@@ -282,24 +282,15 @@ impl Workspace {
         let Some(picker) = &self.nav.picker else {
             return root;
         };
-        let c = arcode_ui_kit::theme(cx).colors.clone();
         let panel = div()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(picker.clone());
         root.child(
-            div()
-                .id("nav-backdrop")
-                .absolute()
-                .inset_0()
-                .occlude()
+            crate::picker_frame::picker_layer("nav-backdrop")
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|ws, _, window, cx| ws.close_nav_picker(window, cx)),
                 )
-                .bg(c.background.opacity(0.35))
-                .flex()
-                .justify_center()
-                .pt(px(crate::title_bar::TITLE_BAR_HEIGHT + 8.))
                 .child(fade_in(panel, cx)),
         )
     }

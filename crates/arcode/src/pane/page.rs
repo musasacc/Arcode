@@ -72,7 +72,6 @@ impl Pane {
         };
         window.focus(&page.focus);
         self.active_page = Some(ix);
-        self.tab_scroll.scroll_to_item(self.items.len() + ix);
         self.sync_find_target(cx);
         cx.emit(PaneEvent::ActiveItemChanged);
         cx.notify();

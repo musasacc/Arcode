@@ -320,11 +320,12 @@ pub fn render(_ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement 
         .overflow_y_scroll()
         .flex()
         .justify_center()
+        // The margin sits outside the 760 content block (DESIGN.md 6.15).
+        .px_6()
         .child(
             div()
                 .w(px(CONTENT_W))
                 .max_w_full()
-                .px_6()
                 .pt(px(96.))
                 .pb_8()
                 .flex()

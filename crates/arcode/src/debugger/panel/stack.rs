@@ -4,7 +4,7 @@
 //! 6.8); frames without source are muted.
 
 use arcode_ui_kit::metrics::{ROW_H_DENSE, ROW_INSET, ROW_RADIUS, type_scale};
-use arcode_ui_kit::{IconName, ember, icon, mono_font_family, readout, theme};
+use arcode_ui_kit::{IconName, ember, icon, mono_font_family, readout, theme, truncated};
 use gpui::{AnyElement, Context, IntoElement, SharedString, div, prelude::*, px};
 
 use super::DebugPanel;
@@ -51,8 +51,10 @@ impl DebugPanel {
                             )
                             .child(
                                 div()
-                                    .truncate()
-                                    .child(SharedString::from(thread.name.clone())),
+                                    .flex()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .child(truncated(thread.name.clone())),
                             )
                             .on_click(cx.listener(move |panel, _, _, cx| {
                                 panel
@@ -100,10 +102,11 @@ impl DebugPanel {
                             )
                             .child(
                                 div()
+                                    .flex()
                                     .flex_1()
                                     .min_w_0()
-                                    .truncate()
-                                    .child(SharedString::from(frame.name.clone())),
+                                    .overflow_hidden()
+                                    .child(truncated(frame.name.clone())),
                             )
                             .child(div().flex_none().child(readout(file).size(scale.micro)))
                             .on_click(cx.listener(move |panel, _, _, cx| {

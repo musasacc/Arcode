@@ -1,15 +1,15 @@
 //! An in-app "type a folder path" dialog, used when the platform folder
 //! picker is unavailable (e.g. Linux without an XDG desktop portal).
 
-use arcode_ui_kit::Elevated;
 use std::path::PathBuf;
 
-use arcode_ui_kit::{IconName, icon, kbd, theme};
+use arcode_ui_kit::{ButtonStyle, IconName, button, icon, input_frame, theme};
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, SharedString,
     Subscription, Window, actions, div, prelude::*, px,
 };
 
+use crate::picker_frame::{dialog_buttons, dialog_frame, dialog_title};
 use crate::text_field::{TextChanged, TextField};
 
 actions!(path_prompt, [Confirm, Dismiss]);
@@ -110,67 +110,51 @@ pub fn expand_home(text: &str) -> PathBuf {
 }
 
 impl Render for PathPrompt {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = theme(cx).colors.clone();
-        div()
+        let focused = self.input.focus_handle(cx).is_focused(window);
+        let hint = div()
+            .text_color(if self.error.is_some() {
+                c.error
+            } else {
+                c.text_muted
+            })
+            .child(self.error.clone().unwrap_or_else(|| {
+                "The system folder picker is unavailable; type a path instead.".into()
+            }));
+        let buttons = [
+            button("path-prompt-cancel", "Cancel")
+                .style(ButtonStyle::Ghost)
+                .on_click(cx.listener(|p, _, window, cx| p.dismiss(&Dismiss, window, cx)))
+                .into_any_element(),
+            button("path-prompt-open", "Open")
+                .style(ButtonStyle::Primary)
+                .on_click(cx.listener(|p, _, window, cx| p.confirm(&Confirm, window, cx)))
+                .into_any_element(),
+        ];
+        dialog_frame(px(520.), cx)
             .key_context(CONTEXT)
             .on_action(cx.listener(Self::confirm))
             .on_action(cx.listener(Self::dismiss))
-            .w(px(520.))
-            .flex()
-            .flex_col()
-            .rounded_lg()
-            .border_1()
-            .border_color(c.border)
-            .bg(c.surface_raised)
-            .elevated(cx)
-            .overflow_hidden()
+            .child(dialog_title(self.title.clone(), cx))
             .child(
-                div()
-                    .px_3()
-                    .pt_3()
-                    .pb_1()
-                    .text_sm()
-                    .text_color(c.text_muted)
-                    .child(self.title.clone()),
+                div().px(px(16.)).child(
+                    input_frame(focused, true, cx)
+                        .child(icon(IconName::Folder).size(px(15.)).color(c.accent))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                // The field fills the height: without a flex
+                                // row of the row's height it is zero tall.
+                                .h_full()
+                                .flex()
+                                .overflow_hidden()
+                                .child(self.input.clone()),
+                        ),
+                ),
             )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .h(px(40.))
-                    .px_3()
-                    .child(icon(IconName::Folder).size(px(16.)).color(c.accent))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            // The field fills the height: without a flex
-                            // row of the row's height it is zero tall.
-                            .h_full()
-                            .flex()
-                            .overflow_hidden()
-                            .child(self.input.clone()),
-                    )
-                    .child(kbd("Enter")),
-            )
-            .child(
-                div()
-                    .px_3()
-                    .py_2()
-                    .border_t_1()
-                    .border_color(c.border)
-                    .text_xs()
-                    .text_color(if self.error.is_some() {
-                        c.error
-                    } else {
-                        c.text_muted
-                    })
-                    .child(self.error.clone().unwrap_or_else(|| {
-                        "The system folder picker is unavailable; type a path instead.".into()
-                    })),
-            )
+            .child(dialog_buttons(Some(hint.into_any_element()), buttons, cx))
     }
 }
 

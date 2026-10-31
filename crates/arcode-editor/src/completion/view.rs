@@ -6,11 +6,12 @@
 //! change; the view only keeps its own scroll position for the mouse wheel.
 
 use arcode_completion::CandidateKind;
-use arcode_ui_kit::{settings, theme, truncated};
+use arcode_ui_kit::metrics::WEIGHT_SEMIBOLD;
+use arcode_ui_kit::{menu_row, popover, theme, truncated, type_scale, ui_font_family};
 use gpui::{
-    Context, FontWeight, HighlightStyle, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Pixels, Render, ScrollDelta, ScrollWheelEvent, SharedString, Styled, StyledText,
-    WeakEntity, Window, div, prelude::*, px,
+    Context, HighlightStyle, InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels,
+    Render, ScrollDelta, ScrollWheelEvent, SharedString, Styled, StyledText, WeakEntity, Window,
+    div, px,
 };
 
 use super::CompletionItem;
@@ -19,13 +20,16 @@ use super::menu::{VISIBLE_ROWS, clamp_top};
 use crate::Editor;
 
 /// Height of one row.
-const ROW_HEIGHT: f32 = 22.;
+const ROW_HEIGHT: f32 = 24.;
 /// Width of the list.
 const LIST_WIDTH: f32 = 420.;
 
+/// The popover's padding plus its 1 px edge, above and below the rows.
+const LIST_PAD: f32 = 5.;
+
 /// Height of the list box showing `rows` rows.
 pub(crate) fn list_height(rows: usize) -> Pixels {
-    px(ROW_HEIGHT * rows.min(VISIBLE_ROWS) as f32 + 8.)
+    px(ROW_HEIGHT * rows.min(VISIBLE_ROWS) as f32 + 2. * LIST_PAD)
 }
 
 /// One visible row.
@@ -142,7 +146,7 @@ impl MenuView {
         }
         let matched = HighlightStyle {
             color: Some(colors.accent),
-            font_weight: Some(FontWeight::BOLD),
+            font_weight: Some(WEIGHT_SEMIBOLD),
             ..base
         };
         let highlights: Vec<_> = if row.deprecated {
@@ -152,19 +156,9 @@ impl MenuView {
         };
         let label = StyledText::new(row.label.clone()).with_highlights(highlights);
         let editor = self.editor.clone();
-        div()
-            .id(("completion-row", index))
+        menu_row(("completion-row", index), selected, cx)
             .h(px(ROW_HEIGHT))
-            .px_1p5()
-            .mx_1()
-            .rounded_sm()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_1p5()
-            .when(selected, |d| d.bg(colors.selection))
-            .when(!selected, |d| d.hover(|d| d.bg(colors.hover)))
-            .cursor_pointer()
+            .px(px(6.))
             .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                 cx.stop_propagation();
                 editor
@@ -192,7 +186,7 @@ impl MenuView {
                     .min_w_0()
                     .overflow_hidden()
                     .text_color(colors.text_muted)
-                    .text_size(px(settings(cx).ui.font_size - 1.))
+                    .text_size(type_scale(cx).meta)
                     .child(truncated(detail))
             }))
     }
@@ -201,9 +195,6 @@ impl MenuView {
 impl Render for MenuView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = theme(cx).colors.clone();
-        let ui = &settings(cx).ui;
-        let font_size = px(ui.font_size);
-        let font_family = ui.font_family.clone();
         let top = clamp_top(self.scroll_top, self.rows.len());
         let visible = self.rows.len().min(VISIBLE_ROWS);
         let rows: Vec<_> = self
@@ -218,39 +209,28 @@ impl Render for MenuView {
             let total = self.rows.len() as f32;
             let track = ROW_HEIGHT * visible as f32;
             let h = (track * VISIBLE_ROWS as f32 / total).max(12.);
-            let y = 4. + (track - h) * top as f32 / (total - VISIBLE_ROWS as f32);
+            let y = LIST_PAD + (track - h) * top as f32 / (total - VISIBLE_ROWS as f32);
             div()
                 .absolute()
-                .right(px(2.))
+                .right(px(1.))
                 .top(px(y))
                 .w(px(3.))
                 .h(px(h))
                 .rounded_full()
                 .bg(colors.scrollbar_thumb)
         });
-        let mut list = div()
+        popover(cx)
             .id("completion-list")
             .occlude()
             .relative()
             .w(px(LIST_WIDTH))
             .h(list_height(self.rows.len()))
-            .py_1()
-            .flex()
-            .flex_col()
-            .bg(colors.surface_raised)
-            .border_1()
-            .border_color(colors.border)
-            .rounded_md()
-            .shadow_md()
             .on_scroll_wheel(cx.listener(|v, e, _, cx| v.scroll(e, cx)))
-            .text_size(font_size)
+            .font_family(ui_font_family(cx))
+            .text_size(type_scale(cx).body)
             .text_color(colors.text)
             .children(rows)
-            .children(thumb);
-        if let Some(family) = font_family {
-            list = list.font_family(SharedString::from(family));
-        }
-        list
+            .children(thumb)
     }
 }
 

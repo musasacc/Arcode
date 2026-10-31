@@ -1,13 +1,13 @@
 //! A one-line text dialog (title, input, hint): Enter confirms, Escape
 //! cancels. Used to edit the run command.
 
-use arcode_ui_kit::Elevated;
-use arcode_ui_kit::{IconName, icon, kbd, theme};
+use arcode_ui_kit::{ButtonStyle, IconName, button, icon, input_frame, theme};
 use gpui::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding,
     SharedString, Window, actions, div, prelude::*, px,
 };
 
+use crate::picker_frame::{dialog_buttons, dialog_frame, dialog_title};
 use crate::text_field::TextField;
 
 actions!(text_prompt, [Confirm, Dismiss]);
@@ -82,60 +82,45 @@ impl TextPrompt {
 }
 
 impl Render for TextPrompt {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = theme(cx).colors.clone();
-        div()
+        let focused = self.input.focus_handle(cx).is_focused(window);
+        let buttons = [
+            button("text-prompt-cancel", "Cancel")
+                .style(ButtonStyle::Ghost)
+                .on_click(cx.listener(|p, _, window, cx| p.dismiss(&Dismiss, window, cx)))
+                .into_any_element(),
+            button("text-prompt-ok", "OK")
+                .style(ButtonStyle::Primary)
+                .on_click(cx.listener(|p, _, window, cx| p.confirm(&Confirm, window, cx)))
+                .into_any_element(),
+        ];
+        dialog_frame(px(560.), cx)
             .key_context(CONTEXT)
             .on_action(cx.listener(Self::confirm))
             .on_action(cx.listener(Self::dismiss))
-            .w(px(560.))
-            .flex()
-            .flex_col()
-            .rounded_lg()
-            .border_1()
-            .border_color(c.border)
-            .bg(c.surface_raised)
-            .elevated(cx)
-            .overflow_hidden()
+            .child(dialog_title(self.title.clone(), cx))
             .child(
-                div()
-                    .px_3()
-                    .pt_3()
-                    .pb_1()
-                    .text_sm()
-                    .text_color(c.text_muted)
-                    .child(self.title.clone()),
+                div().px(px(16.)).child(
+                    input_frame(focused, true, cx)
+                        .child(icon(self.glyph).size(px(15.)).color(c.accent))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                // The field fills the height: without a flex
+                                // row of the row's height it is zero tall.
+                                .h_full()
+                                .flex()
+                                .overflow_hidden()
+                                .child(self.input.clone()),
+                        ),
+                ),
             )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .h(px(40.))
-                    .px_3()
-                    .child(icon(self.glyph).size(px(16.)).color(c.accent))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            // The field fills the height: without a flex
-                            // row of the row's height it is zero tall.
-                            .h_full()
-                            .flex()
-                            .overflow_hidden()
-                            .child(self.input.clone()),
-                    )
-                    .child(kbd("Enter")),
-            )
-            .child(
-                div()
-                    .px_3()
-                    .py_2()
-                    .border_t_1()
-                    .border_color(c.border)
-                    .text_xs()
-                    .text_color(c.text_muted)
-                    .child(self.hint.clone()),
-            )
+            .child(dialog_buttons(
+                Some(self.hint.clone().into_any_element()),
+                buttons,
+                cx,
+            ))
     }
 }

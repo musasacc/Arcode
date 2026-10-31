@@ -4,22 +4,25 @@
 //! lists the commands available there and shows the bindings that apply
 //! there; the chosen command runs back on that focus.
 
-use arcode_ui_kit::Elevated;
 use std::ops::Range;
 
-use arcode_ui_kit::{IconName, icon, kbd, theme};
+use arcode_ui_kit::metrics::WEIGHT_REGULAR;
+use arcode_ui_kit::{IconName, kbd, theme};
 use gpui::{
-    Action, App, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, HighlightStyle,
+    Action, App, Context, Entity, EventEmitter, FocusHandle, Focusable, HighlightStyle,
     ScrollStrategy, SharedString, StyledText, Subscription, UniformListScrollHandle, Window, div,
-    prelude::*, px, uniform_list,
+    prelude::*, uniform_list,
 };
 
 use super::{Candidate, Ranked, binding_label, commands, rank_commands};
 use crate::finder::{CONTEXT, Confirm, Dismiss, SelectNext, SelectPrev};
+use crate::picker_frame::{
+    PALETTE_W, count_status, empty_state, footer, input_row, match_style, picker_frame,
+    picker_list, picker_row, row_icon, scroll_strategy,
+};
 use crate::text_field::{Backspace, TextChanged, TextField};
 
-const ROW_HEIGHT: f32 = 30.;
-const MAX_VISIBLE_ROWS: usize = 12;
+const MAX_VISIBLE_ROWS: usize = 10;
 
 /// A command as captured when the palette opened.
 pub struct Entry {
@@ -31,6 +34,8 @@ pub struct Entry {
     pub binding: Option<SharedString>,
     /// Position in the recently-used list.
     pub recent: Option<usize>,
+    /// The Lucide icon drawn before the label.
+    pub icon: IconName,
     action: Box<dyn Action>,
 }
 
@@ -69,16 +74,20 @@ impl Focusable for CommandPalette {
     }
 }
 
+/// A registered command as read for the palette: label, name length,
+/// listed everywhere, icon and action.
+type Listed = (String, usize, bool, IconName, Box<dyn Action>);
+
 /// Snapshot of the commands available at the current focus, with their
 /// bindings there. Call it before moving focus into the palette.
 pub fn capture_entries(recent: &[String], window: &mut Window, cx: &mut App) -> Vec<Entry> {
     let focus = window.focused(cx);
-    let listed: Vec<(String, usize, bool, Box<dyn Action>)> = commands(cx)
+    let listed: Vec<Listed> = commands(cx)
         .iter()
-        .map(|c| (c.label(), c.name.len(), c.global, c.action()))
+        .map(|c| (c.label(), c.name.len(), c.global, c.icon(), c.action()))
         .collect();
     let mut entries = Vec::new();
-    for (label, name_len, global, action) in listed {
+    for (label, name_len, global, icon, action) in listed {
         if !global && !window.is_action_available(action.as_ref(), cx) {
             continue;
         }
@@ -104,6 +113,7 @@ pub fn capture_entries(recent: &[String], window: &mut Window, cx: &mut App) -> 
             recent: recent.iter().position(|r| *r == label),
             label: label.into(),
             binding: binding.map(|b| binding_label(&b).into()),
+            icon,
             action,
         });
     }
@@ -171,9 +181,10 @@ impl CommandPalette {
 
     fn select(&mut self, ix: usize, cx: &mut Context<Self>) {
         if !self.matches.is_empty() {
+            let from = self.selected;
             self.selected = ix.min(self.matches.len() - 1);
             self.scroll
-                .scroll_to_item(self.selected, ScrollStrategy::Top);
+                .scroll_to_item(self.selected, scroll_strategy(from, self.selected));
             cx.notify();
         }
     }
@@ -217,52 +228,36 @@ impl CommandPalette {
         let c = theme(cx).colors.clone();
         let m = &self.matches[ix];
         let entry = &self.entries[m.index];
-        let strong = HighlightStyle {
-            color: Some(c.accent),
-            font_weight: Some(FontWeight::BOLD),
-            ..Default::default()
-        };
         let muted = HighlightStyle {
             color: Some(c.text_muted),
+            font_weight: Some(WEIGHT_REGULAR),
             ..Default::default()
         };
         let label = StyledText::new(entry.label.clone()).with_highlights(label_highlights(
             entry.category_len,
             &m.highlights,
             muted,
-            strong,
+            match_style(cx),
         ));
         let selected = ix == self.selected;
-        let first_other = ix > 0 && self.matches[ix - 1].recent && !m.recent;
-        div()
-            .id(ix)
-            .flex()
-            .items_center()
-            .gap_2()
-            .w_full()
-            .h(px(ROW_HEIGHT))
-            .px_2()
-            .rounded_md()
-            .cursor_pointer()
-            .text_color(c.text)
-            .when(first_other, |el| el.border_t_1().border_color(c.border))
-            .when(selected, |el| el.bg(c.selection))
-            .when(!selected, |el| el.hover(|s| s.bg(c.hover)))
+        picker_row(ix, selected, cx)
+            .child(row_icon(entry.icon, selected, None, cx))
             .child(div().flex_1().min_w_0().truncate().child(label))
-            .when(m.recent && ix == 0, |el| {
-                el.child(
-                    div()
-                        .flex_none()
-                        .text_xs()
-                        .text_color(c.text_muted)
-                        .child("recently used"),
-                )
-            })
             .when_some(entry.binding.clone(), |el, b| {
                 el.child(div().flex_none().child(kbd(b)))
             })
             .on_click(cx.listener(move |palette, _, _, cx| palette.confirm_index(ix, cx)))
             .into_any_element()
+    }
+
+    /// The footer's count: "Recently used first · 8 of 214".
+    fn status(&self) -> gpui::AnyElement {
+        let recent = self.matches.first().is_some_and(|m| m.recent);
+        count_status(
+            recent.then_some("Recently used first"),
+            self.matches.len(),
+            self.entries.len(),
+        )
     }
 }
 
@@ -291,33 +286,11 @@ fn label_highlights(
 
 impl Render for CommandPalette {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let c = theme(cx).colors.clone();
         let count = self.matches.len();
-        let list_height = px(ROW_HEIGHT * count.clamp(1, MAX_VISIBLE_ROWS) as f32 + 8.);
-        let input_row = div()
-            .flex()
-            .items_center()
-            .gap_2()
-            .h(px(40.))
-            .px_3()
-            .border_b_1()
-            .border_color(c.border)
-            .child(icon(IconName::Command).size(px(15.)).color(c.text_muted))
-            .child(div().text_color(c.accent).child(">"))
-            .child(self.input.clone())
-            .child(kbd("Esc"));
         let body = if count == 0 {
-            div()
-                .h(list_height)
-                .flex()
-                .items_center()
-                .px_4()
-                .text_sm()
-                .text_color(c.text_muted)
-                .child("No matching commands")
-                .into_any_element()
+            empty_state("No matching commands", cx).into_any_element()
         } else {
-            uniform_list(
+            let list = uniform_list(
                 "palette-results",
                 count,
                 cx.processor(|palette, range: Range<usize>, _, cx| {
@@ -326,30 +299,25 @@ impl Render for CommandPalette {
                         .collect::<Vec<_>>()
                 }),
             )
-            .track_scroll(self.scroll.clone())
-            .p_1()
-            .h(list_height)
-            .text_sm()
-            .into_any_element()
+            .track_scroll(self.scroll.clone());
+            picker_list(list, count, MAX_VISIBLE_ROWS).into_any_element()
         };
-        div()
+        picker_frame(PALETTE_W, cx)
             .key_context(CONTEXT)
             .on_action(cx.listener(Self::select_prev))
             .on_action(cx.listener(Self::select_next))
             .on_action(cx.listener(Self::confirm))
             .on_action(cx.listener(Self::dismiss))
             .capture_action(cx.listener(Self::on_backspace))
-            .w(px(600.))
-            .flex()
-            .flex_col()
-            .overflow_hidden()
-            .rounded_lg()
-            .border_1()
-            .border_color(c.border)
-            .bg(c.surface_raised)
-            .elevated(cx)
-            .child(input_row)
+            .child(input_row(
+                IconName::Command,
+                Some(">"),
+                self.input.clone(),
+                Some("Commands".into()),
+                cx,
+            ))
             .child(body)
+            .child(footer("run", Some(self.status()), cx))
     }
 }
 
@@ -361,7 +329,7 @@ mod tests {
     fn category_is_muted_around_matches() {
         let m = HighlightStyle::default();
         let s = HighlightStyle {
-            font_weight: Some(FontWeight::BOLD),
+            font_weight: Some(gpui::FontWeight::BOLD),
             ..Default::default()
         };
         let got = label_highlights(5, &[(2..3), (7..9)], m, s);

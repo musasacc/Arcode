@@ -70,11 +70,11 @@ fn light_bulb_and_code_action_menu(cx: &mut TestAppContext) {
     assert_eq!(
         menu(&editor, cx).unwrap(),
         [
-            "[Quick Fix]",
+            "[Quick fix]",
             "> Add missing semicolon",
             "[Extract]",
             "Extract into variable",
-            "[Source Action]",
+            "[Source action]",
             "Organize imports",
         ]
     );

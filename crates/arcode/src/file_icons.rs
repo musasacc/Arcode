@@ -3,33 +3,36 @@
 use arcode_ui_kit::{IconName, ThemeColors};
 use gpui::Hsla;
 
-/// The icon and its color for a file called `name`.
+/// The icon for a file called `name` and its tint by kind (docs/DESIGN.md
+/// 6.5): source files `syntax.type`, manifests `syntax.macro`, docs
+/// `syntax.number`, everything else muted. The same in the file tree, the
+/// tabs and every list, and never ember or a status colour (2.4).
 pub fn file_icon(name: &str, colors: &ThemeColors) -> (IconName, Hsla) {
+    let tint = match file_kind(name) {
+        FileKind::Source => colors.file_source,
+        FileKind::Manifest => colors.file_manifest,
+        FileKind::Doc => colors.file_doc,
+        FileKind::Other => colors.text_muted,
+    };
+    (file_glyph(name), tint)
+}
+
+/// The icon for a file called `name`.
+fn file_glyph(name: &str) -> IconName {
     let lower = name.to_ascii_lowercase();
     match lower.as_str() {
         "cargo.toml" | "cargo.lock" | "package.json" | "package-lock.json" | "go.mod"
-        | "go.sum" | "pyproject.toml" => return (IconName::Package, colors.accent_alt),
-        ".gitignore" | ".gitattributes" | ".gitmodules" => {
-            return (IconName::GitBranch, colors.text_muted);
-        }
+        | "go.sum" | "pyproject.toml" => return IconName::Package,
+        ".gitignore" | ".gitattributes" | ".gitmodules" => return IconName::GitBranch,
         _ => {}
     }
-    let ext = lower.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
-    match ext {
-        "rs" => (IconName::FileText, colors.accent_alt),
-        "md" | "markdown" | "txt" | "rst" => (IconName::FileText, colors.info),
-        "toml" | "yaml" | "yml" | "json" | "ini" | "cfg" | "conf" => {
-            (IconName::Settings, colors.text_muted)
-        }
-        "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" => (IconName::FileText, colors.warning),
-        "py" | "go" | "c" | "h" | "cpp" | "hpp" | "java" | "kt" | "rb" | "sh" | "zig" => {
-            (IconName::FileText, colors.accent)
-        }
-        "html" | "css" | "scss" | "svg" => (IconName::FileText, colors.success),
+    match lower.rsplit_once('.').map_or("", |(_, e)| e) {
+        "toml" | "yaml" | "yml" | "json" | "ini" | "cfg" | "conf" => IconName::Settings,
         "png" | "jpg" | "jpeg" | "gif" | "ico" | "webp" | "ttf" | "otf" | "woff" | "woff2" => {
-            (IconName::File, colors.text_disabled)
+            IconName::File
         }
-        _ => (IconName::File, colors.text_muted),
+        _ if file_kind(name) == FileKind::Other => IconName::File,
+        _ => IconName::FileText,
     }
 }
 
@@ -70,21 +73,10 @@ pub fn file_kind(name: &str) -> FileKind {
     }
 }
 
-/// The icon of [`file_icon`] tinted by kind from the theme's syntax
-/// colors: source files `type`, manifests `function.macro`, docs
-/// `number`, everything else muted. Ties the tree to the editor's palette
-/// instead of a rainbow of language colors.
+/// The icon of a file in the file tree: [`file_icon`] (kept for the tree,
+/// which has the whole theme at hand).
 pub fn file_icon_tinted(name: &str, theme: &arcode_ui_kit::UiTheme) -> (IconName, Hsla) {
-    let c = &theme.colors;
-    let (icon, _) = file_icon(name, c);
-    let syntax = |capture: &str| theme.syntax(capture).color.unwrap_or(c.text_muted);
-    let color = match file_kind(name) {
-        FileKind::Source => syntax("type"),
-        FileKind::Manifest => syntax("function.macro"),
-        FileKind::Doc => syntax("number"),
-        FileKind::Other => c.text_muted,
-    };
-    (icon, color)
+    file_icon(name, &theme.colors)
 }
 
 #[cfg(test)]

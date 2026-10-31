@@ -1,62 +1,19 @@
 //! The custom element that lays out and paints the terminal grid.
 
 use arcode_terminal::{Cell, CursorShape, Rgb, Snapshot};
-use arcode_ui_kit::{apply_glyph_fallbacks, settings, theme};
+use arcode_ui_kit::{apply_glyph_fallbacks, theme};
 use gpui::{
     App, BorderStyle, Bounds, ContentMask, DispatchPhase, Element, ElementId, ElementInputHandler,
-    Entity, Font, FontFallbacks, FontFeatures, FontStyle, FontWeight, GlobalElementId, Hsla,
-    InspectorElementId, IntoElement, LayoutId, MouseMoveEvent, PaintQuad, Pixels, Point,
-    ShapedLine, SharedString, StrikethroughStyle, Style, TextRun, UnderlineStyle, Window, fill,
-    font, outline, point, px, relative, size,
+    Entity, FontStyle, FontWeight, GlobalElementId, Hsla, InspectorElementId, IntoElement,
+    LayoutId, MouseMoveEvent, PaintQuad, Pixels, Point, ShapedLine, SharedString,
+    StrikethroughStyle, Style, TextRun, UnderlineStyle, Window, fill, outline, point, px, relative,
+    size,
 };
 
 use crate::colors::rgb_to_hsla;
 use crate::layout::{CellStyle, background_runs, grid_size, selection_runs, text_segments};
+use crate::metrics::{Metrics, metrics};
 use crate::view::{FrameInfo, TerminalView};
-
-/// Font and cell metrics for one frame.
-struct Metrics {
-    font: Font,
-    font_size: Pixels,
-    cell_width: Pixels,
-    line_height: Pixels,
-}
-
-/// Terminal line height relative to the font size. The editor's spacing
-/// is honored but capped so box-drawing characters still connect.
-const MAX_LINE_HEIGHT: f32 = 1.4;
-
-fn metrics(window: &Window, cx: &App) -> Metrics {
-    let config = settings(cx);
-    let font_size = px(config.terminal_font_size());
-    let mut font = font(config.terminal_font_family().to_owned());
-    if !config.editor.font_fallbacks.is_empty() {
-        font.fallbacks = Some(FontFallbacks::from_fonts(
-            config.editor.font_fallbacks.clone(),
-        ));
-    }
-    if !config.editor.ligatures {
-        font.features = FontFeatures::disable_ligatures();
-    }
-    let text = window.text_system();
-    let id = text.resolve_font(&font);
-    let cell_width = text
-        .advance(id, font_size, 'm')
-        .map(|s| s.width)
-        .or_else(|_| text.em_advance(id, font_size))
-        .unwrap_or(font_size * 0.6);
-    let factor = config.editor.line_height.clamp(1.0, MAX_LINE_HEIGHT);
-    Metrics {
-        font,
-        font_size,
-        cell_width: if cell_width > px(0.) {
-            cell_width
-        } else {
-            font_size * 0.6
-        },
-        line_height: (font_size * factor).round().max(px(1.)),
-    }
-}
 
 /// Everything to paint, computed in prepaint.
 pub(crate) struct Frame {
@@ -136,7 +93,13 @@ impl Element for TerminalElement {
             m.line_height.into(),
         );
         let size_key = (cols, rows, whole_px(m.cell_width), whole_px(m.line_height));
-        let selection = theme(cx).colors.selection;
+        // A selection in an unfocused terminal uses the quieter color.
+        let colors = &theme(cx).colors;
+        let selection = if self.focused {
+            colors.selection
+        } else {
+            colors.selection_inactive
+        };
         let view = self.view.read(cx);
         if view.applied_size != Some(size_key) {
             view.terminal

@@ -281,7 +281,9 @@ impl TextField {
         let focused = focus.is_focused(window);
         let style = window.text_style();
         let (text, color) = if field.text.is_empty() {
-            (field.placeholder.clone(), c.text_disabled)
+            // A hint people read: muted, not `text_disabled` (that one is
+            // for disabled controls only, docs/DESIGN.md 2.4).
+            (field.placeholder.clone(), c.text_muted)
         } else {
             (SharedString::from(field.text.clone()), c.text)
         };

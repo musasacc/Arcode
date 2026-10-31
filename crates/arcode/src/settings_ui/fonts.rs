@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use arcode_config::EditorSettings;
-use arcode_ui_kit::{settings, theme};
+use arcode_ui_kit::{settings, theme, type_scale};
 use gpui::{App, Context, Div, FontFallbacks, FontFeatures, SharedString, div, prelude::*, px};
 
 use super::widgets::{picker_button, setting_row};
@@ -115,7 +115,7 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             "Tried in order for characters the font lacks (CJK, emoji). Edit them in config.toml.",
             div()
                 .max_w(px(260.))
-                .text_xs()
+                .text_size(type_scale(cx).meta)
                 .text_color(c.text_muted)
                 .child(e.font_fallbacks.join(", ")),
             cx,

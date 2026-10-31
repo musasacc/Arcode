@@ -16,15 +16,19 @@ use crate::api::ScrollAnchor;
 use crate::display::{DisplayLine, InlayText, MAX_DISPLAY_CHARS, build_display_line, text_run};
 use crate::editor::Autoscroll;
 use crate::ext::{BlockMap, RowKind};
-use crate::gutter::GutterGeometry;
+use crate::gutter::{GutterGeometry, number_font_size};
+use crate::inline_lens::LensPill;
 use crate::layout_extras::{ExtraItem, ExtraRow, LensHit};
 use crate::scroll::{scrollbar_layout, vertical_autoscroll};
 use crate::style::EditorStyle;
 
 /// Width of the vertical scrollbar.
 pub(crate) const SCROLLBAR_WIDTH: Pixels = px(12.);
-/// Width of the diagnostic marker column.
-pub(crate) const MARKER_WIDTH: Pixels = px(14.);
+/// Width of the run / light bulb column (also the diagnostic dots).
+pub(crate) const MARKER_WIDTH: Pixels = px(16.);
+/// Space under the last line of the text area, so the row bands stay
+/// clear of a rounded panel's bottom corners.
+pub(crate) const BOTTOM_PAD: Pixels = px(4.);
 
 /// One shaped visible line.
 pub(crate) struct VisibleLine {
@@ -33,6 +37,11 @@ pub(crate) struct VisibleLine {
     pub shaped: ShapedLine,
     /// End-of-line virtual text and lenses, x relative to the text origin.
     pub eol: Vec<ExtraItem>,
+    /// Pills behind inline lenses on this line.
+    pub pills: Vec<LensPill>,
+    /// Whether a diagnostic lens is drawn after this line; without one the
+    /// gutter marks the line's diagnostics with a dot.
+    pub diag_lens: bool,
 }
 
 /// Scrollbar geometry in window coordinates.
@@ -144,10 +153,11 @@ impl Editor {
             .unwrap_or(style.font_size * 0.6);
         let line_count = self.buffer.line_count();
         let digits = line_count.to_string().len().max(2);
+        let digit_width = char_width * (number_font_size(style.font_size) / style.font_size);
         let gutter = GutterGeometry::new(
             &self.ext.active_lanes(),
             style.show_line_numbers,
-            char_width,
+            digit_width,
             digits,
         );
         let gutter_width = gutter.width;
@@ -155,7 +165,7 @@ impl Editor {
             point(bounds.left() + gutter_width, bounds.top()),
             size(
                 (bounds.size.width - gutter_width - SCROLLBAR_WIDTH).max(px(1.)),
-                bounds.size.height,
+                (bounds.size.height - BOTTOM_PAD).max(px(1.)),
             ),
         );
         let blocks = BlockMap::new(self.ext.block_lines(), line_count);
@@ -316,6 +326,8 @@ impl Editor {
                     display,
                     shaped,
                     eol: Vec::new(),
+                    pills: Vec::new(),
+                    diag_lens: false,
                 }
             })
             .collect()
@@ -346,16 +358,17 @@ impl Editor {
         self.buffer.line_start(line) + col
     }
 
-    /// Shapes a gutter or popover label with the editor font.
+    /// Shapes a gutter label with the editor font at `font_size`.
     pub(crate) fn shape_label(
         text: SharedString,
         style: &EditorStyle,
+        font_size: Pixels,
         color: gpui::Hsla,
         window: &mut Window,
     ) -> ShapedLine {
         let run = text_run(text.len(), &style.font, &Default::default(), color);
         window
             .text_system()
-            .shape_line(text, style.font_size, &[run], None)
+            .shape_line(text, font_size, &[run], None)
     }
 }

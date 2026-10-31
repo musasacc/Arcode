@@ -25,6 +25,18 @@ pub const TITLE_BAR_HEIGHT: f32 = 40.;
 /// wider (paused: the Paused chip and Continue).
 const SEARCH_W: f32 = 400.;
 const SEARCH_W_NARROW: f32 = 320.;
+/// The narrowest the field gets (its icon); in a narrow window it gives
+/// way before the chips beside it, which never overlap it.
+const SEARCH_MIN_W: f32 = 36.;
+
+/// A part of the search field that gives way as the field narrows: the
+/// shrink is weighted by `priority`, so the hint goes first, then the kbd
+/// chip, and "Search files" truncates last.
+fn yielding(priority: f32) -> gpui::Div {
+    let mut el = div().min_w_0().overflow_hidden().whitespace_nowrap();
+    el.style().flex_shrink = Some(priority);
+    el
+}
 
 /// Changed files of a repository by kind: `~2 +1` in the branch chip.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -111,7 +123,6 @@ pub fn render(
             .items_center()
             .gap(px(6.))
             .px(px(8.))
-            .min_w_0()
             .h(CONTROL_H)
             .rounded(CONTROL_RADIUS)
             .cursor_pointer()
@@ -124,11 +135,14 @@ pub fn render(
                     .color(c.text_muted),
             )
             .child(div().min_w_0().overflow_hidden().child(truncated(branch)))
+            // The counts never shrink: the branch name truncates instead.
             .when(counts.modified > 0, |el| {
-                el.child(readout(format!("~{}", counts.modified)).color(c.info))
+                let n = readout(format!("~{}", counts.modified)).color(c.info);
+                el.child(div().flex_none().child(n))
             })
             .when(counts.added > 0, |el| {
-                el.child(readout(format!("+{}", counts.added)).color(c.success))
+                let n = readout(format!("+{}", counts.added)).color(c.success);
+                el.child(div().flex_none().child(n))
             })
             .tooltip(|_, cx| -> AnyView { Tooltip::text("Switch branch", cx) })
             .on_click(|_, window, cx| {
@@ -137,11 +151,14 @@ pub fn render(
     });
 
     // The spark sits centred over the rail column (no tile behind it).
+    // The two sides and the search field share the width equally (so the
+    // field stays centred) but a side never gets narrower than its content
+    // with every label truncated: in a narrow window the field gives way
+    // first and the sides never overlap it.
     let left = div()
         .flex()
         .flex_1()
         .flex_basis(px(0.))
-        .min_w_0()
         .items_center()
         .gap(px(2.))
         .child(
@@ -168,9 +185,11 @@ pub fn render(
         .flex()
         .items_center()
         .gap(px(8.))
-        .w(px(search_w))
-        .min_w(px(160.))
-        .flex_shrink()
+        .flex_1()
+        .flex_basis(px(0.))
+        .max_w(px(search_w))
+        .min_w(px(SEARCH_MIN_W))
+        .overflow_hidden()
         .h(CONTROL_H)
         .pl(px(10.))
         .pr(px(5.))
@@ -187,22 +206,13 @@ pub fn render(
                 .size(icon_size::TOOLBAR)
                 .color(c.text_muted),
         )
+        .child(yielding(1.).flex_grow().child(truncated("Search files")))
         .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .overflow_hidden()
-                .whitespace_nowrap()
-                .child("Search files"),
-        )
-        .child(
-            div()
-                .flex_none()
-                .whitespace_nowrap()
+            yielding(10_000.)
                 .text_size(scale.meta)
-                .child("> commands"),
+                .child(truncated("> commands")),
         )
-        .child(kbd(shortcut_label("secondary-p")))
+        .child(yielding(100.).child(kbd(shortcut_label("secondary-p"))))
         .child(anchors.recorder(TourTarget::SearchBox))
         .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleFinder), cx));
 
@@ -211,7 +221,6 @@ pub fn render(
         .flex()
         .flex_1()
         .flex_basis(px(0.))
-        .min_w_0()
         .items_center()
         .justify_end()
         .gap(px(4.))

@@ -243,12 +243,13 @@ pub fn theme_card(
                 .flex_1()
                 .min_w_0()
                 .overflow_hidden()
-                .debug_selector(|| "theme-card-label".into())
+                .debug_selector(move || label_selector(selected).into())
                 .child(truncated(label)),
         )
         .into_any_element();
     div()
         .id(id)
+        .debug_selector(move || card_selector(selected).into())
         .flex()
         .flex_col()
         .gap(px(6.))
@@ -264,6 +265,23 @@ pub fn theme_card(
                     .child(truncated(subtitle.into())),
             ),
         )
+}
+
+/// Test hooks: the selected card and its label, and the others.
+pub(crate) fn card_selector(selected: bool) -> &'static str {
+    if selected {
+        "theme-card-selected"
+    } else {
+        "theme-card"
+    }
+}
+
+pub(crate) fn label_selector(selected: bool) -> &'static str {
+    if selected {
+        "theme-card-label-selected"
+    } else {
+        "theme-card-label"
+    }
 }
 
 /// Width taken by `n` cards in a row with `gap` between them.

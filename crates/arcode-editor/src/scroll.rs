@@ -36,6 +36,11 @@ pub(crate) fn vertical_autoscroll(
     }
 }
 
+/// Width of the scrollbar thumb.
+const THUMB_WIDTH: Pixels = px(6.);
+/// Space between the thumb and the track's edges.
+pub(crate) const THUMB_INSET: Pixels = px(3.);
+
 pub(crate) fn scrollbar_layout(
     bounds: Bounds<Pixels>,
     scroll_y: Pixels,
@@ -49,17 +54,18 @@ pub(crate) fn scrollbar_layout(
         point(bounds.right() - SCROLLBAR_WIDTH, bounds.top()),
         size(SCROLLBAR_WIDTH, bounds.size.height),
     );
+    // A 6 px thumb inset 3 px from the track's edges.
+    let inset = THUMB_INSET;
+    let room = (track.size.height - inset * 2.).max(px(1.));
     let content = max_scroll_y + viewport_h;
-    let thumb_h = (track.size.height * (viewport_h / content))
-        .max(px(24.))
-        .min(track.size.height);
+    let thumb_h = (room * (viewport_h / content)).max(px(24.)).min(room);
     let frac = scroll_y / max_scroll_y;
-    let thumb_y = track.top() + (track.size.height - thumb_h) * frac.clamp(0., 1.);
+    let thumb_y = track.top() + inset + (room - thumb_h) * frac.clamp(0., 1.);
     Some(ScrollbarLayout {
         track,
         thumb: Bounds::new(
-            point(track.left() + px(2.), thumb_y),
-            size(SCROLLBAR_WIDTH - px(4.), thumb_h),
+            point(track.right() - inset - THUMB_WIDTH, thumb_y),
+            size(THUMB_WIDTH, thumb_h),
         ),
     })
 }
@@ -107,5 +113,10 @@ mod tests {
         let bar = scrollbar_layout(bounds, px(100.), px(200.), px(200.)).expect("bar");
         assert_eq!(bar.track.left(), px(400.) - SCROLLBAR_WIDTH);
         assert!(bar.thumb.top() > px(0.) && bar.thumb.bottom() < px(200.));
+        // 6 px wide, 3 px from the right edge and from the top at scroll 0.
+        assert_eq!(bar.thumb.size.width, px(6.));
+        assert_eq!(bar.thumb.right(), px(397.));
+        let top = scrollbar_layout(bounds, px(0.), px(200.), px(200.)).expect("bar");
+        assert_eq!(top.thumb.top(), px(3.));
     }
 }

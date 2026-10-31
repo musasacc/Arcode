@@ -1,9 +1,9 @@
 //! Short notices at the cursor ("No code actions available", a rename
 //! error). They close with the next key, click, cursor move or edit.
 
-use arcode_ui_kit::{IconName, icon, settings, theme};
+use arcode_ui_kit::{IconName, icon, popover, theme, type_scale, ui_font_family};
 use gpui::{
-    Context, IntoElement, ParentElement, Render, SharedString, Styled, Window, div, prelude::*, px,
+    Context, IntoElement, ParentElement, Render, SharedString, Styled, Window, prelude::*, px,
 };
 
 use super::NOTICE_POPOVER;
@@ -18,27 +18,18 @@ pub(crate) struct Notice {
 impl Render for Notice {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = theme(cx).colors.clone();
-        let ui = &settings(cx).ui;
-        div()
+        popover(cx)
             .id("editor-notice")
             .occlude()
             .max_w(px(480.))
-            .px_2()
-            .py_1()
-            .flex()
+            .px(px(10.))
+            .py(px(6.))
             .flex_row()
             .items_center()
-            .gap_1p5()
-            .bg(colors.surface_raised)
-            .border_1()
-            .border_color(colors.border)
-            .rounded_md()
-            .shadow_md()
-            .text_size(px(ui.font_size))
+            .gap(px(8.))
+            .font_family(ui_font_family(cx))
+            .text_size(type_scale(cx).body)
             .text_color(colors.text)
-            .when_some(ui.font_family.clone(), |d, f| {
-                d.font_family(SharedString::from(f))
-            })
             .child(icon(IconName::Info).size(px(14.)).color(colors.info))
             .child(self.text.clone())
     }

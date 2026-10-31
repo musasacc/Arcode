@@ -1,7 +1,8 @@
 //! Keymap: a read-only, filterable list of every command and its key
 //! bindings.
 
-use arcode_ui_kit::{input_frame, kbd, theme};
+use arcode_ui_kit::metrics::icon_size;
+use arcode_ui_kit::{IconName, icon, input_frame, kbd, theme, type_scale};
 use gpui::{App, Context, Div, Entity, div, prelude::*};
 
 use super::{SettingsPage, group_title};
@@ -65,11 +66,16 @@ pub(super) fn render(
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .text_sm()
+                    .text_size(type_scale(cx).body)
                     .child(label.clone()),
             );
         if keys.is_empty() {
-            row = row.child(div().text_xs().text_color(c.text_muted).child("—"));
+            row = row.child(
+                div()
+                    .text_size(type_scale(cx).meta)
+                    .text_color(c.text_muted)
+                    .child("—"),
+            );
         }
         for key in keys {
             row = row.child(kbd(key.clone()));
@@ -80,7 +86,7 @@ pub(super) fn render(
         .child(group_title("Key bindings", cx))
         .child(
             div()
-                .text_xs()
+                .text_size(type_scale(cx).meta)
                 .text_color(c.text_muted)
                 .pb_2()
                 .child("Read-only. Shortcuts use Cmd on macOS where this list shows Ctrl."),
@@ -88,11 +94,23 @@ pub(super) fn render(
         .child(
             input_frame(false, false, cx)
                 .mb_2()
-                .child(div().flex_1().min_w_0().child(filter.clone())),
+                .child(
+                    icon(IconName::Search)
+                        .size(icon_size::TOOLBAR)
+                        .color(c.text_muted),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .h_full()
+                        .flex()
+                        .child(filter.clone()),
+                ),
         )
         .child(
             div()
-                .text_xs()
+                .text_size(type_scale(cx).meta)
                 .text_color(c.text_muted)
                 .pb_1()
                 .child(format!("{count} commands")),

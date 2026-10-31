@@ -1,7 +1,7 @@
 //! Plugins section: the master switch for plugin network access and the
 //! way to the Plugins page (list, permissions, install).
 
-use arcode_ui_kit::{IconName, button, settings, theme};
+use arcode_ui_kit::{IconName, button, settings, theme, type_scale};
 use gpui::{Context, Div, div, prelude::*};
 
 use super::widgets::setting_row;
@@ -22,7 +22,7 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
         return el.child(
             div()
                 .pt_4()
-                .text_sm()
+                .text_size(type_scale(cx).body)
                 .text_color(c.text_muted)
                 .child("This build of Arcode has no plugin system."),
         );

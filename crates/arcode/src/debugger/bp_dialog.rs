@@ -1,16 +1,16 @@
 //! The breakpoint dialog (right-click in the breakpoint lane or "Debug:
 //! Edit Breakpoint"): condition, hit count and log message.
 
-use arcode_ui_kit::Elevated;
 use std::path::PathBuf;
 
-use arcode_ui_kit::{ButtonStyle, IconName, button, icon, theme};
+use arcode_ui_kit::{ButtonStyle, IconName, button, icon, input_frame, theme};
 use gpui::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding,
     SharedString, Window, actions, div, prelude::*, px,
 };
 
 use super::breakpoints::Bp;
+use crate::picker_frame::{dialog_buttons, dialog_frame, dialog_title};
 use crate::text_field::TextField;
 
 actions!(breakpoint_dialog, [Save, Cancel, NextField, PreviousField]);
@@ -165,8 +165,9 @@ impl BreakpointDialog {
         div()
             .flex()
             .items_center()
-            .gap_2()
-            .h(px(32.))
+            .gap(px(8.))
+            .h(px(34.))
+            .px(px(16.))
             .child(icon(glyph).size(px(14.)).color(c.text_muted))
             .child(
                 div()
@@ -177,17 +178,9 @@ impl BreakpointDialog {
                     .child(label),
             )
             .child(
-                div()
+                input_frame(focused, true, cx)
                     .flex_1()
                     .min_w_0()
-                    .h(px(26.))
-                    .px_2()
-                    .flex()
-                    .items_center()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(if focused { c.border_focused } else { c.border })
-                    .bg(c.surface)
                     .overflow_hidden()
                     .child(self.fields[ix].clone()),
             )
@@ -196,68 +189,46 @@ impl BreakpointDialog {
 
 impl Render for BreakpointDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let c = theme(cx).colors.clone();
-        div()
+        let mut buttons = Vec::new();
+        if self.exists {
+            buttons.push(
+                button("bp-remove", "Remove")
+                    .style(ButtonStyle::Ghost)
+                    .on_click(cx.listener(|d, _, _, cx| {
+                        cx.emit(BpDialogEvent::Remove {
+                            path: d.path.clone(),
+                            line: d.line,
+                        })
+                    }))
+                    .into_any_element(),
+            );
+        }
+        buttons.push(
+            button("bp-cancel", "Cancel")
+                .style(ButtonStyle::Secondary)
+                .on_click(cx.listener(|_, _, _, cx| cx.emit(BpDialogEvent::Dismissed)))
+                .into_any_element(),
+        );
+        buttons.push(
+            button("bp-save", "Save")
+                .style(ButtonStyle::Primary)
+                .on_click(cx.listener(|d, _, w, cx| d.save(&Save, w, cx)))
+                .into_any_element(),
+        );
+        dialog_frame(px(520.), cx)
             .key_context(CONTEXT)
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::cancel))
             .on_action(cx.listener(|d, _: &NextField, w, cx| d.move_focus(1, w, cx)))
             .on_action(cx.listener(|d, _: &PreviousField, w, cx| d.move_focus(2, w, cx)))
-            .w(px(520.))
-            .flex()
-            .flex_col()
-            .gap_1()
-            .p_3()
-            .rounded_lg()
-            .border_1()
-            .border_color(c.border)
-            .bg(c.surface_raised)
-            .elevated(cx)
-            .text_sm()
-            .child(
-                div()
-                    .pb_1()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .child(self.title.clone()),
-            )
+            .child(dialog_title(self.title.clone(), cx))
             .child(self.row(0, "Condition", IconName::CircleDot, window, cx))
             .child(self.row(1, "Hit count", IconName::History, window, cx))
             .child(self.row(2, "Log message", IconName::FileText, window, cx))
-            .child(
-                div()
-                    .pt_2()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_xs()
-                            .text_color(c.text_muted)
-                            .child("A log message makes it a log point."),
-                    )
-                    .when(self.exists, |el| {
-                        el.child(
-                            button("bp-remove", "Remove")
-                                .style(ButtonStyle::Ghost)
-                                .on_click(cx.listener(|d, _, _, cx| {
-                                    cx.emit(BpDialogEvent::Remove {
-                                        path: d.path.clone(),
-                                        line: d.line,
-                                    })
-                                })),
-                        )
-                    })
-                    .child(
-                        button("bp-cancel", "Cancel")
-                            .style(ButtonStyle::Secondary)
-                            .on_click(cx.listener(|_, _, _, cx| cx.emit(BpDialogEvent::Dismissed))),
-                    )
-                    .child(
-                        button("bp-save", "Save")
-                            .style(ButtonStyle::Primary)
-                            .on_click(cx.listener(|d, _, w, cx| d.save(&Save, w, cx))),
-                    ),
-            )
+            .child(dialog_buttons(
+                Some("A log message makes it a log point.".into_any_element()),
+                buttons,
+                cx,
+            ))
     }
 }

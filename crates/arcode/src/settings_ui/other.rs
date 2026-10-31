@@ -1,7 +1,7 @@
 //! Terminal and Advanced sections.
 
 use arcode_config::SettingEdit;
-use arcode_ui_kit::{ButtonStyle, IconName, button, settings, theme};
+use arcode_ui_kit::{ButtonStyle, IconName, button, settings, theme, type_scale};
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use super::widgets::{picker_button, setting_row, stepped, stepper};
@@ -62,7 +62,10 @@ pub(super) fn render_terminal(page: &SettingsPage, cx: &mut Context<SettingsPage
         .child(setting_row(
             "Program",
             "Set `shell` and `args` under [terminal] in config.toml to change it.",
-            div().text_sm().text_color(c.text_muted).child(shell),
+            div()
+                .text_size(type_scale(cx).body)
+                .text_color(c.text_muted)
+                .child(shell),
             cx,
         ))
         .child(page.number_row(
@@ -189,7 +192,13 @@ pub(super) fn render_advanced(page: &SettingsPage, cx: &mut Context<SettingsPage
             )
         })
         .child(group_title("Configuration file", cx))
-        .child(div().py_2().text_xs().text_color(c.text_muted).child(path))
+        .child(
+            div()
+                .py_2()
+                .text_size(type_scale(cx).meta)
+                .text_color(c.text_muted)
+                .child(path),
+        )
         .child(div().w_full().max_w(px(600.)).child(actions))
 }
 

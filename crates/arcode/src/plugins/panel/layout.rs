@@ -9,7 +9,8 @@ use arcode_plugin_host::bindings::ui::{
     Axis, BadgeProps, Node, SplitProps, StackProps, TabsProps, TextProps, Tone,
 };
 use arcode_ui_kit::{
-    BUNDLED_MONO_FONT, IconName, divider as hdivider, icon, pill_tab, theme, vertical_divider,
+    BUNDLED_MONO_FONT, IconName, divider as hdivider, icon, pill_tab, theme, type_scale,
+    vertical_divider,
 };
 use gpui::{
     AnyElement, App, Bounds, ClipboardItem, Context, CursorStyle, Div, Hsla, MouseButton, Pixels,
@@ -72,8 +73,8 @@ pub(super) fn badge(p: &BadgeProps, cx: &App) -> AnyElement {
         .flex_none()
         .px_1p5()
         .rounded_md()
-        .text_xs()
-        .bg(color.opacity(0.15))
+        .text_size(type_scale(cx).meta)
+        .bg(theme(cx).colors.pill)
         .text_color(color)
         .child(SharedString::from(p.text.clone()));
     copyable(el, p.text.clone()).into_any_element()

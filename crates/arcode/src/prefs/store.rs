@@ -163,7 +163,9 @@ pub fn write_and_report(
     let task = write_settings(edits, cx);
     cx.spawn(async move |cx| {
         if let Err(err) = task.await {
-            ws.update(cx, |ws, cx| ws.show_toast(err, cx)).ok();
+            let error = crate::workspace::ToastLevel::Error;
+            ws.update(cx, |ws, cx| ws.show_toast_as(err, error, cx))
+                .ok();
         }
     })
     .detach();

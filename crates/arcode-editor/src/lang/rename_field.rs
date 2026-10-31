@@ -4,7 +4,7 @@
 
 use std::ops::Range;
 
-use arcode_ui_kit::{settings, theme};
+use arcode_ui_kit::{popover, settings, theme, type_scale, ui_font_family};
 use gpui::{
     Context, IntoElement, Keystroke, ParentElement, Render, SharedString, Styled, Window, div,
     prelude::*, px,
@@ -163,7 +163,7 @@ impl Render for RenameView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = theme(cx).colors.clone();
         let config = settings(cx);
-        let ui_size = px(config.ui.font_size - 1.);
+        let ui_size = type_scale(cx).meta;
         let code_size = px(config.editor.font_size);
         let family = SharedString::from(config.editor.font_family.clone());
         let text = &self.field.text;
@@ -185,27 +185,21 @@ impl Render for RenameView {
             .child(segment(&text[a..b]).bg(colors.selection))
             .when(!caret_first, |d| d.child(caret()))
             .child(segment(&text[b..]));
-        div()
+        // A popover holding a focused input (docs/DESIGN.md 6.12, 6.13).
+        popover(cx)
             .id("rename-field")
             .occlude()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .p_1()
-            .bg(colors.surface_raised)
-            .border_1()
-            .border_color(colors.border)
-            .rounded_md()
-            .shadow_md()
+            .gap(px(4.))
+            .font_family(ui_font_family(cx))
             .child(
                 div()
                     .min_w(px(220.))
-                    .px_1p5()
-                    .py_0p5()
-                    .bg(colors.background)
+                    .px(px(8.))
+                    .py(px(3.))
+                    .bg(colors.canvas)
                     .border_1()
                     .border_color(colors.accent)
-                    .rounded_sm()
+                    .rounded(px(7.))
                     .font_family(family)
                     .text_size(code_size)
                     .text_color(colors.text)
@@ -213,7 +207,8 @@ impl Render for RenameView {
             )
             .child(
                 div()
-                    .px_1()
+                    .px(px(4.))
+                    .pb(px(2.))
                     .text_size(ui_size)
                     .text_color(colors.text_muted)
                     .child("Enter to rename, Escape to cancel"),

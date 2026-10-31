@@ -1,16 +1,20 @@
-//! Layout of end-of-line virtual text and code lenses (at the end of a line
-//! or on a block row above it), and their click targets.
+//! Layout of end-of-line virtual text, inline lenses (diagnostics, the
+//! paused line) and code lenses (at the end of a line or on a block row
+//! above it), and their click targets. All of it is set in the UI font at
+//! the meta size (Inter 12), so it never reads as code.
 
-use arcode_ui_kit::{ThemeColors, theme};
+use arcode_ui_kit::{ThemeColors, settings, theme, type_scale, ui_font_family};
 use gpui::{
-    Bounds, Context, FontStyle, Hsla, Pixels, ShapedLine, SharedString, UnderlineStyle, Window,
-    point, px, size,
+    Bounds, Context, Font, FontStyle, FontWeight, Hsla, Pixels, ShapedLine, SharedString,
+    UnderlineStyle, Window, point, px, size,
 };
 
 use crate::Editor;
+use crate::diagnostics::lens_diagnostics;
 use crate::display::text_run;
 use crate::ext::LensTarget;
 use crate::ext::{CodeLens, LensPlacement};
+use crate::inline_lens::{LENS_GAP, LensShaper, diagnostic_lens, paused_lens};
 use crate::layout::LayoutSnapshot;
 
 /// A shaped piece of extra text; `x` is relative to the text origin.
@@ -34,7 +38,7 @@ pub(crate) struct LensHit {
 }
 
 struct Shaper<'a> {
-    style: &'a crate::EditorStyle,
+    lens: LensShaper,
     colors: &'a ThemeColors,
     hovered: Option<&'a LensTarget>,
     gap: Pixels,
@@ -49,20 +53,18 @@ impl Shaper<'_> {
         underline: bool,
         window: &mut Window,
     ) -> ShapedLine {
-        let mut font = self.style.font.clone();
-        if italic {
-            font.style = FontStyle::Italic;
+        if !underline {
+            return self.lens.shape(text, color, italic, window);
         }
-        let mut run = text_run(text.len(), &font, &Default::default(), color);
-        if underline {
-            run.underline = Some(UnderlineStyle {
-                thickness: px(1.),
-                color: Some(color),
-                wavy: false,
-            });
-        }
-        let size = (self.style.font_size * 0.9).round();
-        window.text_system().shape_line(text, size, &[run], None)
+        let mut run = text_run(text.len(), &self.lens.font, &Default::default(), color);
+        run.underline = Some(UnderlineStyle {
+            thickness: px(1.),
+            color: Some(color),
+            wavy: false,
+        });
+        window
+            .text_system()
+            .shape_line(text, self.lens.size, &[run], None)
     }
 
     /// Shapes `lens` starting at `x`; returns the x after it.
@@ -103,28 +105,59 @@ impl Shaper<'_> {
 }
 
 impl Editor {
-    /// Fills end-of-line items, block rows and lens hit boxes.
+    /// Fills end-of-line items, lens pills, block rows and lens hit boxes.
     pub(crate) fn layout_extras(
         &self,
         snap: &mut LayoutSnapshot,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.ext.has_line_extras() {
+        let mode = settings(cx).editor.inline_diagnostics;
+        let lensed = lens_diagnostics(&self.diagnostics, snap.visible_range(), mode);
+        let paused = self.ext.paused.as_ref();
+        if !self.ext.has_line_extras() && paused.is_none() && lensed.iter().all(Option::is_none) {
             return;
         }
         let colors = theme(cx).colors.clone();
+        let font = Font {
+            family: ui_font_family(cx),
+            features: Default::default(),
+            fallbacks: None,
+            weight: FontWeight::NORMAL,
+            style: FontStyle::Normal,
+        };
         let shaper = Shaper {
-            style: &snap.style,
+            lens: LensShaper {
+                font,
+                size: type_scale(cx).meta,
+            },
             colors: &colors,
             hovered: self.ext.hovered_lens.as_ref(),
-            gap: snap.char_width * 2.,
+            gap: px(16.),
         };
+        // Right edge of the visible text area, relative to the text origin.
+        let right = snap.scroll_x + snap.text_bounds.size.width;
         let mut eols = Vec::with_capacity(snap.lines.len());
         let mut rows = Vec::new();
-        for v in &snap.lines {
+        for (v, diag) in snap.lines.iter().zip(lensed) {
             let mut items = Vec::new();
-            let mut x = v.shaped.width + shaper.gap;
+            let mut pills = Vec::new();
+            let mut x = v.shaped.width + LENS_GAP;
+            let lens = &shaper.lens;
+            // The paused lens takes the place of a diagnostic lens; the
+            // gutter dot then marks the diagnostic.
+            let mut diag_lens = false;
+            if let Some(p) = paused.filter(|p| p.line == v.line) {
+                x = paused_lens(p, x, right, lens, &colors, window, &mut pills, &mut items)
+                    + shaper.gap;
+            } else if let Some(diag) = diag
+                && let Some(end) = diagnostic_lens(
+                    diag, x, right, lens, &colors, window, &mut pills, &mut items,
+                )
+            {
+                x = end + shaper.gap;
+                diag_lens = true;
+            }
             for text in self.ext.eol_text(v.line) {
                 let color = text.color.resolve(&colors);
                 let shaped = shaper.shape(text.text.clone(), color, text.italic, false, window);
@@ -139,7 +172,7 @@ impl Editor {
             for (set, lens) in self.ext.lenses_on(v.line, LensPlacement::EndOfLine) {
                 x = shaper.lens(set, lens, x, &mut items, window);
             }
-            eols.push(items);
+            eols.push((items, pills, diag_lens));
             if snap.blocks.has_block(v.line) {
                 let indent = self
                     .buffer
@@ -158,8 +191,10 @@ impl Editor {
                 });
             }
         }
-        for (v, items) in snap.lines.iter_mut().zip(eols) {
+        for (v, (items, pills, diag_lens)) in snap.lines.iter_mut().zip(eols) {
             v.eol = items;
+            v.pills = pills;
+            v.diag_lens = diag_lens;
         }
         snap.block_rows = rows;
         snap.lens_hits = lens_hits(snap);

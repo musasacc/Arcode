@@ -120,7 +120,10 @@ impl Workspace {
             .map(|m| m.show_panel(&entry.id))
         {
             Some(Ok(call)) => call,
-            Some(Err(e)) => return self.show_toast(format!("{}: {e}", entry.title), cx),
+            Some(Err(e)) => {
+                let text = format!("{}: {e}", entry.title);
+                return self.show_toast_as(text, super::ToastLevel::Error, cx);
+            }
             None => return,
         };
         let key = (call.plugin.clone(), call.panel);

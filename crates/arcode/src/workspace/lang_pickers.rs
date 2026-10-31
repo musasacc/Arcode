@@ -313,7 +313,7 @@ impl Workspace {
                 Ok(()) => {
                     ws.show_toast(format!("{shown} files now open as {}", language.name), cx);
                 }
-                Err(err) => ws.show_toast(err, cx),
+                Err(err) => ws.show_toast_as(err, super::ToastLevel::Error, cx),
             })
             .ok();
         })

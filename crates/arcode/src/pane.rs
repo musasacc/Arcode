@@ -18,14 +18,13 @@ mod detach;
 mod disk_bar;
 mod find;
 mod page;
+#[cfg(test)]
+mod review_tabs;
 mod strip;
 mod tab;
 
 pub use disk_bar::{CompareWithDisk, KeepMyChanges, ReloadFromDisk};
 pub use page::PageTab;
-
-/// Height of the tab strip (docs/DESIGN.md 6.6).
-pub const TAB_BAR_HEIGHT: f32 = 38.;
 
 /// Events emitted by a [`Pane`].
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -96,8 +95,9 @@ pub struct Pane {
     /// Whether the workspace frames this pane (the ember mark on its
     /// active tab); `None` until told, then focus decides.
     framed: Option<bool>,
-    /// The active tab the strip last scrolled to (see `render_tab_strip`).
-    scrolled_to: Option<usize>,
+    /// The active tab the strip last scrolled into view and the strip's
+    /// bounds then (see `strip::Pane::reveal_active_tab`).
+    scrolled_to: Option<(usize, gpui::Bounds<gpui::Pixels>)>,
     _focus_sub: Option<Subscription>,
 }
 
@@ -238,7 +238,6 @@ impl Pane {
         };
         self.active = index;
         self.active_page = None;
-        self.tab_scroll.scroll_to_item(index);
         window.focus(&editor.focus_handle(cx));
         self.sync_find_target(cx);
         cx.emit(PaneEvent::ActiveItemChanged);

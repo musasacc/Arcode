@@ -121,23 +121,28 @@ impl ProjectSearch {
         });
         let (shown, spans) = preview_line(&text, &ranges, expanded.as_deref());
         let struck = expanded.is_some();
+        // Solid text colors only, no translucent fills (docs/DESIGN.md
+        // 2.4 rule 6): matches read like the palette's matched letters,
+        // a replacement preview strikes the old text in `error` and writes
+        // the new text in `success`.
         let styles = spans.into_iter().map(|(r, span)| {
             let style = match span {
                 Span::Match if struck => HighlightStyle {
-                    background_color: Some(c.diff_deleted.opacity(0.25)),
+                    color: Some(c.error),
                     strikethrough: Some(StrikethroughStyle {
                         thickness: px(1.),
-                        color: Some(c.text_muted),
+                        color: Some(c.error),
                     }),
                     ..Default::default()
                 },
                 Span::Match => HighlightStyle {
-                    background_color: Some(c.warning.opacity(0.3)),
+                    color: Some(c.accent),
                     font_weight: Some(FontWeight::SEMIBOLD),
                     ..Default::default()
                 },
                 Span::Insert => HighlightStyle {
-                    background_color: Some(c.diff_added.opacity(0.3)),
+                    color: Some(c.success),
+                    font_weight: Some(FontWeight::SEMIBOLD),
                     ..Default::default()
                 },
             };
