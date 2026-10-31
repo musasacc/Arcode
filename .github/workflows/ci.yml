@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch or pull request cancels the older run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  WASI_SDK_VERSION: "25"
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    # macOS runners are not always available to this account; a macOS job
+    # that fails or never starts is reported but does not fail the run.
+    continue-on-error: ${{ matrix.optional }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            wasi_sdk: x86_64-linux
+            optional: false
+          - os: macos-latest
+            wasi_sdk: arm64-macos
+            optional: true
+          - os: windows-latest
+            wasi_sdk: x86_64-windows
+            optional: false
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      # The toolchain pinned in rust-toolchain.toml, so CI and local builds
+      # agree on the compiler and its lints.
+      - name: Read the pinned toolchain
+        id: toolchain
+        run: |
+          channel="$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+          if [ -z "$channel" ]; then echo "no channel in rust-toolchain.toml" >&2; exit 1; fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          components: clippy, rustfmt
+          targets: wasm32-wasip2
+      - name: Show the toolchain
+        run: rustc --version && cargo --version && cargo clippy --version
+      # GPUI tests run on GPUI's headless test platform, so no display
+      # (Xvfb) is needed.
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libvulkan-dev libx11-xcb-dev libxcb1-dev libfontconfig-dev libfreetype-dev \
+            libssl-dev libzstd-dev
+      - name: Install WASI SDK (clang + wasi-libc for plugins with C code)
+        run: |
+          name="wasi-sdk-${WASI_SDK_VERSION}.0-${{ matrix.wasi_sdk }}"
+          # GNU tar on Windows reads "D:\..." as a remote host, so download
+          # and unpack inside the folder using relative paths only.
+          sdk="$RUNNER_TEMP/wasi-sdk"
+          exe=""
+          if [ "$RUNNER_OS" = Windows ]; then sdk="$(cygpath -m "$RUNNER_TEMP")/wasi-sdk"; exe=".exe"; fi
+          mkdir -p "$sdk"
+          cd "$sdk"
+          curl -sSfL -o wasi-sdk.tar.gz \
+            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/${name}.tar.gz"
+          tar -xzf wasi-sdk.tar.gz --strip-components=1
+          rm wasi-sdk.tar.gz
+          echo "WASI_INCLUDE=$sdk/share/wasi-sysroot/include/wasm32-wasip2" >> "$GITHUB_ENV"
+          echo "CC_wasm32_wasip2=$sdk/bin/clang$exe" >> "$GITHUB_ENV"
+          echo "AR_wasm32_wasip2=$sdk/bin/llvm-ar$exe" >> "$GITHUB_ENV"
+      # Saves the cache even when a later step fails; by default a failed
+      # run saves nothing and the next one builds everything again.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Build
+        id: build
+        run: cargo build --workspace --locked
+      - name: Build plugins and plugin test fixtures
+        run: |
+          scripts/build-test-plugins.sh
+          scripts/build-plugins.sh
+          # The example plugin is not bundled; build it elsewhere so it
+          # keeps compiling without ending up next to the bundled ones.
+          ARCODE_WASM_PLUGINS=target/wasm-examples scripts/build-plugins.sh hello-world
+      # On Linux the run also fails when a test leaves a process running
+      # (the runner used to end with hundreds of orphaned `sleep`s from
+      # fake language servers). The script checks while the tests run,
+      # since a leaked `sleep 30` is gone by the end of a long run.
+      - name: Test
+        id: test
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            python3 -I scripts/check-test-leaks.py cargo test --workspace --locked
+          else
+            cargo test --workspace --locked
+          fi
+      # Lints and formatting are reported even when tests fail.
+      - name: Clippy
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Format
+        if: runner.os == 'Linux' && !cancelled()
+        run: cargo fmt --all -- --check
