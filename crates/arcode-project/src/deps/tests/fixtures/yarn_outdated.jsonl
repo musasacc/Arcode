@@ -1,0 +1,2 @@
+{"type":"info","data":"Color legend : \n \"<red>\"    : Major Update backward-incompatible updates \n"}
+{"type":"table","data":{"head":["Package","Current","Wanted","Latest","Package Type","URL"],"body":[["lodash","4.17.20","4.17.21","4.17.21","dependencies","https://lodash.com/"],["typescript","5.2.2","5.2.2","5.3.3","devDependencies","https://www.typescriptlang.org/"]]}}

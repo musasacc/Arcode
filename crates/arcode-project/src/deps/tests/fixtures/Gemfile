@@ -1,0 +1,21 @@
+source "https://rubygems.org"
+
+ruby "3.2.2"
+
+gem "rails", "~> 7.1.2"
+gem "pg", ">= 0.18", "< 2.0"
+gem "puma", ">= 5.0" # app server
+gem "bootsnap", require: false
+gem "internal_gem", path: "../internal_gem"
+gem "fancy", github: "example/fancy"
+
+group :development, :test do
+  gem "debug", platforms: %i[ mri windows ]
+  gem "rspec-rails"
+end
+
+group :production do
+  gem "lograge"
+end
+
+gem "capybara", group: :test

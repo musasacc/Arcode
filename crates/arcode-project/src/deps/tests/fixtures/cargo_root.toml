@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.dependencies]
+serde = { version = "1.0.190", features = ["derive"] }
+log = "0.4"

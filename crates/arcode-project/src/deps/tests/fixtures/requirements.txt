@@ -1,0 +1,7 @@
+# Production dependencies
+flask==3.0.0
+gunicorn>=21.2  # server
+SQLAlchemy[asyncio]>=2.0,<3 ; python_version >= "3.8"
+-r requirements-base.txt
+--extra-index-url https://example.org/simple
+-e git+https://github.com/example/helpers.git@main#egg=helpers

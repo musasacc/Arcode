@@ -1,0 +1,22 @@
+{
+	"Path": "github.com/example/server",
+	"Main": true,
+	"Dir": "/p",
+	"GoMod": "/p/go.mod",
+	"GoVersion": "1.21"
+}
+{
+	"Path": "github.com/gin-gonic/gin",
+	"Version": "v1.9.1",
+	"Update": {
+		"Path": "github.com/gin-gonic/gin",
+		"Version": "v1.10.0",
+		"Time": "2024-05-07T03:22:40Z"
+	},
+	"Time": "2023-06-02T06:41:17Z"
+}
+{
+	"Path": "github.com/stretchr/testify",
+	"Version": "v1.8.4",
+	"Time": "2023-05-30T15:28:42Z"
+}

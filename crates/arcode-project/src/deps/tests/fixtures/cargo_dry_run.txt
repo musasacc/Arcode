@@ -1,0 +1,8 @@
+    Updating crates.io index
+     Locking 3 packages to latest compatible versions
+    Updating anyhow v1.0.79 -> v1.0.86
+    Updating serde v1.0.195 -> v1.0.203
+   Unchanged rand v0.7.3 (available: v0.8.5)
+   Unchanged regex v1.10.2
+note: to see how you depend on a package, run `cargo tree --invert --package <dep>@<ver>`
+warning: not updating lockfile due to dry run

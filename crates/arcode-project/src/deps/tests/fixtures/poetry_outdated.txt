@@ -1,0 +1,2 @@
+fastapi      0.109.0 0.110.1 FastAPI framework, high performance, easy to learn
+uvicorn  (!) 0.27.0  0.29.0  The lightning-fast ASGI server.

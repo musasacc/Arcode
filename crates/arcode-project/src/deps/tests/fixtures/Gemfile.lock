@@ -1,0 +1,35 @@
+GIT
+  remote: https://github.com/example/fancy.git
+  revision: 0123456789abcdef
+  specs:
+    fancy (0.3.0)
+
+PATH
+  remote: ../internal_gem
+  specs:
+    internal_gem (0.1.0)
+
+GEM
+  remote: https://rubygems.org/
+  specs:
+    actioncable (7.1.2)
+      actionpack (= 7.1.2)
+    bootsnap (1.17.1)
+      msgpack (~> 1.2)
+    nokogiri (1.16.0-x86_64-linux)
+      racc (~> 1.4)
+    pg (1.5.4)
+    puma (6.4.2)
+      nio4r (~> 2.0)
+    rails (7.1.2)
+    rspec-rails (6.1.0)
+
+PLATFORMS
+  x86_64-linux
+
+DEPENDENCIES
+  bootsnap
+  pg (>= 0.18, < 2.0)
+
+BUNDLED WITH
+   2.4.22
