@@ -2,10 +2,11 @@
 //! Entries dispatch the tree's actions, so they show the same key
 //! bindings; Up / Down / Enter / Escape work while it is open.
 
-use arcode_ui_kit::Elevated;
 use std::path::PathBuf;
 
-use arcode_ui_kit::{IconName, icon, theme};
+use arcode_ui_kit::{
+    IconName, icon, kbd, menu_row, menu_separator, popover, theme, ui_font_family,
+};
 use gpui::{
     Action, AnyElement, Context, Pixels, Point, Window, anchored, deferred, div, prelude::*, px,
 };
@@ -192,23 +193,15 @@ impl FileTree {
         let menu = self.menu.as_ref()?;
         let c = theme(cx).colors.clone();
         let focus = self.focus_handle.clone();
-        let mut list = div()
+        let mut list = popover(cx)
             .id("file-tree-menu")
             .min_w(px(220.))
-            .py_1()
-            .flex()
-            .flex_col()
-            .rounded_lg()
-            .border_1()
-            .border_color(c.border)
-            .bg(c.surface_raised)
-            .elevated(cx)
-            .text_sm()
+            .font_family(ui_font_family(cx))
             .occlude()
             .on_mouse_down_out(cx.listener(|tree, _, _, cx| tree.close_menu(cx)));
         for (ix, entry) in self.menu_entries(&menu.target).into_iter().enumerate() {
             let Some((label, icon_name, action)) = entry else {
-                list = list.child(div().h(px(1.)).my_1().bg(c.border));
+                list = list.child(menu_separator(cx));
                 continue;
             };
             let binding = window
@@ -216,23 +209,10 @@ impl FileTree {
                 .map(|b| crate::commands::binding_label(&b));
             let highlighted = menu.highlighted == Some(ix);
             list = list.child(
-                div()
-                    .id(("tree-menu-item", ix))
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .h(px(26.))
-                    .px_2()
-                    .mx_1()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .when(highlighted, |el| el.bg(c.hover))
-                    .hover(|s| s.bg(c.hover))
+                menu_row(("tree-menu-item", ix), highlighted, cx)
                     .child(icon(icon_name).size(px(14.)).color(c.text_muted))
                     .child(div().flex_1().whitespace_nowrap().child(label))
-                    .when_some(binding, |el, keys| {
-                        el.child(div().text_xs().text_color(c.text_muted).child(keys))
-                    })
+                    .when_some(binding, |el, keys| el.child(kbd(keys)))
                     .on_click(move |_, window, cx| {
                         window.dispatch_action(action.boxed_clone(), cx)
                     }),

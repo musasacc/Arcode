@@ -236,7 +236,8 @@ impl Render for FirstRunDialog {
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::accept))
             .on_action(cx.listener(Self::skip))
-            .w(super::first_run_choices::content_width() + px(2. * PADDING))
+            // Three cards a row: the content, the padding and the 1 px edges.
+            .w(super::first_run_choices::content_width() + px(2. * PADDING + 2.))
             .max_h(max_h)
             .overflow_y_scroll()
             .gap_3()

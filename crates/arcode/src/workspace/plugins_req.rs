@@ -67,28 +67,19 @@ impl Workspace {
         root: gpui::Stateful<gpui::Div>,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        use gpui::{InteractiveElement, MouseButton, ParentElement, Styled, div, px};
+        use gpui::{InteractiveElement, MouseButton, ParentElement, div};
         let Some((picker, _)) = &self.plugins.quick_pick else {
             return root;
         };
-        let c = arcode_ui_kit::theme(cx).colors.clone();
         let panel = div()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(picker.clone());
         root.child(
-            div()
-                .id("plugin-pick-backdrop")
-                .absolute()
-                .inset_0()
-                .occlude()
+            crate::picker_frame::picker_layer("plugin-pick-backdrop")
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|ws, _, window, cx| ws.plugin_close_quick_pick(None, window, cx)),
                 )
-                .bg(c.background.opacity(0.35))
-                .flex()
-                .justify_center()
-                .pt(px(crate::title_bar::TITLE_BAR_HEIGHT + 8.))
                 .child(super::overlays::fade_in("plugin-pick-anim", panel, cx)),
         )
     }

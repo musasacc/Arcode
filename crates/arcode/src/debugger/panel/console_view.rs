@@ -3,7 +3,7 @@
 //! 12 on 17 (docs/DESIGN.md 4, 6.8): output muted, what you typed and its
 //! results in `text`, errors in `error`.
 
-use arcode_ui_kit::metrics::type_scale;
+use arcode_ui_kit::metrics::{CONTROL_H, ICON_BUTTON_RADIUS, type_scale};
 use arcode_ui_kit::{IconName, icon, mono_font_family, theme};
 use gpui::{Context, IntoElement, SharedString, div, prelude::*, px, uniform_list};
 
@@ -81,12 +81,12 @@ impl DebugPanel {
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .h(px(28.))
+                    .h(CONTROL_H)
                     .mx(px(8.))
                     .mb(px(8.))
                     .mt(px(4.))
                     .px(px(8.))
-                    .rounded(px(7.))
+                    .rounded(ICON_BUTTON_RADIUS)
                     .border_1()
                     .border_color(if repl_focused {
                         c.accent
@@ -101,7 +101,7 @@ impl DebugPanel {
                             .flex()
                             .flex_1()
                             .min_w_0()
-                            .h(px(26.))
+                            .h(CONTROL_H - px(2.))
                             .child(self.repl.clone()),
                     ),
             )

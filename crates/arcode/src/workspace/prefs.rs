@@ -6,7 +6,7 @@ use arcode_config::{Config, low_end_edits};
 use arcode_ui_kit::{IconName, settings, theme};
 use gpui::{
     AppContext, Context, Div, Focusable, InteractiveElement, MouseButton, Stateful, Window, div,
-    prelude::*, px,
+    prelude::*,
 };
 
 use super::Workspace;
@@ -18,7 +18,6 @@ use crate::prefs::store::write_and_report;
 use crate::prefs::*;
 use crate::settings_ui::{PAGE_KEY, SettingsEvent, SettingsPage};
 use crate::theme_sync;
-use crate::title_bar::TITLE_BAR_HEIGHT;
 
 impl Workspace {
     pub(super) fn register_prefs_actions<E: InteractiveElement>(
@@ -214,14 +213,7 @@ impl Workspace {
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(picker.clone());
             root = root.child(
-                div()
-                    .id("prefs-picker-backdrop")
-                    .absolute()
-                    .inset_0()
-                    .occlude()
-                    .flex()
-                    .justify_center()
-                    .pt(px(TITLE_BAR_HEIGHT + 8.))
+                crate::picker_frame::picker_layer("prefs-picker-backdrop")
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|ws, _, window, cx| ws.close_prefs_picker(true, window, cx)),

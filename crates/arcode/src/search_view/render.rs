@@ -4,7 +4,7 @@
 use std::ops::Range;
 
 use arcode_ui_kit::metrics::{ROW_RADIUS, WEIGHT_MEDIUM, icon_size};
-use arcode_ui_kit::{IconName, badge, icon, icon_button, theme};
+use arcode_ui_kit::{IconName, badge, icon, icon_button, theme, type_scale};
 use gpui::{AnyElement, Context, SharedString, Window, div, prelude::*, px, uniform_list};
 
 use super::results::{Row, split_path};
@@ -134,7 +134,7 @@ impl ProjectSearch {
             .gap_1()
             .px_3()
             .py_1()
-            .text_xs()
+            .text_size(type_scale(cx).meta)
             .when(!text.is_empty(), |el| {
                 el.child(div().text_color(color).child(text))
             })
@@ -208,7 +208,7 @@ impl ProjectSearch {
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .text_xs()
+                    .text_size(type_scale(cx).meta)
                     .text_color(c.text_muted)
                     .child(dir),
             )
@@ -282,7 +282,7 @@ impl Render for ProjectSearch {
             )
             .track_scroll(self.scroll.clone())
             .flex_1()
-            .text_sm()
+            .text_size(type_scale(cx).body)
         });
         div()
             .key_context(CONTEXT)
@@ -310,7 +310,7 @@ impl Render for ProjectSearch {
             .size_full()
             .flex()
             .flex_col()
-            .text_sm()
+            .text_size(type_scale(cx).body)
             .child(self.render_header(cx))
             .child(self.render_inputs(window, cx))
             .child(self.render_status(cx))

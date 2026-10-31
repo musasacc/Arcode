@@ -87,7 +87,8 @@ impl SearchOption {
     }
 }
 
-/// A small square toggle with an accent outline while on.
+/// A small square toggle: `pill` fill and an `accent` icon while on (like
+/// an active icon button), solid `hover` fill on hover.
 pub fn toggle_button(
     id: impl Into<ElementId>,
     icon_name: IconName,
@@ -104,18 +105,14 @@ pub fn toggle_button(
         .items_center()
         .justify_center()
         .size(px(20.))
-        .rounded_sm()
-        .border_1()
+        .rounded(px(5.))
         .cursor_pointer()
-        .when(on, |el| {
-            el.border_color(c.accent).bg(c.accent.opacity(0.18))
-        })
-        .when(!on, |el| el.border_color(gpui::transparent_black()))
-        .hover(|s| s.bg(c.hover))
+        .when(on, |el| el.bg(c.pill))
+        .when(!on, |el| el.hover(|s| s.bg(c.hover)))
         .child(
             icon(icon_name)
                 .size(px(14.))
-                .color(if on { c.text } else { c.text_muted }),
+                .color(if on { c.accent } else { c.text_muted }),
         )
         .tooltip(move |_, cx| -> AnyView { Tooltip::text(tooltip, cx) })
         .on_click(on_click)
@@ -148,7 +145,9 @@ pub fn option_toggles(
 }
 
 /// A bordered single-line input box around `field`, with optional
-/// trailing content (toggles). The border shows focus or an error.
+/// trailing content (toggles): 26 tall, radius 8, `panel` fill, 1 px
+/// `border_strong` edge that turns `accent` with focus or `error` with an
+/// error (docs/DESIGN.md 6.13). On raised surfaces chain `.bg(canvas)`.
 pub fn field_box(
     field: &Entity<TextField>,
     error: bool,
@@ -161,9 +160,9 @@ pub fn field_box(
     let border = if error {
         c.error
     } else if focused {
-        c.border_focused
+        c.accent
     } else {
-        c.border
+        c.border_strong
     };
     div()
         .flex()
@@ -172,11 +171,11 @@ pub fn field_box(
         .h(px(26.))
         .min_w_0()
         .pl_2()
-        .pr_1()
-        .rounded_md()
+        .pr(px(3.))
+        .rounded(px(8.))
         .border_1()
         .border_color(border)
-        .bg(c.background)
+        .bg(c.panel())
         .child(div().flex_1().min_w_0().h_full().child(field.clone()))
         .children(trailing)
 }

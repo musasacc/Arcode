@@ -70,6 +70,12 @@ pub struct ThemeColors {
     /// Solid hover fill of a Primary (accent) button, precomputed from
     /// `accent` (not a theme key).
     pub accent_hover: Hsla,
+    /// File icon tints by kind (docs/DESIGN.md 6.5), taken from the syntax
+    /// colors (not theme keys): source files `type`, manifests
+    /// `function.macro`, docs `number`.
+    pub file_source: Hsla,
+    pub file_manifest: Hsla,
+    pub file_doc: Hsla,
 }
 
 impl ThemeColors {
@@ -136,6 +142,7 @@ impl UiTheme {
     pub fn new(theme: Arc<Theme>) -> Self {
         let u = &theme.ui;
         let is_dark = theme.appearance == Appearance::Dark;
+        let syntax = |capture: &str| hsla(theme.syntax_color(capture).unwrap_or(u.text));
         let colors = ThemeColors {
             background: hsla(u.background),
             surface: hsla(u.surface),
@@ -176,6 +183,9 @@ impl UiTheme {
             paused_line: hsla(u.paused_line),
             shadow: shadow_color(is_dark),
             accent_hover: accent_hover(hsla(u.accent), is_dark),
+            file_source: syntax("type"),
+            file_manifest: syntax("function.macro"),
+            file_doc: syntax("number"),
         };
         let t = &theme.terminal;
         let terminal = TerminalColors {

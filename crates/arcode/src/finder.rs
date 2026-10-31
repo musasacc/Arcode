@@ -1,19 +1,21 @@
 //! The file finder (Ctrl+P): a modal with a query field and the project's
 //! files ranked fuzzily. Ranking runs on a background thread.
 
-use arcode_ui_kit::Elevated;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use arcode_ui_kit::{IconName, icon, kbd, theme};
+use arcode_ui_kit::{IconName, theme, truncated};
 use gpui::{
-    App, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight, HighlightStyle,
-    KeyBinding, ScrollStrategy, SharedString, StyledText, Subscription, Task,
-    UniformListScrollHandle, Window, actions, div, prelude::*, px, uniform_list,
+    App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, ScrollStrategy,
+    Subscription, Task, UniformListScrollHandle, Window, actions, prelude::*, uniform_list,
 };
 
 use crate::file_icons::file_icon;
 use crate::fuzzy::{FileMatch, ranges_within, rank};
+use crate::picker_frame::{
+    PALETTE_W, count_status, empty_state, footer, input_row, match_style, picker_frame,
+    picker_list, picker_row, row_detail, row_icon, row_label, scroll_strategy,
+};
 use crate::text_field::{TextChanged, TextField};
 
 actions!(finder, [SelectPrev, SelectNext, Confirm, Dismiss]);
@@ -21,8 +23,7 @@ actions!(finder, [SelectPrev, SelectNext, Confirm, Dismiss]);
 /// Key context of the finder (also used by the command palette).
 pub(crate) const CONTEXT: &str = "Finder";
 const MAX_RESULTS: usize = 200;
-const ROW_HEIGHT: f32 = 28.;
-const MAX_VISIBLE_ROWS: usize = 12;
+const MAX_VISIBLE_ROWS: usize = 10;
 
 /// Registers the finder's key bindings.
 pub fn bind_keys(cx: &mut App) {
@@ -137,9 +138,10 @@ impl Finder {
 
     fn select(&mut self, ix: usize, cx: &mut Context<Self>) {
         if !self.matches.is_empty() {
+            let from = self.selected;
             self.selected = ix.min(self.matches.len() - 1);
             self.scroll
-                .scroll_to_item(self.selected, ScrollStrategy::Top);
+                .scroll_to_item(self.selected, scroll_strategy(from, self.selected));
             cx.notify();
         }
     }
@@ -189,48 +191,25 @@ impl Finder {
         let path = self.files.get(m.index).map(String::as_str).unwrap_or("");
         let split = path.rfind('/').map_or(0, |i| i + 1);
         let (dir, name) = path.split_at(split);
-        let style = HighlightStyle {
-            color: Some(c.accent),
-            font_weight: Some(FontWeight::BOLD),
-            ..Default::default()
-        };
+        let style = match_style(cx);
         let highlight = |offset: usize, len: usize| {
             ranges_within(&m.highlights, offset, len)
                 .into_iter()
                 .map(|r| (r, style))
                 .collect::<Vec<_>>()
         };
-        let name_text = StyledText::new(SharedString::from(name.to_string()))
-            .with_highlights(highlight(split, name.len()));
+        let name_text = truncated(name.to_string()).highlights(highlight(split, name.len()));
         let dir_trimmed = dir.trim_end_matches('/');
-        let dir_text = StyledText::new(SharedString::from(dir_trimmed.to_string()))
-            .with_highlights(highlight(0, dir_trimmed.len()));
+        // A cut folder keeps its end, next to the file.
+        let dir_text = truncated(dir_trimmed.to_string())
+            .start()
+            .highlights(highlight(0, dir_trimmed.len()));
         let (icon_name, icon_color) = file_icon(name, &c);
         let selected = ix == self.selected;
-        div()
-            .id(ix)
-            .flex()
-            .items_center()
-            .gap_2()
-            .overflow_hidden()
-            .w_full()
-            .h(px(ROW_HEIGHT))
-            .px_2()
-            .rounded_md()
-            .cursor_pointer()
-            .text_color(c.text)
-            .when(selected, |el| el.bg(c.selection))
-            .when(!selected, |el| el.hover(|s| s.bg(c.hover)))
-            .child(icon(icon_name).size(px(14.)).color(icon_color))
-            .child(div().flex_none().whitespace_nowrap().child(name_text))
-            .child(
-                div()
-                    .min_w_0()
-                    .truncate()
-                    .text_xs()
-                    .text_color(c.text_muted)
-                    .child(dir_text),
-            )
+        picker_row(ix, selected, cx)
+            .child(row_icon(icon_name, selected, Some(icon_color), cx))
+            .child(row_label(name_text, !dir_trimmed.is_empty()))
+            .child(row_detail(dir_text, cx))
             .on_click(cx.listener(move |finder, _, _, cx| finder.confirm_index(ix, cx)))
             .into_any_element()
     }
@@ -238,38 +217,14 @@ impl Finder {
 
 impl Render for Finder {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let c = theme(cx).colors.clone();
         let count = self.matches.len();
-        let list_height = px(ROW_HEIGHT * count.clamp(1, MAX_VISIBLE_ROWS) as f32 + 8.);
-        let status: Option<SharedString> = if self.loading && self.files.is_empty() {
-            Some("Indexing project files…".into())
+        let indexing = self.loading && self.files.is_empty();
+        let body = if indexing {
+            empty_state("Indexing project files…", cx).into_any_element()
         } else if count == 0 {
-            Some("No matching files".into())
+            empty_state("No matching files", cx).into_any_element()
         } else {
-            None
-        };
-        let input_row = div()
-            .flex()
-            .items_center()
-            .gap_2()
-            .h(px(40.))
-            .px_3()
-            .border_b_1()
-            .border_color(c.border)
-            .child(icon(IconName::Search).size(px(16.)).color(c.text_muted))
-            .child(self.input.clone())
-            .child(kbd("Esc"));
-        let body = match status {
-            Some(text) => div()
-                .h(list_height)
-                .flex()
-                .items_center()
-                .px_4()
-                .text_sm()
-                .text_color(c.text_muted)
-                .child(text)
-                .into_any_element(),
-            None => uniform_list(
+            let list = uniform_list(
                 "finder-results",
                 count,
                 cx.processor(|finder, range: std::ops::Range<usize>, _, cx| {
@@ -278,29 +233,25 @@ impl Render for Finder {
                         .collect::<Vec<_>>()
                 }),
             )
-            .track_scroll(self.scroll.clone())
-            .p_1()
-            .h(list_height)
-            .text_sm()
-            .into_any_element(),
+            .track_scroll(self.scroll.clone());
+            picker_list(list, count, MAX_VISIBLE_ROWS).into_any_element()
         };
-        div()
+        let status = (!indexing).then(|| count_status(None, count, self.files.len()));
+        picker_frame(PALETTE_W, cx)
             .key_context(CONTEXT)
             .on_action(cx.listener(Self::select_prev))
             .on_action(cx.listener(Self::select_next))
             .on_action(cx.listener(Self::confirm))
             .on_action(cx.listener(Self::dismiss))
-            .w(px(600.))
-            .flex()
-            .flex_col()
-            .overflow_hidden()
-            .rounded_lg()
-            .border_1()
-            .border_color(c.border)
-            .bg(c.surface_raised)
-            .elevated(cx)
-            .child(input_row)
+            .child(input_row(
+                IconName::Search,
+                None,
+                self.input.clone(),
+                Some("Files".into()),
+                cx,
+            ))
             .child(body)
+            .child(footer("open", status, cx))
     }
 }
 

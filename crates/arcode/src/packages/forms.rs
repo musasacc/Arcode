@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 use arcode_project::deps::{
     Manager, PackageAction, is_cmd_shim, validate_package_name, validate_version,
 };
-use arcode_ui_kit::{ButtonStyle, Elevated, IconName, button, icon, switch, theme};
+use arcode_ui_kit::{
+    ButtonStyle, IconName, button, icon, menu_row, popover, switch, theme, type_scale,
+    ui_font_family,
+};
 use gpui::{
     AnyElement, App, AppContext, Context, Entity, Focusable, KeyBinding, Pixels, Point, Window,
     actions, anchored, deferred, div, prelude::*, px,
@@ -169,10 +172,10 @@ impl PackagesView {
                 .items_center()
                 .h(px(26.))
                 .px_1p5()
-                .rounded_md()
+                .rounded(px(8.))
                 .border_1()
-                .border_color(c.border)
-                .bg(c.background)
+                .border_color(c.border_strong)
+                .bg(c.canvas)
                 .child(
                     div()
                         .flex_1()
@@ -208,7 +211,7 @@ impl PackagesView {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .text_xs()
+                        .text_size(type_scale(cx).meta)
                         .text_color(c.text_muted)
                         .child(icon(IconName::Plus).size(px(12.)).color(c.accent))
                         .child(
@@ -225,7 +228,7 @@ impl PackagesView {
                             .flex()
                             .items_center()
                             .gap_2()
-                            .text_xs()
+                            .text_size(type_scale(cx).meta)
                             .child(switch("pkg-add-dev", form.dev).on_click(cx.listener(
                                 |view, _, _, cx| {
                                     if let Some(form) = &mut view.add {
@@ -238,7 +241,12 @@ impl PackagesView {
                     )
                 })
                 .when_some(form.error.clone(), |el, err| {
-                    el.child(div().text_xs().text_color(c.error).child(err))
+                    el.child(
+                        div()
+                            .text_size(type_scale(cx).meta)
+                            .text_color(c.error)
+                            .child(err),
+                    )
                 })
                 .child(
                     div()
@@ -278,18 +286,10 @@ impl PackagesView {
         let menu = self.menu.as_ref()?;
         let c = theme(cx).colors.clone();
         let (section, dep) = (menu.section, menu.dep);
-        let mut list = div()
+        let mut list = popover(cx)
             .id("packages-menu")
             .min_w(px(200.))
-            .py_1()
-            .flex()
-            .flex_col()
-            .rounded_lg()
-            .border_1()
-            .border_color(c.border)
-            .bg(c.surface_raised)
-            .elevated(cx)
-            .text_sm()
+            .font_family(ui_font_family(cx))
             .occlude()
             .on_mouse_down_out(cx.listener(|view, _, _, cx| {
                 view.menu = None;
@@ -297,17 +297,7 @@ impl PackagesView {
             }));
         for (ix, (label, glyph, kind)) in menu_entries(self, menu, cx).into_iter().enumerate() {
             list = list.child(
-                div()
-                    .id(("packages-menu-item", ix))
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .h(px(26.))
-                    .px_2()
-                    .mx_1()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .hover(|s| s.bg(c.hover))
+                menu_row(("packages-menu-item", ix), false, cx)
                     .child(icon(glyph).size(px(14.)).color(c.text_muted))
                     .child(div().flex_1().whitespace_nowrap().child(label))
                     .on_click(

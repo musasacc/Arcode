@@ -2,16 +2,14 @@
 //! the chosen command back there, and switching to and from the file
 //! finder with the `>` prefix.
 
-use gpui::{
-    AppContext, Context, Div, Focusable, MouseButton, Stateful, Window, div, prelude::*, px,
-};
+use gpui::{AppContext, Context, Div, Focusable, MouseButton, Stateful, Window, div, prelude::*};
 
 use super::Workspace;
 use super::overlays::fade_in;
 use crate::actions::{ToggleCommandPalette, ToggleFinder};
 use crate::app_state;
 use crate::commands::palette::{CommandPalette, PaletteEvent, capture_entries};
-use crate::title_bar::TITLE_BAR_HEIGHT;
+use crate::picker_frame::picker_layer;
 
 impl Workspace {
     /// The open command palette.
@@ -99,24 +97,15 @@ impl Workspace {
         let Some(palette) = &self.palette else {
             return root;
         };
-        let c = arcode_ui_kit::theme(cx).colors.clone();
         let panel = div()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(palette.clone());
         root.child(
-            div()
-                .id("palette-backdrop")
-                .absolute()
-                .inset_0()
-                .occlude()
+            picker_layer("palette-backdrop")
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|ws, _, window, cx| ws.close_palette(window, cx)),
                 )
-                .bg(c.background.opacity(0.35))
-                .flex()
-                .justify_center()
-                .pt(px(TITLE_BAR_HEIGHT + 8.))
                 .child(fade_in("palette-anim", panel, cx)),
         )
     }

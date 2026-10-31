@@ -27,13 +27,13 @@ impl ActionGroup {
     /// The group's title in the menu.
     pub fn title(self) -> &'static str {
         match self {
-            ActionGroup::QuickFix => "Quick Fix",
+            ActionGroup::QuickFix => "Quick fix",
             ActionGroup::Extract => "Extract",
             ActionGroup::Inline => "Inline",
             ActionGroup::Rewrite => "Rewrite",
             ActionGroup::Refactor => "Refactor",
-            ActionGroup::Source => "Source Action",
-            ActionGroup::Other => "More Actions",
+            ActionGroup::Source => "Source action",
+            ActionGroup::Other => "More actions",
         }
     }
 
@@ -154,14 +154,14 @@ mod tests {
         assert_eq!(
             labels,
             [
-                "[Quick Fix]",
+                "[Quick fix]",
                 "Import HashMap",
                 "Remove unused",
                 "[Extract]",
                 "Extract into variable",
                 "[Inline]",
                 "(Inline call)",
-                "[Source Action]",
+                "[Source action]",
                 "Organize imports",
             ]
         );

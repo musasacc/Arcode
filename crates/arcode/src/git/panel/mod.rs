@@ -4,6 +4,7 @@
 
 mod commit;
 mod empty;
+mod list_state;
 #[cfg(test)]
 mod review_tests;
 mod rows;
@@ -13,8 +14,8 @@ use std::path::{Path, PathBuf};
 
 use arcode_ui_kit::{IconName, icon_button, theme};
 use gpui::{
-    App, Context, Entity, EventEmitter, FocusHandle, Focusable, PromptLevel, Subscription,
-    UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
+    App, Context, Entity, EventEmitter, FocusHandle, Focusable, PromptLevel, Subscription, Window,
+    div, list, prelude::*, px,
 };
 
 use super::store::{GitEvent, GitStore};
@@ -49,7 +50,7 @@ pub struct GitPanel {
     /// A commit is running; further commit requests are ignored.
     committing: bool,
     collapsed: HashSet<Group>,
-    scroll: UniformListScrollHandle,
+    list: list_state::RowsList,
     focus_handle: FocusHandle,
     _subs: Vec<Subscription>,
 }
@@ -81,7 +82,7 @@ impl GitPanel {
             amend: false,
             committing: false,
             collapsed: HashSet::new(),
-            scroll: UniformListScrollHandle::new(),
+            list: list_state::RowsList::new(),
             focus_handle: cx.focus_handle(),
             _subs: subs,
         }
@@ -258,13 +259,23 @@ impl GitPanel {
                 div()
                     .id(("repo", ix))
                     .px_1p5()
-                    .rounded_md()
-                    .text_xs()
+                    .rounded(px(6.))
+                    .text_size(arcode_ui_kit::type_scale(cx).meta)
                     .cursor_pointer()
                     .border_1()
-                    .border_color(if ix == active { c.accent } else { c.border })
-                    .text_color(if ix == active { c.text } else { c.text_muted })
-                    .hover(|s| s.bg(c.hover))
+                    // The active repository is a selected chip: `pill`
+                    // fill, Medium (docs/DESIGN.md 6.5).
+                    .when(ix == active, |el| {
+                        el.bg(c.pill)
+                            .border_color(c.pill)
+                            .text_color(c.text)
+                            .font_weight(arcode_ui_kit::metrics::WEIGHT_MEDIUM)
+                    })
+                    .when(ix != active, |el| {
+                        el.border_color(c.border)
+                            .text_color(c.text_muted)
+                            .hover(|s| s.bg(c.hover))
+                    })
                     .child(name)
                     .on_click(cx.listener(move |p, _, _, cx| {
                         p.store.update(cx, |s, cx| s.set_active_repo(ix, cx))
@@ -317,23 +328,19 @@ impl Render for GitPanel {
         let rows = build_rows(&self.store.read(cx).snapshot().entries, &self.collapsed);
         let error = self.store.read(cx).snapshot().error.clone();
         let empty = rows.is_empty() && error.is_none();
-        let list = uniform_list(
-            "git-files",
-            rows.len(),
-            cx.processor(move |panel, range: std::ops::Range<usize>, _, cx| {
-                range
-                    .filter_map(|ix| match rows.get(ix)? {
-                        Row::Header(group, count) => {
-                            Some(panel.render_header_row(ix, *group, *count, cx))
-                        }
-                        Row::File(group, entry) => {
-                            Some(panel.render_file_row(ix, *group, entry, cx))
-                        }
-                    })
-                    .collect()
+        self.list.sync(&rows);
+        let list = list(
+            self.list.state().clone(),
+            cx.processor(move |panel, ix: usize, _, cx| match rows.get(ix) {
+                Some(Row::Header(group, count)) => panel
+                    .render_header_row(ix, *group, *count, cx)
+                    .into_any_element(),
+                Some(Row::File(group, entry)) => panel
+                    .render_file_row(ix, *group, entry, cx)
+                    .into_any_element(),
+                None => div().into_any_element(),
             }),
         )
-        .track_scroll(self.scroll.clone())
         .w_full()
         .flex_1();
         root.children(self.render_repo_switcher(cx))

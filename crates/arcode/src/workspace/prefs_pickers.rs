@@ -187,7 +187,7 @@ impl Workspace {
                         } else if let Some(base) = base {
                             arcode_ui_kit::set_settings(base, cx);
                         }
-                        ws.show_toast(err, cx);
+                        ws.show_toast_as(err, super::ToastLevel::Error, cx);
                     })
                     .ok();
                 })

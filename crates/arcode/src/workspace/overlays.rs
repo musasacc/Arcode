@@ -1,14 +1,20 @@
-//! Floating layers above the workspace: the project menu, the file finder,
-//! toast messages and the discard-changes prompt. Each fades in when animations are enabled.
+//! Floating layers above the workspace: the project menu, the file finder
+//! and other pickers, the path prompt and toast messages. Pickers sit 4 px
+//! under the title bar with no dim behind them (docs/DESIGN.md 5.2, 6.11);
+//! toasts sit at the bottom right, 8 px above the footer (6.12). Each fades
+//! in when animations are enabled.
 
-use arcode_ui_kit::Elevated;
-use arcode_ui_kit::{IconName, animation_duration, icon, theme};
+use arcode_ui_kit::metrics::{FOOTER_H, POPOVER_RADIUS, RAIL_W};
+use arcode_ui_kit::{
+    Elevated, IconName, animation_duration, icon, icon_button, theme, type_scale, ui_font_family,
+};
 use gpui::{
     Animation, AnimationExt, AnyElement, App, Context, Div, ElementId, MouseButton, Stateful,
     Window, div, ease_out_quint, prelude::*, px,
 };
 
 use super::Workspace;
+use crate::picker_frame::TOP_GAP;
 use crate::title_bar::TITLE_BAR_HEIGHT;
 
 /// Wraps `el` in a short fade-in, or returns it unchanged when animations
@@ -58,7 +64,7 @@ impl Workspace {
                     div()
                         .absolute()
                         .top(px(TITLE_BAR_HEIGHT - 2.))
-                        .left(px(8.))
+                        .left(RAIL_W)
                         .child(fade_in("project-menu-anim", menu, cx)),
                 ),
             );
@@ -71,10 +77,9 @@ impl Workspace {
                 self.backdrop("finder-backdrop", cx, |ws, window, cx| {
                     ws.close_finder(window, cx)
                 })
-                .bg(c.background.opacity(0.35))
                 .flex()
                 .justify_center()
-                .pt(px(TITLE_BAR_HEIGHT + 8.))
+                .pt(px(TITLE_BAR_HEIGHT + TOP_GAP))
                 .child(fade_in("finder-anim", panel, cx)),
             );
         }
@@ -86,10 +91,9 @@ impl Workspace {
                 self.backdrop("branch-backdrop", cx, |ws, window, cx| {
                     ws.close_branch_picker(window, cx)
                 })
-                .bg(c.background.opacity(0.35))
                 .flex()
                 .justify_center()
-                .pt(px(TITLE_BAR_HEIGHT + 8.))
+                .pt(px(TITLE_BAR_HEIGHT + TOP_GAP))
                 .child(fade_in("branch-anim", panel, cx)),
             );
         }
@@ -101,10 +105,9 @@ impl Workspace {
                 self.backdrop("list-picker-backdrop", cx, |ws, window, cx| {
                     ws.close_list_picker(window, cx)
                 })
-                .bg(c.background.opacity(0.35))
                 .flex()
                 .justify_center()
-                .pt(px(TITLE_BAR_HEIGHT + 8.))
+                .pt(px(TITLE_BAR_HEIGHT + TOP_GAP))
                 .child(fade_in("list-picker-anim", panel, cx)),
             );
         }
@@ -119,37 +122,129 @@ impl Workspace {
                     ws.active_pane().read(cx).focus(window, cx);
                     cx.notify();
                 })
-                .bg(c.background.opacity(0.35))
                 .flex()
                 .justify_center()
-                .pt(px(TITLE_BAR_HEIGHT + 8.))
+                .pt(px(TITLE_BAR_HEIGHT + TOP_GAP))
                 .child(fade_in("path-anim", panel, cx)),
             );
         }
         if let Some(toast) = &self.toast {
+            let (glyph, color) = match self.toast_level {
+                ToastLevel::Error => (IconName::CircleX, c.error),
+                ToastLevel::Warning => (IconName::TriangleAlert, c.warning),
+                ToastLevel::Info => (IconName::Info, c.info),
+            };
             let toast_el = div()
-                .max_w(px(420.))
-                .px_3()
-                .py_2()
+                .max_w(px(480.))
+                .min_h(px(36.))
+                .pl(px(12.))
+                .pr(px(4.))
+                .py(px(4.))
                 .flex()
                 .items_center()
-                .gap_2()
-                .rounded_lg()
+                .gap(px(8.))
+                .rounded(POPOVER_RADIUS)
                 .border_1()
-                .border_color(c.border)
-                .bg(c.surface_raised)
+                .border_color(c.border_strong)
+                .bg(c.panel_raised())
                 .elevated(cx)
-                .text_sm()
-                .child(icon(IconName::Info).size(px(14.)).color(c.info))
-                .child(div().flex_1().min_w_0().child(toast.clone()));
+                .font_family(ui_font_family(cx))
+                .text_size(type_scale(cx).body)
+                .text_color(c.text)
+                .child(icon(glyph).size(px(14.)).color(color))
+                .child(div().flex_1().min_w_0().child(toast.clone()))
+                .child(
+                    icon_button("toast-close", IconName::X)
+                        .size(px(24.))
+                        .tooltip("Dismiss")
+                        .on_click(cx.listener(|ws, _, _, cx| {
+                            ws.toast = None;
+                            ws.toast_task = None;
+                            cx.notify();
+                        })),
+                );
             root = root.child(
                 div()
                     .absolute()
-                    .right(px(12.))
-                    .bottom(px(36.))
+                    .right(px(14.))
+                    .bottom(FOOTER_H + px(8.))
                     .child(fade_in(("toast-anim", self.toast_seq), toast_el, cx)),
             );
         }
         root
+    }
+}
+
+/// The status icon of a toast (docs/DESIGN.md 6.12).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToastLevel {
+    /// `circle-x` in `error`: something the user asked for did not happen.
+    Error,
+    /// `triangle-alert` in `warning`.
+    Warning,
+    /// `info` in `info`.
+    Info,
+}
+
+/// The level of a toast shown with [`Workspace::show_toast`], from its
+/// wording ("Cannot start a terminal", "save failed: …", a plugin's
+/// "plugin `x` is disabled"). Callers that know the level use
+/// [`Workspace::show_toast_as`].
+pub(super) fn toast_level(message: &str) -> ToastLevel {
+    let lower = message.to_lowercase();
+    let error = [
+        "cannot ",
+        "can't ",
+        "could not",
+        "couldn't",
+        "failed",
+        "error",
+        "refused",
+        // The plugin manager's errors (`ManagerError`).
+        "no plugin `",
+        "no contribution `",
+        "` is disabled",
+    ]
+    .iter()
+    .any(|w| lower.contains(w));
+    if error {
+        ToastLevel::Error
+    } else {
+        ToastLevel::Info
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn toast_level_follows_the_wording() {
+        assert_eq!(toast_level("Cannot start a terminal"), ToastLevel::Error);
+        assert_eq!(toast_level("git status failed: x"), ToastLevel::Error);
+        assert_eq!(toast_level("Copied path"), ToastLevel::Info);
+        assert_eq!(toast_level("Saved 3 files"), ToastLevel::Info);
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+
+    /// Errors that reach `show_toast` today without one of the guessed
+    /// words: a plugin command or panel that fails (`plugins_cmd.rs`,
+    /// `plugins_open.rs` format `"{name}: {e}"` with a `ManagerError`).
+    /// They get the blue `info` icon, so the status icon (DESIGN 2.4 rule
+    /// 1, 6.12) says the opposite of what happened.
+    #[test]
+    fn plugin_failures_read_as_errors() {
+        assert_eq!(
+            toast_level("HTTP Client: plugin `http` is disabled"),
+            ToastLevel::Error
+        );
+        assert_eq!(
+            toast_level("Send Request: no contribution `http.send`"),
+            ToastLevel::Error
+        );
     }
 }

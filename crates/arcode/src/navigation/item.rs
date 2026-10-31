@@ -9,6 +9,7 @@ use arcode_editor::Editor;
 use arcode_lsp::PositionEncoding;
 use arcode_lsp::lsp_types;
 use arcode_syntax::{OutlineItem, OutlineKind};
+use arcode_ui_kit::IconName;
 
 use crate::lsp_bridge::convert::buffer_encoding;
 
@@ -67,6 +68,21 @@ pub struct SymbolTag {
     pub label: &'static str,
     /// Theme syntax capture for its color.
     pub capture: &'static str,
+}
+
+impl SymbolTag {
+    /// The Lucide icon of the kind in a picker row (docs/DESIGN.md 6.11).
+    pub fn icon(self) -> IconName {
+        match self.label {
+            "fn" | "new" | "macro" => IconName::SquareFunction,
+            "struct" | "enum" | "class" | "trait" | "interface" | "impl" | "type" | "array"
+            | "obj" | "event" => IconName::Braces,
+            "mod" => IconName::Box,
+            "file" => IconName::File,
+            "#" => IconName::FileText,
+            _ => IconName::Variable,
+        }
+    }
 }
 
 const fn tag(label: &'static str, capture: &'static str) -> Option<SymbolTag> {
@@ -218,5 +234,21 @@ mod tests {
             assert!(lsp_symbol_tag(k).is_some(), "{k:?}");
         }
         assert_eq!(outline_tag(OutlineKind::Trait).unwrap().label, "trait");
+    }
+
+    #[test]
+    fn kinds_have_icons() {
+        use lsp_types::SymbolKind as K;
+        let icon = |k| lsp_symbol_tag(k).unwrap().icon();
+        assert_eq!(icon(K::FUNCTION), IconName::SquareFunction);
+        assert_eq!(icon(K::METHOD), IconName::SquareFunction);
+        assert_eq!(icon(K::STRUCT), IconName::Braces);
+        assert_eq!(icon(K::MODULE), IconName::Box);
+        assert_eq!(icon(K::FIELD), IconName::Variable);
+        assert_eq!(icon(K::CONSTANT), IconName::Variable);
+        let outline = |k| outline_tag(k).unwrap().icon();
+        assert_eq!(outline(OutlineKind::Impl), IconName::Braces);
+        assert_eq!(outline(OutlineKind::Macro), IconName::SquareFunction);
+        assert_eq!(outline(OutlineKind::Heading), IconName::FileText);
     }
 }

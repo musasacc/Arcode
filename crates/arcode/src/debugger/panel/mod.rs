@@ -12,7 +12,7 @@ mod value_style;
 mod variables;
 
 use arcode_ui_kit::metrics::type_scale;
-use arcode_ui_kit::{IconName, icon, icon_button, section_header, spacer, theme};
+use arcode_ui_kit::{IconName, icon, icon_button, section_header, spacer, theme, truncated};
 use gpui::{
     App, AppContext, Context, Entity, FocusHandle, Focusable, IntoElement, KeyBinding,
     ScrollHandle, SharedString, Subscription, UniformListScrollHandle, Window, actions, div,
@@ -162,11 +162,12 @@ impl Render for DebugPanel {
             .into();
         let muted = |text: SharedString| {
             div()
+                .flex()
                 .min_w_0()
-                .truncate()
+                .overflow_hidden()
                 .text_color(c.text_muted)
                 .font_weight(gpui::FontWeight::NORMAL)
-                .child(text)
+                .child(truncated(text))
         };
         let repl_focused = self.repl.focus_handle(cx).is_focused(window);
         let stack = Self::column(
@@ -175,10 +176,10 @@ impl Render for DebugPanel {
         )
         .flex_basis(px(SIDE_COLUMN_W))
         .flex_shrink()
-        .min_w(px(160.));
+        .min_w(px(140.));
         let variables = Self::column(section_header("Variables", cx), self.render_variables(cx))
             .flex_1()
-            .min_w(px(200.));
+            .min_w(px(160.));
         let console = Self::column(
             section_header("Debug console", cx)
                 .child(spacer())
@@ -195,7 +196,7 @@ impl Render for DebugPanel {
         )
         .flex_basis(px(SIDE_COLUMN_W))
         .flex_shrink()
-        .min_w(px(180.));
+        .min_w(px(160.));
         let rule = || div().flex_none().w(px(1.)).h_full().bg(c.border);
         // No fill: the bottom panel's rounded fill shows through.
         div()

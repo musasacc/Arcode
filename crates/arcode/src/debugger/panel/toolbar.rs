@@ -4,9 +4,10 @@
 //! mark, "Paused", why, where and on which thread).
 
 use arcode_dap::SessionState;
-use arcode_ui_kit::metrics::{CONTROL_H_PANEL, WEIGHT_SEMIBOLD, type_scale};
+use arcode_ui_kit::metrics::{CONTROL_H, CONTROL_H_PANEL, WEIGHT_SEMIBOLD, icon_size, type_scale};
 use arcode_ui_kit::{
-    ButtonStyle, IconName, button, ember, icon_button, readout, status_dot, theme,
+    ButtonStyle, IconName, button, ember, icon_button, mono_font_family, status_dot, theme,
+    truncated,
 };
 use gpui::{Action, AnyElement, App, Hsla, IntoElement, SharedString, div, prelude::*, px};
 
@@ -14,8 +15,9 @@ use super::DebugPanel;
 use crate::actions::shortcut_label;
 use crate::debugger::actions::*;
 
-/// One toolbar button. Disabled buttons keep their place with a
-/// `text_disabled` icon (never opacity) and do nothing.
+/// One toolbar button, 28 wide and 26 tall with a 14 px icon. Disabled
+/// buttons keep their place with a `text_disabled` icon (never opacity)
+/// and do nothing.
 #[allow(clippy::too_many_arguments)]
 fn tool(
     id: &'static str,
@@ -31,6 +33,8 @@ fn tool(
     let tooltip = format!("{tip} ({})", shortcut_label(keys));
     let mut b = icon_button(id, glyph)
         .size(CONTROL_H_PANEL)
+        .width(CONTROL_H)
+        .icon_size(icon_size::TOOLBAR)
         .tooltip(tooltip)
         .icon_color(if enabled {
             color.unwrap_or(c.text_muted)
@@ -153,6 +157,7 @@ impl DebugPanel {
             .child(
                 icon_button("dbg-stop", IconName::Square)
                     .size(CONTROL_H_PANEL)
+                    .width(CONTROL_H)
                     .icon_size(px(12.))
                     .icon_color(c.error)
                     .tooltip(format!("Stop ({})", shortcut_label("shift-f5")))
@@ -162,7 +167,8 @@ impl DebugPanel {
     }
 
     /// `◆ Paused on breakpoint main.rs:11 · thread main` while paused; a
-    /// dot and the state otherwise.
+    /// dot and the state otherwise. The muted parts end in `…` when the
+    /// header is short of room; the mark and the state word stay.
     fn render_status(&self, cx: &App) -> AnyElement {
         let c = theme(cx).colors.clone();
         let scale = type_scale(cx);
@@ -179,9 +185,16 @@ impl DebugPanel {
         let word = |text: SharedString| div().flex_none().font_weight(WEIGHT_SEMIBOLD).child(text);
         let muted = |text: String| {
             div()
-                .flex_none()
+                .flex()
+                .min_w_0()
+                .overflow_hidden()
                 .text_color(c.text_muted)
-                .child(SharedString::from(text))
+                .child(truncated(text))
+        };
+        let mono = |text: String| {
+            muted(text)
+                .font_family(mono_font_family())
+                .text_size(scale.readout)
         };
         if let Some(name) = d.preparing() {
             return row
@@ -200,7 +213,7 @@ impl DebugPanel {
             let exit = s.exit_code.map(|code| format!("exit {code}"));
             return row
                 .child(muted(format!("{} ended", s.name)))
-                .children(exit.map(readout))
+                .children(exit.map(mono))
                 .into_any_element();
         }
         if !s.is_stopped() {
@@ -229,7 +242,7 @@ impl DebugPanel {
         row.child(ember())
             .child(word(state.into()))
             .children(why.map(muted))
-            .when(!location.is_empty(), |el| el.child(readout(location)))
+            .when(!location.is_empty(), |el| el.child(mono(location)))
             .into_any_element()
     }
 }

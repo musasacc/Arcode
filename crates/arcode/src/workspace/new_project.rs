@@ -2,17 +2,13 @@
 
 use std::path::PathBuf;
 
-use arcode_ui_kit::theme;
-use gpui::{
-    AppContext, Context, Div, Focusable, MouseButton, Stateful, Window, div, prelude::*, px,
-};
+use gpui::{AppContext, Context, Div, Focusable, MouseButton, Stateful, Window, div, prelude::*};
 
 use super::Workspace;
 use super::overlays::fade_in;
 use crate::app_state;
 use crate::new_project::{NewProjectDialog, NewProjectEvent};
 use crate::path_prompt::expand_home;
-use crate::title_bar::TITLE_BAR_HEIGHT;
 
 impl Workspace {
     /// Where new projects go by default: `workspace.projects_folder`, else
@@ -121,20 +117,11 @@ impl Workspace {
         let Some(dialog) = &self.new_project else {
             return root;
         };
-        let c = theme(cx).colors.clone();
         let panel = div()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(dialog.clone());
         root.child(
-            div()
-                .id("new-project-backdrop")
-                .absolute()
-                .inset_0()
-                .occlude()
-                .bg(c.background.opacity(0.35))
-                .flex()
-                .justify_center()
-                .pt(px(TITLE_BAR_HEIGHT + 8.))
+            crate::picker_frame::picker_layer("new-project-backdrop")
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|ws, _, window, cx| {

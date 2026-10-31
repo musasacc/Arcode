@@ -1,7 +1,8 @@
 //! The branch row and the commit box (message, amend toggle, Commit).
 
 use arcode_git::{CommitOptions, GitError};
-use arcode_ui_kit::{IconName, icon, theme, truncated};
+use arcode_ui_kit::metrics::{CONTROL_H, CONTROL_RADIUS, ROW_RADIUS, WEIGHT_MEDIUM};
+use arcode_ui_kit::{IconName, icon, theme, truncated, type_scale};
 use gpui::{Context, Div, Focusable, Window, div, prelude::*, px};
 
 use super::{GitPanel, GitPanelEvent};
@@ -36,7 +37,7 @@ impl GitPanel {
                     .min_w_0()
                     .px_1p5()
                     .h(px(24.))
-                    .rounded_md()
+                    .rounded(ROW_RADIUS)
                     .cursor_pointer()
                     .hover(|s| s.bg(c.hover))
                     .child(icon(IconName::GitBranch).size(px(14.)).color(c.text_muted))
@@ -62,7 +63,7 @@ impl GitPanel {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .text_xs()
+                        .text_size(type_scale(cx).meta)
                         .text_color(c.warning)
                         .child(icon(IconName::GitMerge).size(px(12.)).color(c.warning))
                         .child("Merging"),
@@ -72,7 +73,7 @@ impl GitPanel {
                 el.child(
                     div()
                         .flex_none()
-                        .text_xs()
+                        .text_size(type_scale(cx).meta)
                         .text_color(c.error)
                         .child(crate::status_bar::conflict_label(None, summary.conflicted)),
                 )
@@ -100,10 +101,10 @@ impl GitPanel {
                     .id("commit-message")
                     .px_2()
                     .py_1()
-                    .rounded_md()
+                    .rounded(CONTROL_RADIUS)
                     .border_1()
-                    .border_color(if focused { c.border_focused } else { c.border })
-                    .bg(c.background)
+                    .border_color(if focused { c.accent } else { c.border_strong })
+                    .bg(c.panel())
                     .h(line_height * rows as f32 + px(10.))
                     .cursor_text()
                     .child(self.message.clone()),
@@ -116,7 +117,7 @@ impl GitPanel {
                         .items_center()
                         .gap_1()
                         .cursor_pointer()
-                        .text_xs()
+                        .text_size(type_scale(cx).meta)
                         .text_color(c.text_muted)
                         .child(
                             div()
@@ -124,9 +125,9 @@ impl GitPanel {
                                 .items_center()
                                 .justify_center()
                                 .size(px(14.))
-                                .rounded_sm()
+                                .rounded(px(4.))
                                 .border_1()
-                                .border_color(if amend { c.accent } else { c.border })
+                                .border_color(if amend { c.accent } else { c.border_strong })
                                 .when(amend, |el| {
                                     el.bg(c.accent).child(
                                         icon(IconName::Check).size(px(10.)).color(c.accent_text),
@@ -144,15 +145,23 @@ impl GitPanel {
                     .items_center()
                     .justify_center()
                     .gap_1p5()
-                    .h(px(28.))
-                    .rounded_md()
-                    .bg(c.accent)
-                    .text_color(c.accent_text)
-                    .text_sm()
+                    .h(CONTROL_H)
+                    .rounded(CONTROL_RADIUS)
+                    .font_weight(WEIGHT_MEDIUM)
                     .cursor_pointer()
-                    .hover(|s| s.bg(c.accent.opacity(0.85)))
-                    .when(!can_commit, |el| el.opacity(0.5))
-                    .child(icon(IconName::Check).size(px(14.)).color(c.accent_text))
+                    // The panel's one primary action; disabled is solid,
+                    // never faded (docs/DESIGN.md 6.13).
+                    .when(can_commit, |el| {
+                        el.bg(c.accent)
+                            .text_color(c.accent_text)
+                            .hover(|s| s.bg(c.accent_hover))
+                    })
+                    .when(!can_commit, |el| el.bg(c.pill).text_color(c.text_disabled))
+                    .child(icon(IconName::Check).size(px(14.)).color(if can_commit {
+                        c.accent_text
+                    } else {
+                        c.text_disabled
+                    }))
                     .child(label)
                     .tooltip(move |_, cx| {
                         let text = format!("{label} ({})", shortcut_label("secondary-enter"));

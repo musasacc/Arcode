@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use arcode_ui_kit::metrics::type_scale;
 use arcode_ui_kit::{
-    IconName, Tooltip, border_width, icon, icon_button, list_row, readout, spacer, theme,
+    IconName, Tooltip, border_width, icon, icon_button, list_row, readout, spacer, theme, truncated,
 };
 use gpui::{AnyView, App, Context, SharedString, div, prelude::*, px};
 
@@ -151,9 +151,11 @@ impl DebugSidebar {
                     .child(dot)
                     .child(
                         div()
-                            .flex_none()
+                            .flex()
+                            .flex_shrink()
+                            .min_w(px(24.))
                             .max_w(px(140.))
-                            .truncate()
+                            .overflow_hidden()
                             .text_color(if !enabled {
                                 c.text_muted
                             } else if problem.is_some() {
@@ -161,16 +163,17 @@ impl DebugSidebar {
                             } else {
                                 c.text
                             })
-                            .child(file),
+                            .child(truncated(file)),
                     )
                     .when_some(suffix, |el, suffix| {
                         el.child(
                             div()
+                                .flex()
                                 .min_w_0()
-                                .truncate()
+                                .overflow_hidden()
                                 .text_size(scale.meta)
                                 .text_color(c.text_muted)
-                                .child(SharedString::from(suffix)),
+                                .child(truncated(suffix)),
                         )
                     })
                     .child(spacer())

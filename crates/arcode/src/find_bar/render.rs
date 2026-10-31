@@ -1,6 +1,8 @@
 //! Drawing the find bar: a query row and an optional replace row.
 
-use arcode_ui_kit::{IconName, icon_button, theme};
+use arcode_ui_kit::{
+    IconName, icon_button, mono_font_family, popover, theme, type_scale, ui_font_family,
+};
 use gpui::{Context, Window, div, prelude::*, px};
 
 use super::{
@@ -12,6 +14,15 @@ use crate::search_widgets::{SearchOption, field_box, option_toggles};
 
 /// Width of the input boxes.
 const FIELD_WIDTH: f32 = 300.;
+/// The narrowest an input box gets in a narrow pane; the status shrinks
+/// first.
+const FIELD_MIN_WIDTH: f32 = 150.;
+/// Room for the status ("12 of 345") even when it is shorter, so the bar
+/// keeps its width while the count changes.
+const STATUS_MIN_WIDTH: f32 = 84.;
+/// How much faster than the query field the status gives way in a narrow
+/// pane.
+const STATUS_SHRINK: f32 = 8.;
 
 impl FindBar {
     fn render_status(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -29,14 +40,22 @@ impl FindBar {
                 if missing { c.warning } else { c.text_muted },
             )
         };
-        div()
-            .flex_none()
-            .min_w(px(84.))
-            .max_w(px(260.))
+        // The text's own width (the mono font advances 0.6 em per
+        // character), at least the minimum: a fixed size, so the bar does
+        // not change width with the text, and one that can shrink with an
+        // ellipsis when the pane is narrow.
+        let size = type_scale(cx).readout;
+        let natural = text.chars().count() as f32 * f32::from(size) * 0.6;
+        let mut status = div()
+            .w(px(natural.ceil().clamp(STATUS_MIN_WIDTH, 260.)))
+            .min_w_0()
             .truncate()
-            .text_xs()
+            .font_family(mono_font_family())
+            .text_size(size)
             .text_color(color)
-            .child(text)
+            .child(text);
+        status.style().flex_shrink = Some(STATUS_SHRINK);
+        status
     }
 }
 
@@ -55,7 +74,9 @@ impl Render for FindBar {
             window,
             cx,
         )
-        .w(px(FIELD_WIDTH));
+        .bg(c.canvas)
+        .w(px(FIELD_WIDTH))
+        .min_w(px(FIELD_MIN_WIDTH));
         let read_only = self
             .editor
             .as_ref()
@@ -64,7 +85,7 @@ impl Render for FindBar {
             .flex()
             .items_center()
             .gap_1()
-            .h(px(32.))
+            .h(px(30.))
             .child(
                 icon_button(
                     "find-toggle-replace",
@@ -92,7 +113,7 @@ impl Render for FindBar {
                     .tooltip("Next Match (Enter)")
                     .on_click(cx.listener(|bar, _, _, cx| bar.go(true, cx))),
             )
-            .child(div().flex_1())
+            .child(div().flex_1().min_w(px(8.)))
             .child(
                 icon_button("find-close", IconName::X)
                     .size(px(22.))
@@ -104,7 +125,7 @@ impl Render for FindBar {
                 .flex()
                 .items_center()
                 .gap_1()
-                .h(px(32.))
+                .h(px(30.))
                 .pl(px(26.))
                 .child(
                     div()
@@ -113,8 +134,9 @@ impl Render for FindBar {
                         .on_action(cx.listener(|bar, _: &ReplaceAllInFile, _, cx| {
                             bar.replace_all(cx);
                         }))
-                        .child(field_box(&self.replacement, false, None, window, cx))
-                        .w(px(FIELD_WIDTH)),
+                        .child(field_box(&self.replacement, false, None, window, cx).bg(c.canvas))
+                        .w(px(FIELD_WIDTH))
+                        .min_w(px(FIELD_MIN_WIDTH)),
                 )
                 .when(!read_only, |el| {
                     el.child(
@@ -136,9 +158,26 @@ impl Render for FindBar {
                     )
                 })
                 .when(read_only, |el| {
-                    el.child(div().text_xs().text_color(c.text_muted).child("Read-only"))
+                    el.child(
+                        div()
+                            .text_size(type_scale(cx).meta)
+                            .text_color(c.text_muted)
+                            .child("Read-only"),
+                    )
                 })
         });
+        // A popover (docs/DESIGN.md 6.12) at the top right of the editor. It
+        // stays in the pane's flow, so it never covers the first lines; the
+        // editor drawn below it would cut its shadow, so it has none.
+        let bar = popover(cx)
+            .shadow(Vec::new())
+            .flex_none()
+            .max_w_full()
+            .font_family(ui_font_family(cx))
+            .text_size(type_scale(cx).body)
+            .text_color(c.text)
+            .child(find_row)
+            .children(replace_row);
         div()
             .key_context(CONTEXT)
             .on_action(cx.listener(|bar, _: &FindNext, _, cx| bar.go(true, cx)))
@@ -157,15 +196,11 @@ impl Render for FindBar {
                 }),
             )
             .flex()
-            .flex_col()
             .flex_none()
-            .px_1()
-            .py_0p5()
-            .bg(c.surface)
-            .border_b_1()
-            .border_color(c.border)
-            .text_sm()
-            .child(find_row)
-            .children(replace_row)
+            .justify_end()
+            .px(px(10.))
+            .pt(px(6.))
+            .pb(px(2.))
+            .child(bar)
     }
 }

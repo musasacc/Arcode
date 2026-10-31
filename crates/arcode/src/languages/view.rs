@@ -185,8 +185,8 @@ impl LanguagesView {
                                     .flex_1()
                                     .min_w_0()
                                     .px_1()
-                                    .rounded_sm()
-                                    .bg(c.background)
+                                    .rounded(px(5.))
+                                    .bg(c.pill)
                                     .text_color(c.text_muted)
                                     .when(server.install_command.is_some(), |el| {
                                         el.font_family(mono)
@@ -287,7 +287,7 @@ impl LanguagesView {
             .rounded_md()
             .border_1()
             .border_color(c.border)
-            .text_xs()
+            .text_size(arcode_ui_kit::type_scale(cx).meta)
             .child(header)
             .when(names.len() > 1, |el| {
                 el.child(div().text_color(c.text_muted).child(names.join(", ")))

@@ -66,10 +66,10 @@ impl GitEditors {
                     return;
                 };
                 let mut text = VirtualText::end_of_line(line, inline_text(entry, now()));
-                text.color = ColorKey::new("text_disabled");
-                // Italic faces often have no fallback for CJK and other
-                // scripts (they render as boxes): only slant Latin-ish text.
-                text.italic = italic_safe(&text.text);
+                // DESIGN.md 6.7: blame is upright muted text in the UI font,
+                // readable (never disabled).
+                text.color = ColorKey::new("text_muted");
+                text.italic = false;
                 state.blame_shown = Some(line);
                 editor.update(cx, |e, cx| e.set_virtual_text(BLAME_SET, vec![text], cx));
             })
@@ -252,25 +252,4 @@ async fn load_blame(
     })
     .ok()?;
     Some(lines)
-}
-
-/// Whether `text` can be drawn italic: only Latin, Greek and Cyrillic
-/// letters and common punctuation, which the editor font's italic face
-/// covers. Other scripts would fall back to fonts without an italic face.
-fn italic_safe(text: &str) -> bool {
-    text.chars()
-        .all(|c| (c as u32) < 0x0530 || ('\u{2000}'..='\u{206F}').contains(&c))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::italic_safe;
-
-    #[test]
-    fn italic_only_for_scripts_the_italic_face_covers() {
-        assert!(italic_safe("Zoë Müller, 3 days ago • Fix the parser…"));
-        assert!(italic_safe("Иван, 2 hours ago • Исправить"));
-        assert!(!italic_safe("Zhang Wei 张伟, 1 day ago • 初始 commit"));
-        assert!(!italic_safe("Ada, 1 day ago • 🎉 release"));
-    }
 }

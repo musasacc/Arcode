@@ -327,15 +327,7 @@ impl Workspace {
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(dialog);
             root = root.child(
-                div()
-                    .id("debug-dialog-backdrop")
-                    .absolute()
-                    .inset_0()
-                    .occlude()
-                    .bg(c.background.opacity(0.35))
-                    .flex()
-                    .justify_center()
-                    .pt(px(TITLE_BAR_HEIGHT + 8.))
+                crate::picker_frame::picker_layer("debug-dialog-backdrop")
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|ws, _, window, cx| {

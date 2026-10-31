@@ -8,6 +8,7 @@ use gpui::{Context, SharedString, div, prelude::*, px};
 use super::first_run::{FirstRunDialog, THEME_CARDS};
 use crate::settings_ui::theme_card::{CardKind, card_subtitle, cards_width, theme_card};
 use crate::settings_ui::widgets::segmented;
+use crate::theme_sync::Themes;
 
 /// Space between theme cards.
 pub(super) const CARD_GAP: f32 = 10.;
@@ -16,7 +17,6 @@ pub(super) const CARD_GAP: f32 = 10.;
 pub(super) fn content_width() -> gpui::Pixels {
     cards_width(3, px(CARD_GAP))
 }
-use crate::theme_sync::Themes;
 
 impl FirstRunDialog {
     pub(super) fn render_choices(&self, cx: &mut Context<Self>) -> gpui::Div {

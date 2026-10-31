@@ -2,7 +2,9 @@
 //! toolbar, dependencies with hover buttons, notes.
 
 use arcode_project::deps::{DepKind, PackageAction};
-use arcode_ui_kit::{ButtonStyle, IconName, button, icon, icon_button, theme};
+use arcode_ui_kit::{
+    ButtonStyle, IconName, button, icon, icon_button, theme, truncated, type_scale,
+};
 use gpui::{
     AnyElement, Context, FontWeight, MouseButton, MouseDownEvent, SharedString, div, prelude::*, px,
 };
@@ -62,7 +64,7 @@ impl PackagesView {
                     .flex()
                     .items_center()
                     .gap_0p5()
-                    .text_xs()
+                    .text_size(type_scale(cx).meta)
                     .text_color(c.text_muted)
                     .child(icon(IconName::Loader).size(px(12.)).color(c.accent))
                     .child("checking")
@@ -128,24 +130,16 @@ impl PackagesView {
                 .size(px(14.))
                 .color(c.text_muted),
             )
-            .child(badge(m.manager.label(), manager_color(m.manager, &c)))
-            .child(
+            .child(badge(m.manager.label(), manager_color(m.manager, &c), cx))
+            .child(crate::sidebar::name_then_hint(
                 div()
-                    .flex_shrink()
-                    .min_w_0()
-                    .truncate()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child(title),
-            )
-            .child(
+                    .child(truncated(title)),
                 div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_xs()
+                    .text_size(type_scale(cx).meta)
                     .text_color(c.text_muted)
-                    .child(location),
-            )
+                    .child(truncated(location)),
+            ))
             .children(status)
             .child(
                 div()
@@ -249,13 +243,13 @@ impl PackagesView {
             .hover(|s| s.bg(c.hover));
         if confirming {
             return crate::sidebar::inset(
-                base.bg(c.error.opacity(0.12))
+                base.bg(c.pill)
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
-                            .truncate()
-                            .child(format!("Remove {}?", d.name)),
+                            .overflow_hidden()
+                            .child(truncated(format!("Remove {}?", d.name))),
                     )
                     .child(
                         button(("pkg-remove-yes", ix), "Remove")
@@ -327,24 +321,21 @@ impl PackagesView {
             _ => c.text_muted,
         };
         let row = base
-            .child(div().flex_none().text_color(c.text).child(d.name.clone()))
-            .child(
+            .child(crate::sidebar::name_then_hint(
+                div().text_color(c.text).child(truncated(d.name.clone())),
                 div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_xs()
+                    .text_size(type_scale(cx).meta)
                     .text_color(c.text_muted)
-                    .child(version_text(d)),
-            )
+                    .child(truncated(version_text(d))),
+            ))
             .when(d.kind != DepKind::Normal, |el| {
-                el.child(badge(d.kind.label(), kind_color))
+                el.child(badge(d.kind.label(), kind_color, cx))
             })
             .when(!d.source.label().is_empty(), |el| {
-                el.child(badge(d.source.label(), c.text_muted))
+                el.child(badge(d.source.label(), c.text_muted, cx))
             })
             .when_some(newer, |el, latest| {
-                el.child(badge(format!("newer: {latest}"), c.success))
+                el.child(badge(format!("newer: {latest}"), c.success, cx))
             })
             .child(actions)
             .when(self.menu.is_none(), |el| {
@@ -379,9 +370,9 @@ impl PackagesView {
             .pr_2()
             .w_full()
             .overflow_hidden()
-            .text_xs()
+            .text_size(type_scale(cx).meta)
             .text_color(color)
-            .child(div().truncate().child(text))
+            .child(div().min_w_0().overflow_hidden().child(truncated(text)))
             .into_any_element()
     }
 }

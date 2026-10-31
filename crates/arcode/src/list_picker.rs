@@ -2,35 +2,29 @@
 //! and indentation pickers of the status bar. Uses the finder's key
 //! bindings (up/down/enter/escape).
 
-use arcode_ui_kit::Elevated;
-use arcode_ui_kit::{IconName, icon, kbd, theme};
+use arcode_ui_kit::{IconName, icon, theme, truncated};
 use gpui::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, ScrollHandle,
     SharedString, Subscription, Window, div, point, prelude::*, px,
 };
 
 use crate::finder::{Confirm, Dismiss, SelectNext, SelectPrev};
+use crate::picker_frame::{
+    self, LIST_PAD, ROW_H, count_status, empty_state, footer, input_row, picker_frame, picker_row,
+    row_detail, row_label,
+};
 use crate::text_field::{TextChanged, TextField};
 
-const ROW_HEIGHT: f32 = 28.;
+const ROW_HEIGHT: f32 = ROW_H;
 const MAX_ROWS: usize = 12;
 /// Padding above the first row (and below the last) of the list.
-const LIST_PADDING: f32 = 4.;
+const LIST_PADDING: f32 = LIST_PAD;
 
 /// The scroll offset (negative, as GPUI stores it) that shows `row` fully
 /// in a list of fixed-height rows scrolled to `offset`, moving as little
 /// as possible.
 pub fn offset_showing(offset: f32, row: usize) -> f32 {
-    let viewport = ROW_HEIGHT * MAX_ROWS as f32 + 2. * LIST_PADDING;
-    let top = LIST_PADDING + row as f32 * ROW_HEIGHT;
-    let bottom = top + ROW_HEIGHT;
-    if top + offset < 0. {
-        -(top - LIST_PADDING)
-    } else if bottom + offset > viewport {
-        viewport - LIST_PADDING - bottom
-    } else {
-        offset
-    }
+    picker_frame::offset_showing(offset, row, MAX_ROWS)
 }
 
 /// One choice.
@@ -214,34 +208,16 @@ impl ListPicker {
         let c = theme(cx).colors.clone();
         let item = &self.items[self.shown[row]];
         let selected = row == self.selected;
-        div()
-            .id(("pick-item", row))
-            .flex()
-            .items_center()
-            .gap_2()
+        picker_row(("pick-item", row), selected, cx)
             .h(px(ROW_HEIGHT))
-            .px_2()
-            .rounded_md()
-            .cursor_pointer()
-            .when(selected, |el| el.bg(c.selection))
-            .when(!selected, |el| el.hover(|s| s.bg(c.hover)))
-            .child(div().w(px(14.)).flex_none().when(item.current, |el| {
-                el.child(icon(IconName::Check).size(px(14.)).color(c.accent))
+            .child(div().w(px(15.)).flex_none().when(item.current, |el| {
+                el.child(icon(IconName::Check).size(px(15.)).color(c.accent))
             }))
-            .child(
-                div()
-                    .flex_none()
-                    .whitespace_nowrap()
-                    .child(item.label.clone()),
-            )
-            .child(
-                div()
-                    .min_w_0()
-                    .truncate()
-                    .text_xs()
-                    .text_color(c.text_muted)
-                    .child(item.detail.clone()),
-            )
+            .child(row_label(
+                truncated(item.label.clone()),
+                !item.detail.is_empty(),
+            ))
+            .child(row_detail(truncated(item.detail.clone()), cx))
             .on_hover(cx.listener(move |p, hovered: &bool, _, cx| {
                 if *hovered {
                     p.hover_row(row, cx)
@@ -253,58 +229,31 @@ impl ListPicker {
 
 impl Render for ListPicker {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let c = theme(cx).colors.clone();
         let rows: Vec<_> = (0..self.shown.len())
             .map(|row| self.render_row(row, cx).into_any_element())
             .collect();
         let empty = rows.is_empty();
-        div()
+        let status = count_status(None, self.shown.len(), self.items.len());
+        picker_frame(px(480.), cx)
             .key_context(crate::finder::CONTEXT)
             .on_action(cx.listener(|p, _: &SelectPrev, _, cx| p.step(-1, cx)))
             .on_action(cx.listener(|p, _: &SelectNext, _, cx| p.step(1, cx)))
             .on_action(cx.listener(|p, _: &Confirm, _, cx| p.confirm(cx)))
             .on_action(cx.listener(|_, _: &Dismiss, _, cx| cx.emit(ListPickerEvent::Dismissed)))
-            .w(px(480.))
-            .flex()
-            .flex_col()
-            .overflow_hidden()
-            .rounded_lg()
-            .border_1()
-            .border_color(c.border)
-            .bg(c.surface_raised)
-            .elevated(cx)
-            .text_sm()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .h(px(40.))
-                    .px_3()
-                    .border_b_1()
-                    .border_color(c.border)
-                    .child(icon(self.icon).size(px(16.)).color(c.text_muted))
-                    .child(self.input.clone())
-                    .child(kbd("Esc")),
-            )
-            .child(
-                div()
-                    .id("pick-list")
-                    .track_scroll(&self.scroll)
-                    .p(px(LIST_PADDING))
-                    .max_h(px(ROW_HEIGHT * MAX_ROWS as f32 + 8.))
-                    .overflow_y_scroll()
-                    .when(empty, |el| {
-                        el.child(
-                            div()
-                                .px_3()
-                                .py_2()
-                                .text_color(c.text_muted)
-                                .child("No matches"),
-                        )
-                    })
-                    .children(rows),
-            )
+            .child(input_row(self.icon, None, self.input.clone(), None, cx))
+            .when(empty, |el| el.child(empty_state("No matches", cx)))
+            .when(!empty, |el| {
+                el.child(
+                    div()
+                        .id("pick-list")
+                        .track_scroll(&self.scroll)
+                        .p(px(LIST_PADDING))
+                        .max_h(px(ROW_HEIGHT * MAX_ROWS as f32 + 2. * LIST_PADDING))
+                        .overflow_y_scroll()
+                        .children(rows),
+                )
+            })
+            .child(footer("choose", Some(status), cx))
     }
 }
 

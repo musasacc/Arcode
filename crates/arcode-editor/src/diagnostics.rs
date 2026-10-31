@@ -3,6 +3,7 @@
 use std::ops::Range;
 
 use arcode_buffer::{Edit, Point};
+use arcode_config::InlineDiagnostics;
 use arcode_ui_kit::{IconName, ThemeColors};
 use gpui::Hsla;
 
@@ -52,6 +53,8 @@ pub struct EditorDiagnostic {
     pub message: String,
     /// Who produced it, e.g. `rust-analyzer`.
     pub source: String,
+    /// The diagnostic's code, e.g. `E0308` (shown in the inline lens).
+    pub code: Option<String>,
 }
 
 /// Maps `p` (at or after the edit's old end) into post-edit coordinates.
@@ -111,6 +114,61 @@ pub fn line_severities(
     out
 }
 
+/// The diagnostic whose inline lens is drawn after each line in `lines`
+/// (`editor.inline_diagnostics`): the most severe one starting on the line
+/// that `mode` shows. Among equals it is the one with the shortest first
+/// message line (it fits the lens best), then the leftmost, then by
+/// source, so the choice never depends on which server published first.
+pub(crate) fn lens_diagnostics(
+    diagnostics: &[EditorDiagnostic],
+    lines: Range<usize>,
+    mode: InlineDiagnostics,
+) -> Vec<Option<&EditorDiagnostic>> {
+    let mut out: Vec<Option<&EditorDiagnostic>> = vec![None; lines.len()];
+    if mode == InlineDiagnostics::Off {
+        return out;
+    }
+    for d in diagnostics {
+        let line = d.range.start.line;
+        if !lines.contains(&line) || !mode.shows(d.severity == DiagnosticSeverity::Error) {
+            continue;
+        }
+        let slot = &mut out[line - lines.start];
+        if slot.is_none_or(|s| d.lens_rank() < s.lens_rank()) {
+            *slot = Some(d);
+        }
+    }
+    out
+}
+
+impl EditorDiagnostic {
+    /// Sort key for [`lens_diagnostics`]: lower wins the lens.
+    fn lens_rank(&self) -> (DiagnosticSeverity, usize, usize, &str, &str) {
+        let first = self.message.lines().next().unwrap_or("").trim_end();
+        let code = self.code.as_deref().unwrap_or("");
+        (
+            self.severity,
+            first.chars().count(),
+            self.range.start.column,
+            &self.source,
+            code,
+        )
+    }
+
+    /// The lens text: the first line of the message, and the muted
+    /// "source code" part (`rustc E0308`), empty when there is neither.
+    pub(crate) fn lens_text(&self) -> (&str, String) {
+        let message = self.message.lines().next().unwrap_or("").trim_end();
+        let meta = [Some(self.source.as_str()), self.code.as_deref()]
+            .into_iter()
+            .flatten()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        (message, meta)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,6 +180,7 @@ mod tests {
             severity: DiagnosticSeverity::Error,
             message: "m".into(),
             source: "s".into(),
+            code: None,
         }
     }
 
@@ -166,5 +225,54 @@ mod tests {
         let ds = vec![w, diag((1, 2), (1, 3)), diag((5, 0), (5, 0))];
         let s = line_severities(&ds, 0..3);
         assert_eq!(s, vec![None, Some(DiagnosticSeverity::Error), None]);
+    }
+
+    #[test]
+    fn lens_follows_the_setting_and_prefers_errors() {
+        let mut w = diag((1, 0), (1, 1));
+        w.severity = DiagnosticSeverity::Warning;
+        w.message = "unused".into();
+        let mut e = diag((1, 2), (1, 3));
+        e.message = "mismatched types\nexpected i32".into();
+        e.source = "rustc".into();
+        e.code = Some("E0308".into());
+        let ds = vec![w, e, diag((7, 0), (7, 0))];
+        let errors = lens_diagnostics(&ds, 0..3, InlineDiagnostics::Errors);
+        assert_eq!(errors.len(), 3);
+        let lens = errors[1].expect("lens on line 1");
+        assert_eq!(lens.lens_text(), ("mismatched types", "rustc E0308".into()));
+        assert!(errors[0].is_none() && errors[2].is_none());
+        let off = lens_diagnostics(&ds, 0..3, InlineDiagnostics::Off);
+        assert!(off.iter().all(Option::is_none));
+        // Warnings get a lens only with "all".
+        let only_warning = [ds[0].clone()];
+        assert!(lens_diagnostics(&only_warning, 0..3, InlineDiagnostics::Errors)[1].is_none());
+        let all = lens_diagnostics(&only_warning, 0..3, InlineDiagnostics::All);
+        assert_eq!(all[1].map(|d| d.lens_text()), Some(("unused", "s".into())));
+    }
+
+    #[test]
+    fn lens_choice_does_not_depend_on_arrival_order() {
+        // rust-analyzer reports E0308 twice: its own wording and rustc's.
+        let mut ra = diag((1, 13), (1, 19));
+        ra.message = "expected i32, found &'static str".into();
+        ra.source = "rust-analyzer".into();
+        let mut rustc = ra.clone();
+        rustc.message = "mismatched types\nexpected `i32`, found `&str`".into();
+        rustc.source = "rustc".into();
+        for ds in [
+            vec![ra.clone(), rustc.clone()],
+            vec![rustc.clone(), ra.clone()],
+        ] {
+            let lens = lens_diagnostics(&ds, 0..3, InlineDiagnostics::Errors);
+            assert_eq!(lens[1].map(|d| d.source.as_str()), Some("rustc"));
+        }
+        // Severity still comes first: a long error beats a short warning.
+        let mut w = rustc.clone();
+        w.severity = DiagnosticSeverity::Warning;
+        w.message = "x".into();
+        let ds = [w, ra.clone()];
+        let lens = lens_diagnostics(&ds, 0..3, InlineDiagnostics::All);
+        assert_eq!(lens[1].map(|d| d.source.as_str()), Some("rust-analyzer"));
     }
 }

@@ -241,10 +241,11 @@ impl DebugSidebar {
                         }))
                         .child(
                             div()
+                                .flex()
                                 .flex_1()
                                 .min_w_0()
-                                .truncate()
-                                .child(SharedString::from(choice.name.clone())),
+                                .overflow_hidden()
+                                .child(truncated(choice.name.clone())),
                         )
                         .child(
                             div()

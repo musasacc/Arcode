@@ -6,8 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use arcode_editor::{
-    BackgroundHighlight, ColorKey, DotStyle, Editor, EditorEvent, GutterDecoration, GutterLane,
-    GutterMark,
+    ColorKey, DotStyle, Editor, EditorEvent, GutterDecoration, GutterLane, GutterMark,
 };
 use arcode_project::Runnable;
 use arcode_ui_kit::{IconName, settings};
@@ -160,18 +159,13 @@ impl Debugger {
             .as_ref()
             .filter(|(p, _)| Some(p) == path.as_ref())
             .map(|(_, line)| *line);
-        let mut on_stopped_line = false;
         let marks: Vec<GutterDecoration> = path
             .as_deref()
             .map(|path| {
                 self.book
                     .in_file(path)
-                    .filter(|bp| {
-                        // The stopped arrow replaces the dot on its line.
-                        let hidden = Some(bp.line) == stopped;
-                        on_stopped_line |= hidden;
-                        !hidden
-                    })
+                    // The paused-frame dot replaces the dot on its line.
+                    .filter(|bp| Some(bp.line) != stopped)
                     .map(|bp| {
                         let unverified = session_live && bp.verified == Some(false);
                         let (color, style) = match (bp.enabled && !unverified, bp.kind()) {
@@ -217,8 +211,17 @@ impl Debugger {
         if let Some(path) = &path {
             self.remember_lines(editor, path, cx);
         }
-        let arrow_color = if on_stopped_line { "error" } else { "warning" };
+        let paused = stopped.map(|line| {
+            let buffer = editor.read(cx).buffer();
+            let text = if line < buffer.line_count() {
+                buffer.line(line).to_string()
+            } else {
+                String::new()
+            };
+            self.paused_line(line, &text)
+        });
         editor.update(cx, |e, cx| {
+            e.set_paused_line(paused, cx);
             let show_lane = path.is_some() && (debuggable || !marks.is_empty());
             e.set_gutter_lane_visible(GutterLane::Breakpoints, show_lane, cx);
             if e.gutter_decorations(BREAKPOINT_SET) != marks.as_slice() {
@@ -232,20 +235,17 @@ impl Debugger {
                     let arrow = vec![GutterDecoration {
                         line,
                         lane: GutterLane::Breakpoints,
-                        mark: GutterMark::Icon {
-                            icon: IconName::ArrowRight,
-                            color: ColorKey::new(arrow_color),
+                        // DESIGN.md 6.7: always the `error` circle, on a
+                        // breakpoint and after a step alike.
+                        mark: GutterMark::Dot {
+                            color: ColorKey::new("error"),
+                            style: DotStyle::PausedFrame,
                         },
                         tag: u64::MAX,
                     }];
+                    // The editor draws the paused band from the paused line.
                     if e.gutter_decorations(STOPPED_SET) != arrow.as_slice() {
                         e.set_gutter_decorations(STOPPED_SET, arrow, cx);
-                        let color = ColorKey::new("warning").opacity(0.18);
-                        e.set_background_highlights(
-                            STOPPED_SET,
-                            vec![BackgroundHighlight::lines(line..line + 1, color)],
-                            cx,
-                        );
                     }
                 }
                 None => {

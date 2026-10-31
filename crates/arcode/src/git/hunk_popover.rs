@@ -2,8 +2,10 @@
 //! hunk and Stage / Unstage / Revert buttons.
 
 use arcode_git::{ChangeKind, GutterHunk};
-use arcode_ui_kit::Elevated;
-use arcode_ui_kit::{ButtonStyle, IconName, button, icon_button, settings, theme};
+use arcode_ui_kit::{
+    ButtonStyle, IconName, button, icon_button, popover, settings, theme, type_scale,
+    ui_font_family,
+};
 use gpui::{
     Context, EntityId, IntoElement, MouseButton, Render, WeakEntity, Window, div, prelude::*, px,
 };
@@ -43,7 +45,6 @@ impl HunkPopover {
         label: &'static str,
         action: HunkAction,
         enabled: bool,
-        cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let git = self.git.clone();
         let (editor, index) = (self.editor, self.index);
@@ -52,16 +53,14 @@ impl HunkPopover {
         } else {
             ButtonStyle::Secondary
         };
-        let c = theme(cx).colors.clone();
-        div()
-            .when(!enabled, |el| el.opacity(0.4))
-            .child(button(id, label).style(style).on_click(move |_, _, cx| {
-                if enabled {
-                    git.update(cx, |git, cx| git.hunk_action(editor, index, action, cx))
-                        .ok();
-                }
-            }))
-            .text_color(c.text)
+        button(id, label)
+            .style(style)
+            .compact()
+            .disabled(!enabled)
+            .on_click(move |_, _, cx| {
+                git.update(cx, |git, cx| git.hunk_action(editor, index, action, cx))
+                    .ok();
+            })
     }
 }
 
@@ -80,6 +79,7 @@ pub fn hunk_title(hunk: &GutterHunk) -> String {
 impl Render for HunkPopover {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = theme(cx).colors.clone();
+        let scale = type_scale(cx);
         let editor_font = settings(cx).editor.font_family.clone();
         let old_lines: Vec<String> = self
             .hunk
@@ -89,27 +89,32 @@ impl Render for HunkPopover {
             .map(|l| l.replace('\t', "    "))
             .collect();
         let hidden = old_lines.len().saturating_sub(MAX_PREVIEW_LINES);
+        // The old lines on the editor's `panel` fill, each marked with a
+        // deleted `−` (no alpha tints, docs/DESIGN.md 2).
         let preview = div()
             .flex()
             .flex_col()
             .max_w(px(640.))
+            .py(px(4.))
             .overflow_hidden()
-            .rounded_md()
+            .rounded(px(6.))
             .border_1()
             .border_color(c.border)
+            .bg(c.panel())
             .font_family(editor_font)
-            .text_xs()
+            .text_size(scale.meta)
             .children(old_lines.into_iter().take(MAX_PREVIEW_LINES).map(|line| {
                 div()
-                    .px_2()
-                    .bg(c.diff_deleted.opacity(0.15))
+                    .flex()
+                    .px(px(8.))
                     .whitespace_nowrap()
-                    .child(format!("- {line}"))
+                    .child(div().flex_none().w(px(14.)).text_color(c.error).child("−"))
+                    .child(line)
             }))
             .when(hidden > 0, |el| {
                 el.child(
                     div()
-                        .px_2()
+                        .px(px(8.))
                         .text_color(c.text_muted)
                         .child(format!("… {hidden} more lines")),
                 )
@@ -118,37 +123,31 @@ impl Render for HunkPopover {
         let has_old = !self.hunk.hunk.old_text.is_empty();
         let git = self.git.clone();
         let editor = self.editor;
-        div()
+        popover(cx)
             .id("hunk-popover")
             .occlude()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .flex()
-            .flex_col()
-            .gap_2()
-            .p_2()
+            .gap(px(8.))
+            .p(px(8.))
             .min_w(px(280.))
-            .rounded_lg()
-            .border_1()
-            .border_color(c.border)
-            .bg(c.surface_raised)
-            .elevated(cx)
-            .text_sm()
+            .font_family(ui_font_family(cx))
+            .text_size(scale.body)
             .text_color(c.text)
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .gap_2()
+                    .gap(px(8.))
                     .child(
                         div()
                             .flex_1()
-                            .text_xs()
+                            .text_size(scale.meta)
                             .text_color(c.text_muted)
                             .child(hunk_title(&self.hunk)),
                     )
                     .child(
                         icon_button("hunk-close", IconName::X)
-                            .size(px(20.))
+                            .size(px(22.))
                             .tooltip("Close (Esc)")
                             .on_click(move |_, _, cx| {
                                 git.update(cx, |git, cx| {
@@ -166,27 +165,24 @@ impl Render for HunkPopover {
             .child(
                 div()
                     .flex()
-                    .gap_1()
+                    .gap(px(6.))
                     .child(self.action_button(
                         "hunk-stage",
                         "Stage hunk",
                         HunkAction::Stage,
                         !staged,
-                        cx,
                     ))
                     .child(self.action_button(
                         "hunk-unstage",
                         "Unstage hunk",
                         HunkAction::Unstage,
                         staged,
-                        cx,
                     ))
                     .child(self.action_button(
                         "hunk-revert",
                         "Revert hunk",
                         HunkAction::Revert,
                         true,
-                        cx,
                     )),
             )
     }

@@ -152,7 +152,7 @@ impl Editor {
                 Some((label, action, enabled)) => {
                     let binding = binding_label(window, action.as_ref(), &self.focus_handle);
                     rows.push(MenuRow::Item(
-                        MenuItem::new(label).detail(binding).enabled(enabled),
+                        MenuItem::new(label).keys(binding).enabled(enabled),
                     ));
                     actions.push(Some(action));
                 }

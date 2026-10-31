@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use arcode_plugin_host::bindings::NodeId;
 use arcode_plugin_host::bindings::ui::{EventKind, TreeItem};
-use arcode_ui_kit::{IconName, icon, theme};
+use arcode_ui_kit::{IconName, icon, theme, truncated, type_scale};
 use gpui::{AnyElement, Context, MouseButton, SharedString, div, prelude::*, px, uniform_list};
 
 use super::PanelView;
@@ -38,6 +38,7 @@ impl PanelView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let c = theme(cx).colors.clone();
+        let meta = type_scale(cx).meta;
         let items: Rc<[TreeItem]> = items.into();
         let selected = self.tree_selected.get(&id).cloned();
         let pending: Vec<String> = self
@@ -107,14 +108,14 @@ impl PanelView {
                             .child(
                                 div()
                                     .min_w_0()
-                                    .truncate()
-                                    .child(SharedString::from(item.label.clone())),
+                                    .overflow_hidden()
+                                    .child(truncated(item.label.clone())),
                             )
                             .when_some(item.detail.clone(), |el, detail| {
                                 el.child(
                                     div()
                                         .flex_none()
-                                        .text_xs()
+                                        .text_size(meta)
                                         .text_color(c.text_muted)
                                         .child(SharedString::from(detail)),
                                 )

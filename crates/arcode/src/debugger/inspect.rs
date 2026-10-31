@@ -216,11 +216,19 @@ impl Debugger {
                     }],
                 };
                 s.children.insert(reference, vars.clone());
+                // A scope's variables feed the inline values of the paused line.
+                let scope = s
+                    .scopes
+                    .iter()
+                    .any(|sc| sc.variables_reference == reference);
                 for v in vars {
                     let p = child_path(&path, &v.name);
                     if v.variables_reference > 0 && d.tree.is_open(&p, false) {
                         d.load_children(v.variables_reference, p, cx);
                     }
+                }
+                if scope {
+                    d.refresh_all_editors(cx);
                 }
                 cx.notify();
             })

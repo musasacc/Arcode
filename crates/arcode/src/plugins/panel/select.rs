@@ -4,7 +4,7 @@
 
 use arcode_plugin_host::bindings::NodeId;
 use arcode_plugin_host::bindings::ui::{EventKind, SelectProps};
-use arcode_ui_kit::{Elevated, IconName, icon, theme};
+use arcode_ui_kit::{IconName, icon, menu_row, popover, theme};
 use gpui::{AnyElement, Context, SharedString, anchored, deferred, div, prelude::*, px};
 
 use super::PanelView;
@@ -31,10 +31,10 @@ impl PanelView {
             .h(px(28.))
             .px_2()
             .max_w(px(320.))
-            .rounded_md()
+            .rounded(px(8.))
             .border_1()
-            .border_color(c.border)
-            .bg(c.surface)
+            .border_color(if open { c.accent } else { c.border_strong })
+            .bg(c.panel())
             .cursor_pointer()
             .hover(|s| s.bg(c.hover))
             .child(div().min_w_0().truncate().child(label))
@@ -53,16 +53,13 @@ impl PanelView {
             }));
         let menu = open.then(|| {
             let options = p.options.iter().enumerate().map(|(i, option)| {
-                div()
-                    .id(("option", i))
-                    .px_2()
-                    .py_1()
-                    .rounded_sm()
-                    .cursor_pointer()
-                    .truncate()
-                    .when(selected == Some(i as u32), |el| el.bg(c.selection))
-                    .hover(|s| s.bg(c.hover))
-                    .child(SharedString::from(option.clone()))
+                menu_row(("option", i), selected == Some(i as u32), cx)
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .child(SharedString::from(option.clone())),
+                    )
                     .on_click(cx.listener(move |view, _, _, cx| {
                         let i = i as u32;
                         view.open_select = None;
@@ -74,15 +71,9 @@ impl PanelView {
             let options: Vec<_> = options.collect();
             deferred(
                 anchored().snap_to_window().child(
-                    div()
+                    popover(cx)
                         .id(("select-menu", id))
-                        .elevated(cx)
-                        .bg(c.surface_raised)
-                        .border_1()
-                        .border_color(c.border)
-                        .rounded_md()
                         .mt_1()
-                        .p_1()
                         .min_w(px(160.))
                         .max_w(px(480.))
                         .max_h(px(320.))

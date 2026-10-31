@@ -5,7 +5,7 @@ use gpui::{Context, SharedString};
 use crate::Editor;
 use crate::ext::{
     BackgroundHighlight, CodeLens, CursorShape, EditorPopover, GutterDecoration, GutterLane,
-    HighlightRange, InterceptorId, KeyInterceptor, VirtualText, VirtualTextPosition,
+    HighlightRange, InterceptorId, KeyInterceptor, PausedLine, VirtualText, VirtualTextPosition,
 };
 
 impl Editor {
@@ -190,6 +190,20 @@ impl Editor {
     /// The current cursor shape.
     pub fn cursor_shape(&self) -> CursorShape {
         self.ext.cursor_shape
+    }
+
+    /// Marks the line a debugger is paused on (band, lens and inline
+    /// values), or clears it with `None`.
+    pub fn set_paused_line(&mut self, paused: Option<PausedLine>, cx: &mut Context<Self>) {
+        if self.ext.paused != paused {
+            self.ext.paused = paused;
+            cx.notify();
+        }
+    }
+
+    /// The paused line, if any (moved by edits since it was set).
+    pub fn paused_line(&self) -> Option<&PausedLine> {
+        self.ext.paused.as_ref()
     }
 }
 

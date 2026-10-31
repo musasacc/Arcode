@@ -43,11 +43,7 @@ impl SettingsPage {
         cx: &App,
     ) -> gpui::Div {
         let writer = self.writer();
-        let shown = if steps.int {
-            format!("{}", value.round() as i64)
-        } else {
-            format!("{value:.1}")
-        };
+        let shown = shown_value(value, steps);
         let control = widgets::stepper(
             path,
             shown,
@@ -70,6 +66,17 @@ impl SettingsPage {
             cx,
         );
         widgets::setting_row(label, description, control, cx)
+    }
+}
+
+/// A stepper's text: whole numbers ("13") for integer settings and for
+/// whole values of whole steps (the UI size), else one decimal ("1.5").
+pub(super) fn shown_value(value: f32, steps: Steps) -> String {
+    let whole = steps.step.fract() == 0. && value.fract() == 0.;
+    if steps.int || whole {
+        format!("{}", value.round() as i64)
+    } else {
+        format!("{value:.1}")
     }
 }
 

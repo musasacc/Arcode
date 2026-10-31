@@ -29,6 +29,7 @@ mod languages_tests;
 mod lsp_tests;
 mod new_project;
 mod overlays;
+pub use overlays::ToastLevel;
 mod packages;
 #[cfg(test)]
 mod packages_tests;
@@ -181,6 +182,8 @@ pub struct Workspace {
     project_menu_open: bool,
     resizing: Option<Resize>,
     toast: Option<SharedString>,
+    /// The status icon of `toast`.
+    toast_level: ToastLevel,
     toast_task: Option<Task<()>>,
     /// Toasts shown so far: a new toast fades in even over the last one.
     toast_seq: usize,
@@ -288,6 +291,7 @@ impl Workspace {
             project_menu_open: false,
             resizing: None,
             toast: None,
+            toast_level: ToastLevel::Info,
             toast_task: None,
             toast_seq: 0,
             active_editor_sub: None,
@@ -367,9 +371,23 @@ impl Workspace {
         self.project.is_none() && self.panes.iter().all(|p| !p.read(cx).has_tabs())
     }
 
-    /// Shows a transient message at the bottom right.
+    /// Shows a transient message at the bottom right; its status icon
+    /// follows the wording (see [`Self::show_toast_as`]).
     pub fn show_toast(&mut self, message: impl Into<SharedString>, cx: &mut Context<Self>) {
+        let message = message.into();
+        let level = overlays::toast_level(&message);
+        self.show_toast_as(message, level, cx);
+    }
+
+    /// Shows a transient message with the status icon of `level`.
+    pub fn show_toast_as(
+        &mut self,
+        message: impl Into<SharedString>,
+        level: ToastLevel,
+        cx: &mut Context<Self>,
+    ) {
         self.toast = Some(message.into());
+        self.toast_level = level;
         self.toast_seq += 1;
         self.toast_task = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(TOAST_DURATION).await;

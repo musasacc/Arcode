@@ -96,7 +96,8 @@ impl Editor {
         if let Some(bar) = layout.scrollbar
             && bar.track.contains(&p)
         {
-            let grab = if bar.thumb.contains(&p) {
+            // The track is wider than the thumb: only the height counts.
+            let grab = if (bar.thumb.top()..bar.thumb.bottom()).contains(&p.y) {
                 p.y - bar.thumb.top()
             } else {
                 bar.thumb.size.height * 0.5
@@ -218,11 +219,13 @@ impl Editor {
         let Some(bar) = layout.scrollbar else {
             return;
         };
-        let range = bar.track.size.height - bar.thumb.size.height;
+        // The thumb moves between its top and bottom insets.
+        let inset = crate::scroll::THUMB_INSET;
+        let range = bar.track.size.height - inset * 2. - bar.thumb.size.height;
         if range <= Pixels::ZERO {
             return;
         }
-        let frac = ((y - grab - bar.track.top()) / range).clamp(0., 1.);
+        let frac = ((y - grab - bar.track.top() - inset) / range).clamp(0., 1.);
         self.scroll_y = layout.max_scroll_y * frac;
         cx.notify();
     }

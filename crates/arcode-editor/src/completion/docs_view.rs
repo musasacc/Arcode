@@ -3,7 +3,7 @@
 //! room), top-aligned with it below the cursor and bottom-aligned above.
 
 use arcode_completion::CandidateSource;
-use arcode_ui_kit::{settings, theme};
+use arcode_ui_kit::{popover, settings, theme, type_scale, ui_font_family};
 use gpui::{
     Context, InteractiveElement, IntoElement, ParentElement, Pixels, Render, SharedString,
     StatefulInteractiveElement, Styled, Window, div, px,
@@ -86,30 +86,19 @@ impl Render for DocsView {
             return div().into_any_element();
         };
         let colors = &theme(cx).colors;
-        let ui = &settings(cx).ui;
         let mono = SharedString::from(settings(cx).editor.font_family.clone());
-        let mut panel = div()
+        popover(cx)
             .id("completion-docs")
             .occlude()
             .w(px(DOCS_WIDTH))
             .max_h(self.list_height.max(px(MIN_MAX_HEIGHT)))
             .overflow_y_scroll()
-            .px_2()
-            .py_1p5()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .text_size(px(ui.font_size))
+            .px(px(10.))
+            .py(px(8.))
+            .gap(px(4.))
+            .font_family(ui_font_family(cx))
+            .text_size(type_scale(cx).body)
             .text_color(colors.text)
-            .bg(colors.surface_raised)
-            .border_1()
-            .border_color(colors.border)
-            .rounded_md()
-            .shadow_md();
-        if let Some(family) = ui.font_family.clone() {
-            panel = panel.font_family(SharedString::from(family));
-        }
-        panel
             .children(docs.detail.clone().map(|d| {
                 div()
                     .font_family(mono)

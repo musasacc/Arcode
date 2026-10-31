@@ -7,7 +7,10 @@
 use std::rc::Rc;
 
 use arcode_buffer::Point;
-use arcode_ui_kit::{settings, theme, truncated};
+use arcode_ui_kit::{
+    kbd, menu_row, menu_section, menu_separator, popover, theme, truncated, type_scale,
+    ui_font_family,
+};
 use gpui::{
     App, AppContext, Context, Entity, InteractiveElement, IntoElement, Keystroke, MouseButton,
     ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement, Styled,
@@ -17,8 +20,6 @@ use gpui::{
 use crate::Editor;
 use crate::ext::EditorPopover;
 
-/// Height of an item row.
-const ROW_HEIGHT: f32 = 24.;
 /// Tallest the list gets before it scrolls.
 const MAX_HEIGHT: f32 = 380.;
 
@@ -39,6 +40,8 @@ pub(crate) struct MenuItem {
     pub label: SharedString,
     /// Shown muted on the right (a key binding, a reason it is disabled).
     pub detail: Option<SharedString>,
+    /// A key binding, drawn as kbd chips on the right.
+    pub keys: Option<SharedString>,
     pub enabled: bool,
 }
 
@@ -47,12 +50,18 @@ impl MenuItem {
         MenuItem {
             label: label.into(),
             detail: None,
+            keys: None,
             enabled: true,
         }
     }
 
     pub fn detail(mut self, detail: Option<impl Into<SharedString>>) -> Self {
         self.detail = detail.map(Into::into);
+        self
+    }
+
+    pub fn keys(mut self, keys: Option<impl Into<SharedString>>) -> Self {
+        self.keys = keys.map(Into::into);
         self
     }
 
@@ -181,42 +190,21 @@ impl PopupMenu {
 
     fn render_row(&self, ix: usize, row: &MenuRow, cx: &mut Context<Self>) -> gpui::AnyElement {
         let colors = theme(cx).colors.clone();
-        let small = px(settings(cx).ui.font_size - 1.);
+        let meta = type_scale(cx).meta;
         match row {
-            MenuRow::Header(title) => div()
-                .px_2()
-                .pt_1()
-                .pb_0p5()
-                .text_size(small)
-                .text_color(colors.text_muted)
-                .child(title.clone())
-                .into_any_element(),
-            MenuRow::Separator => div()
-                .my_1()
-                .mx_1()
-                .h(px(1.))
-                .bg(colors.border)
-                .into_any_element(),
+            MenuRow::Header(title) => menu_section(title.clone(), cx).into_any_element(),
+            MenuRow::Separator => menu_separator(cx).into_any_element(),
             MenuRow::Item(item) => {
                 let selected = self.selected == Some(ix);
                 let enabled = item.enabled;
-                div()
-                    .id(("menu-row", ix))
-                    .h(px(ROW_HEIGHT))
-                    .mx_1()
-                    .px_2()
-                    .rounded_sm()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_4()
-                    .when(selected, |d| d.bg(colors.selection))
-                    .when(enabled && !selected, |d| d.hover(|d| d.bg(colors.hover)))
-                    .when(enabled, |d| d.cursor_pointer())
+                menu_row(("menu-row", ix), selected, cx)
+                    .gap(px(16.))
+                    // Disabled items do not react to the mouse.
+                    .when(!enabled, |d| d.hover(|s| s).cursor_default())
                     .text_color(if enabled {
                         colors.text
                     } else {
-                        colors.text_muted
+                        colors.text_disabled
                     })
                     .on_mouse_down(
                         MouseButton::Left,
@@ -234,10 +222,11 @@ impl PopupMenu {
                             .flex_shrink()
                             .min_w_0()
                             .overflow_hidden()
-                            .text_size(small)
+                            .text_size(meta)
                             .text_color(colors.text_muted)
                             .child(truncated(detail))
                     }))
+                    .children(item.keys.clone().map(kbd))
                     .into_any_element()
             }
         }
@@ -247,9 +236,6 @@ impl PopupMenu {
 impl Render for PopupMenu {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = theme(cx).colors.clone();
-        let ui = &settings(cx).ui;
-        let font_size = px(ui.font_size);
-        let family = ui.font_family.clone();
         let rows: Vec<_> = self
             .rows
             .clone()
@@ -257,7 +243,7 @@ impl Render for PopupMenu {
             .enumerate()
             .map(|(ix, row)| self.render_row(ix, row, cx))
             .collect();
-        div()
+        popover(cx)
             .id("popup-menu")
             .occlude()
             .min_w(px(220.))
@@ -265,17 +251,9 @@ impl Render for PopupMenu {
             .max_h(px(MAX_HEIGHT))
             .overflow_y_scroll()
             .track_scroll(&self.scroll)
-            .py_1()
-            .flex()
-            .flex_col()
-            .bg(colors.surface_raised)
-            .border_1()
-            .border_color(colors.border)
-            .rounded_md()
-            .shadow_md()
-            .text_size(font_size)
+            .font_family(ui_font_family(cx))
+            .text_size(type_scale(cx).body)
             .text_color(colors.text)
-            .when_some(family, |d, f| d.font_family(SharedString::from(f)))
             .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
             .children(rows)
     }

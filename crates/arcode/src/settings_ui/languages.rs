@@ -2,7 +2,7 @@
 //! an enable switch (`[language.<id>].enabled`).
 
 use arcode_config::SettingEdit;
-use arcode_ui_kit::{settings, theme};
+use arcode_ui_kit::{settings, theme, type_scale};
 use gpui::{Context, Div, SharedString, div, prelude::*};
 
 use super::widgets::{setting_row, toggle};
@@ -59,7 +59,7 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
         .child(group_title("Language packs", cx))
         .child(
             div()
-                .text_xs()
+                .text_size(type_scale(cx).meta)
                 .text_color(c.text_muted)
                 .pb_2()
                 .child("Turning a language off stops its servers, run buttons and snippets. The Languages view (activity bar) shows which servers are installed."),

@@ -142,8 +142,19 @@ impl NavPicker {
 
     pub(super) fn select(&mut self, ix: usize, cx: &mut Context<Self>) {
         if matches!(self.rows.get(ix), Some(Row::Item { .. })) {
+            let from = self.selected;
             self.selected = ix;
-            self.scroll.scroll_to_item(ix, ScrollStrategy::Center);
+            // Going up to a file's first item also shows its header.
+            let header_above = ix
+                .checked_sub(1)
+                .filter(|h| matches!(self.rows.get(*h), Some(Row::Header { .. })));
+            let target = if ix < from {
+                header_above.unwrap_or(ix)
+            } else {
+                ix
+            };
+            self.scroll
+                .scroll_to_item(target, crate::picker_frame::scroll_strategy(from, ix));
             cx.notify();
         }
     }

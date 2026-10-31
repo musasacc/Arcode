@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use arcode_project::deps::{PackageAction, ProjectManifest};
 use arcode_ui_kit::metrics::{CONTROL_H_PANEL, ROW_INSET, icon_size};
-use arcode_ui_kit::{IconName, icon, icon_button, input_frame, theme};
+use arcode_ui_kit::{IconName, icon, icon_button, input_frame, theme, type_scale};
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, Subscription,
     UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
@@ -233,7 +233,7 @@ impl PackagesView {
             .justify_center()
             .gap_2()
             .p_4()
-            .text_sm()
+            .text_size(type_scale(cx).body)
             .text_center()
             .text_color(c.text_muted)
             .child(icon(IconName::Package).size(px(24.)).color(c.text_disabled))
@@ -318,7 +318,7 @@ impl Render for PackagesView {
             .size_full()
             .flex()
             .flex_col()
-            .text_sm()
+            .text_size(type_scale(cx).body)
             .child(header)
             .child(filter)
             .children(add_form)

@@ -197,7 +197,7 @@ impl PanelView {
                     .h(px(ROW_HEIGHT))
                     .items_center()
                     .border_b_1()
-                    .border_color(c.border.opacity(0.4))
+                    .border_color(c.border)
                     .when(selected == Some(row), |el| el.bg(c.selection))
                     .hover(|s| s.bg(c.hover))
                     .on_click(cx.listener(move |view, e: &ClickEvent, window, cx| {

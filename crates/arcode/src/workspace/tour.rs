@@ -1,7 +1,8 @@
 //! The tour overlay: a dimmed backdrop with a cut-out over the highlighted
 //! element and a callout bubble with Back / Next / Skip.
 
-use arcode_ui_kit::{ButtonStyle, Elevated, button, theme};
+use arcode_ui_kit::metrics::WEIGHT_SEMIBOLD;
+use arcode_ui_kit::{ButtonStyle, button, overlay, readout, theme, type_scale, ui_font_family};
 use gpui::{Bounds, Context, Div, Pixels, Stateful, Window, div, point, prelude::*, px, size};
 
 use super::Workspace;
@@ -165,7 +166,7 @@ impl Workspace {
                             .top(y0)
                             .w(b.size.width)
                             .h(b.size.height)
-                            .rounded_md()
+                            .rounded(px(8.))
                             .border_2()
                             .border_color(c.accent),
                     )
@@ -186,19 +187,16 @@ impl Workspace {
     fn render_callout(&self, tour: &Tour, hidden: bool, cx: &mut Context<Self>) -> Div {
         let c = theme(cx).colors.clone();
         let step = tour.current();
+        let scale = type_scale(cx);
         let count = format!("{} of {}", tour.step + 1, tour.steps.len());
         let next = if tour.is_last() { "Finish" } else { "Next" };
-        div()
+        // A dialog (docs/DESIGN.md 6.12, 6.16).
+        overlay(cx)
             .w(px(CALLOUT_WIDTH))
-            .flex()
-            .flex_col()
-            .gap_2()
-            .p_4()
-            .rounded_lg()
-            .border_1()
-            .border_color(c.accent)
-            .bg(c.surface_raised)
-            .elevated_lg(cx)
+            .gap(px(8.))
+            .p(px(16.))
+            .font_family(ui_font_family(cx))
+            .text_size(scale.body)
             .text_color(c.text)
             .child(
                 div()
@@ -207,21 +205,17 @@ impl Workspace {
                     .justify_between()
                     .child(
                         div()
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .text_size(scale.title)
+                            .font_weight(WEIGHT_SEMIBOLD)
                             .child(step.title),
                     )
-                    .child(div().text_xs().text_color(c.text_muted).child(count)),
+                    .child(readout(count)),
             )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(c.text_muted)
-                    .child(step.body.clone()),
-            )
+            .child(div().text_color(c.text_muted).child(step.body.clone()))
             .when(hidden, |el| {
                 el.child(
                     div()
-                        .text_xs()
+                        .text_size(scale.meta)
                         .text_color(c.info)
                         .child("Open a folder to see it."),
                 )
@@ -230,8 +224,8 @@ impl Workspace {
                 div()
                     .flex()
                     .items_center()
-                    .gap_2()
-                    .pt_1()
+                    .gap(px(8.))
+                    .pt(px(6.))
                     .child(
                         button("tour-skip", "Skip tour")
                             .style(ButtonStyle::Ghost)

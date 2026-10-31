@@ -8,7 +8,10 @@ use std::path::Path;
 use std::rc::Rc;
 
 use arcode_ui_kit::metrics::{FOOTER_H, GAP, RAIL_W};
-use gpui::{Context, Entity, FocusHandle, Pixels, SharedString, Subscription, Window};
+use gpui::{
+    Context, Div, Entity, FocusHandle, Pixels, SharedString, Stateful, Subscription, Window,
+    prelude::*,
+};
 
 use super::Workspace;
 use crate::bottom_panel::BottomPanel;
@@ -36,11 +39,23 @@ pub struct PanelFocus {
     pub editor: bool,
     /// The bottom panel contains it.
     pub bottom: bool,
+    /// Focus sits on the workspace root itself: no panel and no overlay
+    /// takes the keys.
+    pub root: bool,
 }
 
-/// The panel to frame. A panel holding focus wins; while focus is outside
-/// every panel (an overlay, the palette, the workspace root) the previous
-/// panel keeps the frame, so overlays never steal it. A frame on a panel
+impl PanelFocus {
+    /// Whether one of the panels contains focus.
+    pub fn in_panel(self) -> bool {
+        self.sidebar || self.editor || self.bottom
+    }
+}
+
+/// The panel to frame. A panel holding focus wins. While an overlay (the
+/// palette, a picker, a dialog) holds it, the previous panel keeps the
+/// frame, so overlays never steal it. Focus on the bare workspace root
+/// frames the editor, the panel the workspace shortcuts act on, so the
+/// frame never stays on a panel that has lost the keys. A frame on a panel
 /// that has been hidden falls back to the editor: exactly one panel is
 /// framed at a time.
 pub fn framed_panel(
@@ -55,7 +70,7 @@ pub fn framed_panel(
     if focus.bottom && bottom_shown {
         return FramedPanel::Bottom;
     }
-    if focus.editor {
+    if focus.editor || focus.root {
         return FramedPanel::Editor;
     }
     match previous {
@@ -106,6 +121,9 @@ pub struct Shell {
     pub bottom_focus: FocusHandle,
     /// The panel framed in the last render.
     pub framed: FramedPanel,
+    /// A panel held focus in the last render: clicks on bare chrome leave
+    /// it there (see [`Workspace::chrome_listeners`]).
+    pub in_panel: bool,
     /// `Some` while the debuggee is paused: the location (`main.rs:11`),
     /// empty when the adapter gave none.
     pub paused: Option<SharedString>,
@@ -134,6 +152,7 @@ impl Shell {
             editor_focus: cx.focus_handle(),
             bottom_focus: cx.focus_handle(),
             framed: FramedPanel::Editor,
+            in_panel: false,
             paused: None,
             panel_hidden,
             _debugger: cx.observe(debugger, |ws, debugger, cx| {
@@ -148,10 +167,12 @@ impl Shell {
 
     /// Works out the framed panel for this frame (from the last frame's
     /// focus, so only focus changes move the frame) and remembers it.
+    /// `root` is the workspace's own focus handle.
     pub fn update_frame(
         &mut self,
         sidebar_shown: bool,
         bottom_shown: bool,
+        root: &FocusHandle,
         window: &Window,
         cx: &gpui::App,
     ) -> FramedPanel {
@@ -160,13 +181,47 @@ impl Shell {
             sidebar: self.sidebar_focus.contains_focused(window, cx),
             editor: self.editor_focus.contains_focused(window, cx),
             bottom: self.bottom_focus.contains_focused(window, cx),
+            root: root.is_focused(window),
         };
+        self.in_panel = focus.in_panel();
         self.framed = framed_panel(self.framed, focus, sidebar_shown, bottom_shown);
         self.framed
     }
 }
 
 impl Workspace {
+    /// Root listeners for the chrome on the canvas. A click on bare chrome
+    /// (canvas, title bar, rail, footer) leaves focus in the panel that has
+    /// it, so the frame keeps telling where the keys go; an overlay with
+    /// focus still loses it to the root, which closes it. Escape closes the
+    /// project and Run menus before the focused view (a terminal) sees it.
+    pub(super) fn chrome_listeners(
+        &self,
+        root: Stateful<Div>,
+        welcome: bool,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        root.when(!welcome && self.shell.in_panel, |el| {
+            // Children run first, so a focusable child still takes focus.
+            el.on_any_mouse_down(|_, window, _| window.prevent_default())
+        })
+        .capture_key_down(cx.listener(|ws, event: &gpui::KeyDownEvent, _, cx| {
+            if event.keystroke.key == "escape"
+                && (ws.project_menu_open || ws.debug.run.menu.is_some())
+            {
+                ws.project_menu_open = false;
+                ws.debug.run.menu = None;
+                cx.stop_propagation();
+                cx.notify();
+            }
+        }))
+    }
+
+    /// Whether the Run dropdown is open (its chevron hides its tooltip).
+    pub fn run_menu_open(&self) -> bool {
+        self.debug.run.menu.is_some()
+    }
+
     /// The debugger's paused location while it is paused (see
     /// [`Shell::paused`]).
     pub fn paused_readout(&self) -> Option<&SharedString> {
@@ -228,6 +283,7 @@ mod tests {
         sidebar: false,
         editor: false,
         bottom: false,
+        root: false,
     };
 
     #[test]
@@ -236,6 +292,7 @@ mod tests {
             sidebar,
             editor,
             bottom,
+            root: false,
         };
         let prev = FramedPanel::Editor;
         assert_eq!(
@@ -262,6 +319,24 @@ mod tests {
         ] {
             assert_eq!(framed_panel(prev, NONE, true, true), prev);
         }
+    }
+
+    #[test]
+    fn focus_on_the_bare_root_frames_the_editor() {
+        // A click on the canvas or the title bar left the keys nowhere: the
+        // frame does not stay on the panel that lost them.
+        let root = PanelFocus { root: true, ..NONE };
+        for prev in [FramedPanel::Sidebar, FramedPanel::Bottom] {
+            assert_eq!(framed_panel(prev, root, true, true), FramedPanel::Editor);
+        }
+        assert!(!root.in_panel());
+        assert!(
+            PanelFocus {
+                bottom: true,
+                ..NONE
+            }
+            .in_panel()
+        );
     }
 
     #[test]

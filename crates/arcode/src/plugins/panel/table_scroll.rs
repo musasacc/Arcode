@@ -131,7 +131,7 @@ impl PanelView {
                         .w(px(TRACK_WIDTH - 2.))
                         .h(px(length))
                         .rounded_full()
-                        .bg(c.text_muted.opacity(0.35)),
+                        .bg(c.scrollbar_thumb),
                 )
                 .into_any_element(),
         )

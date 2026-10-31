@@ -1,14 +1,15 @@
 //! Painting extension decorations: background highlights, end-of-line
-//! virtual text and code lenses.
+//! virtual text, lens pills and code lenses.
 
 use arcode_ui_kit::ThemeColors;
-use gpui::{Bounds, fill, point, px, size};
+use gpui::{Bounds, SharedString, fill, point, px, size};
 
 use crate::Editor;
 use crate::decorate::range_rects;
 use crate::ext::HighlightRange;
+use crate::inline_lens::{PILL_H, PILL_RADIUS};
 use crate::layout::LayoutSnapshot;
-use crate::paint::Decorations;
+use crate::paint::{Decorations, GutterIcon, row_band};
 
 /// Adds extension decorations for the visible lines to `d`.
 pub(crate) fn ext_decorations(
@@ -36,11 +37,8 @@ pub(crate) fn ext_decorations(
                 let first = lines.start.max(visible.start);
                 let last = lines.end.min(visible.end);
                 for line in first..last {
-                    let origin = point(layout.bounds.left(), layout.line_top(line));
-                    d.ext_line_highlights.push(fill(
-                        Bounds::new(origin, size(layout.bounds.size.width, lh)),
-                        color,
-                    ));
+                    d.ext_line_highlights
+                        .extend(row_band(layout, layout.line_top(line), color));
                 }
             }
             HighlightRange::Text(r) => {
@@ -56,6 +54,23 @@ pub(crate) fn ext_decorations(
     let left = layout.text_left();
     for v in &layout.lines {
         let top = layout.line_top(v.line);
+        let pill_top = top + (lh - PILL_H) * 0.5;
+        for pill in &v.pills {
+            let bounds = Bounds::new(point(left + pill.x, pill_top), size(pill.width, PILL_H));
+            d.lens_boxes.push(
+                fill(bounds, pill.fill)
+                    .border_widths(px(1.))
+                    .border_color(pill.border)
+                    .corner_radii(PILL_RADIUS),
+            );
+            if let Some((icon, color, s, x)) = pill.icon {
+                d.lens_icons.push(GutterIcon {
+                    bounds: Bounds::new(point(left + x, top + (lh - s) * 0.5), size(s, s)),
+                    path: SharedString::new_static(icon.path()),
+                    color,
+                });
+            }
+        }
         for item in &v.eol {
             d.extras
                 .push((point(left + item.x, top), item.shaped.clone()));

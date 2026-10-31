@@ -7,10 +7,10 @@ use arcode_buffer::Point as BufPoint;
 use arcode_ui_kit::ThemeColors;
 use gpui::{Bounds, Hsla, Pixels, UnderlineStyle, fill, outline, point, px, size};
 
-use crate::Editor;
 use crate::ext::CursorShape;
 use crate::layout::LayoutSnapshot;
-use crate::paint::Decorations;
+use crate::paint::{Decorations, row_band};
+use crate::{DiagnosticSeverity, Editor};
 
 /// Computes text-area decorations for the visible lines.
 pub(crate) fn text_decorations(
@@ -28,10 +28,21 @@ pub(crate) fn text_decorations(
     let vis_start = buffer.line_start(visible.start);
     let vis_end = buffer.line_start(visible.end);
     let in_view = |pos: usize| (vis_start..=vis_end).contains(&pos);
-    let lh = layout.line_height;
 
+    // The paused line's band replaces the current-line band on its line.
+    let paused = editor
+        .ext
+        .paused
+        .as_ref()
+        .map(|p| p.line)
+        .filter(|l| visible.contains(l));
+    if let Some(band) =
+        paused.and_then(|l| row_band(layout, layout.line_top(l), colors.paused_line))
+    {
+        d.line_highlights.push(band);
+    }
     if layout.style.highlight_current_line {
-        let mut lines: Vec<usize> = Vec::new();
+        let mut lines: Vec<usize> = paused.into_iter().collect();
         for s in editor
             .selections
             .iter()
@@ -40,15 +51,20 @@ pub(crate) fn text_decorations(
             let line = buffer.char_to_line(s.head);
             if !lines.contains(&line) && visible.contains(&line) {
                 lines.push(line);
-                let origin = point(layout.bounds.left(), layout.line_top(line));
-                d.line_highlights.push(fill(
-                    Bounds::new(origin, size(layout.bounds.size.width, lh)),
+                d.line_highlights.extend(row_band(
+                    layout,
+                    layout.line_top(line),
                     colors.line_highlight,
                 ));
             }
         }
     }
 
+    let selection = if focused {
+        colors.selection
+    } else {
+        colors.selection_inactive
+    };
     for s in editor.selections.iter() {
         if s.is_empty() || s.end() < vis_start || s.start() > vis_end {
             continue;
@@ -61,8 +77,7 @@ pub(crate) fn text_decorations(
             true,
         );
         for b in quads {
-            d.selections
-                .push(fill(b, colors.selection).corner_radii(px(3.)));
+            d.selections.push(fill(b, selection).corner_radii(px(3.)));
         }
     }
 
@@ -239,6 +254,24 @@ fn bracket_pair(
     }
 }
 
+/// The underline of a diagnostic: wavy for errors, straight for warnings
+/// and info, none for hints (they keep the gutter dot and the lens).
+fn diagnostic_underline(
+    severity: DiagnosticSeverity,
+    colors: &ThemeColors,
+) -> Option<UnderlineStyle> {
+    let wavy = match severity {
+        DiagnosticSeverity::Error => true,
+        DiagnosticSeverity::Warning | DiagnosticSeverity::Info => false,
+        DiagnosticSeverity::Hint => return None,
+    };
+    Some(UnderlineStyle {
+        thickness: px(1.),
+        color: Some(severity.color(colors)),
+        wavy,
+    })
+}
+
 fn diagnostic_underlines(
     editor: &Editor,
     layout: &LayoutSnapshot,
@@ -253,10 +286,8 @@ fn diagnostic_underlines(
         .collect();
     diags.sort_by_key(|g| Reverse(g.severity));
     for g in diags {
-        let style = UnderlineStyle {
-            thickness: px(1.),
-            color: Some(g.severity.color(colors)),
-            wavy: true,
+        let Some(style) = diagnostic_underline(g.severity, colors) else {
+            continue;
         };
         let (s, e) = (g.range.start, g.range.end);
         let first = s.line.max(visible.start);
@@ -293,5 +324,28 @@ fn diagnostic_underlines(
             let origin = point(layout.text_left() + x0, baseline + px(1.5));
             d.underlines.push((origin, width.max(px(2.)), style));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn underlines_are_wavy_only_for_errors() {
+        let registry = arcode_config::ThemeRegistry::builtin();
+        let theme = registry.get("Arcode Ember").expect("Ember").clone();
+        let colors = arcode_ui_kit::UiTheme::new(std::sync::Arc::new(theme)).colors;
+        let style = |s| diagnostic_underline(s, &colors);
+        let error = style(DiagnosticSeverity::Error).expect("error underline");
+        assert!(error.wavy);
+        assert_eq!(error.color, Some(colors.error));
+        let warning = style(DiagnosticSeverity::Warning).expect("warning underline");
+        assert!(!warning.wavy);
+        assert_eq!(warning.color, Some(colors.warning));
+        let info = style(DiagnosticSeverity::Info).expect("info underline");
+        assert!(!info.wavy);
+        assert_eq!(info.color, Some(colors.info));
+        assert!(style(DiagnosticSeverity::Hint).is_none());
     }
 }

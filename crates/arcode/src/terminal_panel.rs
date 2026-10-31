@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use arcode_terminal_view::{TerminalView, TerminalViewEvent};
+use arcode_ui_kit::metrics::CONTROL_H_PANEL;
 use arcode_ui_kit::{IconName, button, icon, icon_button, pill_tab, theme};
 use gpui::{
     App, Context, Entity, EntityId, FocusHandle, Focusable, MouseButton, SharedString,
@@ -229,7 +230,8 @@ impl TerminalPanel {
 }
 
 /// The terminal sessions shown in the bottom panel header: 24 tall pills
-/// (the active one `hover` filled with its icon), then `+`.
+/// (the active one `hover` filled with its icon), then `+`. The pills
+/// scroll when the header is short of room; `+` always stays in view.
 pub fn render_strip(panel: &Entity<TerminalPanel>, cx: &App) -> impl IntoElement + use<> {
     let p = panel.read(cx);
     let tabs: Vec<_> = p
@@ -276,14 +278,24 @@ pub fn render_strip(panel: &Entity<TerminalPanel>, cx: &App) -> impl IntoElement
         .collect();
     div()
         .flex()
+        .flex_shrink()
+        .min_w(CONTROL_H_PANEL)
         .items_center()
         .gap(px(2.))
-        .min_w_0()
-        .overflow_hidden()
-        .children(tabs)
+        .child(
+            div()
+                .id("terminal-sessions")
+                .flex()
+                .flex_shrink()
+                .min_w_0()
+                .items_center()
+                .gap(px(2.))
+                .overflow_x_scroll()
+                .children(tabs),
+        )
         .child(
             icon_button("new-terminal", IconName::Plus)
-                .size(px(26.))
+                .size(CONTROL_H_PANEL)
                 .tooltip(format!(
                     "New terminal ({})",
                     shortcut_label("secondary-shift-`")
@@ -323,12 +335,8 @@ impl Render for TerminalPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = theme(cx).colors.clone();
         let content = match self.active_terminal() {
-            Some(terminal) => div()
-                .size_full()
-                .pl_2()
-                .pt_1()
-                .child(terminal.clone())
-                .into_any_element(),
+            // The terminal view pads its own grid (16 px at the sides).
+            Some(terminal) => div().size_full().child(terminal.clone()).into_any_element(),
             None => {
                 let message: SharedString = self
                     .error

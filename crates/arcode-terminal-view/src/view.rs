@@ -9,7 +9,7 @@ use async_channel::Receiver;
 use gpui::{
     App, AppContext as _, ClipboardItem, Context, CursorStyle, Entity, EventEmitter, FocusHandle,
     Focusable, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ParentElement, Pixels,
-    Point, Render, SharedString, Styled, Subscription, Task, Window, div,
+    Point, Render, SharedString, Styled, Subscription, Task, Window, div, px,
 };
 
 use crate::actions;
@@ -280,6 +280,14 @@ impl TerminalView {
     }
 }
 
+/// Padding around the grid (DESIGN.md 6.8: 2 16).
+const TEXT_INSET_X: Pixels = px(16.);
+const TEXT_INSET_Y: Pixels = px(2.);
+/// Inner radius of a rounded panel (its radius minus the 1 px border).
+fn bottom_radius() -> Pixels {
+    arcode_ui_kit::metrics::PANEL_RADIUS - px(1.)
+}
+
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = &theme(cx).source.terminal;
@@ -291,7 +299,12 @@ impl Render for TerminalView {
             .track_focus(&self.focus_handle)
             .size_full()
             .overflow_hidden()
-            .p_1()
+            // The grid sits 16 px in from the sides, so cell and selection
+            // bands never reach a rounded panel's corners; the bottom corners
+            // follow the panel's inner radius.
+            .px(TEXT_INSET_X)
+            .py(TEXT_INSET_Y)
+            .rounded_b(bottom_radius())
             .bg(rgb_to_hsla(self.palette.background))
             .cursor(CursorStyle::IBeam)
             .on_action(cx.listener(Self::copy))

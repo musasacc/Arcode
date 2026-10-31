@@ -85,12 +85,14 @@ impl Editor {
     }
 
     /// Whether `p` is on the light bulb (the whole marker column cell of
-    /// its line).
+    /// its line). A run button wins the shared column on its line, so the
+    /// bulb is neither drawn nor clickable there.
     pub(crate) fn bulb_hit(&self, layout: &LayoutSnapshot, p: Point<Pixels>) -> bool {
         let Some((line, _)) = self.lang.actions.bulb else {
             return false;
         };
-        if layout.visible(line).is_none() {
+        if layout.visible(line).is_none() || self.gutter_tag(line, GutterLane::Runnables).is_some()
+        {
             return false;
         }
         let cell = crate::gutter::bulb_bounds(layout, line, layout.line_height);

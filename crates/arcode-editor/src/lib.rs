@@ -99,6 +99,7 @@ pub mod ext;
 mod ext_api;
 mod gutter;
 pub mod hover;
+mod inline_lens;
 mod input;
 pub mod lang;
 mod layout;
@@ -129,7 +130,7 @@ pub use editor::{Editor, EditorEvent};
 pub use ext::{
     BackgroundHighlight, ChangeKind, CodeLens, CursorShape, DotStyle, EditorPopover,
     GutterDecoration, GutterLane, GutterMark, HighlightRange, InterceptorId, KeyInterceptor,
-    LensItem, LensPlacement, PopoverPlacement, VirtualText, VirtualTextPosition,
+    LensItem, LensPlacement, PausedLine, PopoverPlacement, VirtualText, VirtualTextPosition,
 };
 pub use hover::{HoverInfo, HoverProvider};
 pub use lang::{

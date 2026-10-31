@@ -285,6 +285,7 @@ impl Render for Workspace {
             let framed = self.shell.update_frame(
                 self.sidebar_visible,
                 self.bottom_panel_visible,
+                &self.focus_handle,
                 window,
                 cx,
             );
@@ -339,16 +340,6 @@ impl Render for Workspace {
                 })
             })
             .on_mouse_move(cx.listener(Self::on_mouse_move))
-            .on_key_down(cx.listener(|ws, event: &gpui::KeyDownEvent, _, cx| {
-                if event.keystroke.key == "escape"
-                    && (ws.project_menu_open || ws.debug.run.menu.is_some())
-                {
-                    ws.project_menu_open = false;
-                    ws.debug.run.menu = None;
-                    cx.stop_propagation();
-                    cx.notify();
-                }
-            }))
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|ws, _, _, cx| {
@@ -373,6 +364,7 @@ impl Render for Workspace {
                     })
                     .child(self.prefs.anchors.recorder(TourTarget::Footer)),
             );
+        let root = self.chrome_listeners(root, welcome, cx);
         let root = self.register_actions(root, cx);
         let root = self.register_git_actions(root, cx);
         let root = self.register_nav_actions(root, cx);

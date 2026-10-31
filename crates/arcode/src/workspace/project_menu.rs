@@ -3,10 +3,12 @@
 //! window, a button to open in a new window, x to forget), and Open
 //! Folder / New Project / New Window / Close Project.
 
-use arcode_ui_kit::Elevated;
 use std::path::PathBuf;
 
-use arcode_ui_kit::{IconName, Tooltip, icon, kbd, theme, truncated};
+use arcode_ui_kit::metrics::{ROW_RADIUS, WEIGHT_MEDIUM, icon_size};
+use arcode_ui_kit::{
+    IconName, Tooltip, icon, kbd, popover, theme, truncated, type_scale, ui_font_family,
+};
 use gpui::{
     AnyView, App, Context, Div, ElementId, MouseButton, SharedString, Stateful, div, prelude::*, px,
 };
@@ -19,6 +21,10 @@ use crate::app_state;
 
 /// Most recent projects listed.
 const MAX_RECENT: usize = 8;
+/// Width of the menu.
+pub(super) const MENU_W: f32 = 360.;
+/// Height of a menu row (docs/DESIGN.md 6.12).
+const MENU_ROW_H: gpui::Pixels = px(26.);
 
 fn menu_item(
     id: impl Into<ElementId>,
@@ -31,15 +37,15 @@ fn menu_item(
     div()
         .id(id)
         .flex()
+        .flex_none()
         .items_center()
-        .gap_2()
-        .h(px(30.))
-        .px_2()
-        .mx_1()
-        .rounded_md()
+        .gap(px(8.))
+        .h(MENU_ROW_H)
+        .px(px(8.))
+        .rounded(ROW_RADIUS)
         .cursor_pointer()
         .hover(|s| s.bg(c.hover))
-        .child(icon(icon_name).size(px(14.)).color(c.text_muted))
+        .child(icon(icon_name).size(icon_size::TOOLBAR).color(c.text_muted))
         .child(
             div()
                 .flex_none()
@@ -57,7 +63,7 @@ fn menu_item(
                     .flex_1()
                     .min_w_0()
                     .overflow_hidden()
-                    .text_xs()
+                    .text_size(type_scale(cx).meta)
                     .text_color(c.text_muted)
                     .debug_selector(|| "project-menu-detail".into())
                     .tooltip(move |_, cx| -> AnyView { Tooltip::text(tooltip.clone(), cx) })
@@ -82,10 +88,10 @@ fn row_button(
         .items_center()
         .justify_center()
         .size(px(20.))
-        .rounded_sm()
+        .rounded(px(5.))
         .opacity(0.)
         .group_hover(group, |s| s.opacity(1.))
-        .hover(|s| s.bg(c.surface))
+        .hover(|s| s.bg(c.pill))
         .child(icon(icon_name).size(px(12.)).color(c.text_muted))
         .tooltip(move |_, cx| -> AnyView { Tooltip::text(tooltip, cx) })
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -103,39 +109,35 @@ impl Workspace {
             .take(MAX_RECENT)
             .map(|p| (p.path.clone(), p.name.clone()))
             .collect();
+        let meta = type_scale(cx).meta;
         let section = |title: &'static str| {
             div()
-                .px_3()
-                .pt_2()
-                .pb_1()
-                .text_xs()
+                .px(px(8.))
+                .pt(px(6.))
+                .pb(px(2.))
+                .text_size(meta)
+                .font_weight(WEIGHT_MEDIUM)
                 .text_color(c.text_muted)
                 .child(title)
         };
-        let separator = || div().h(px(1.)).my_1().bg(c.border);
-        let mut menu = div()
-            .w(px(360.))
-            .py_1()
-            .flex()
-            .flex_col()
-            .rounded_lg()
-            .border_1()
-            .border_color(c.border)
-            .bg(c.surface_raised)
-            .elevated(cx)
-            .text_sm()
+        let separator = || div().h(px(1.)).mx(px(-4.)).my(px(4.)).bg(c.border);
+        let mut menu = popover(cx)
+            .w(px(MENU_W))
+            .font_family(ui_font_family(cx))
+            .text_size(type_scale(cx).body)
+            .text_color(c.text)
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
         if let Some(root) = &current {
             let name = arcode_config::state::project_name(root);
             let detail = SharedString::from(root.display().to_string());
-            menu = menu.child(section("Current Window")).child(
+            menu = menu.child(section("Current window")).child(
                 menu_item("current", IconName::FolderOpen, name, Some(detail), cx)
                     .text_color(c.text)
                     .on_click(cx.listener(|ws, _, _, cx| ws.toggle_project_menu(cx))),
             );
         }
         if !others.is_empty() {
-            menu = menu.child(section("Open in Other Windows"));
+            menu = menu.child(section("Open in other windows"));
             for (ix, (root, handle)) in others.into_iter().enumerate() {
                 let name = arcode_config::state::project_name(&root);
                 let detail = SharedString::from(root.display().to_string());
@@ -161,7 +163,7 @@ impl Workspace {
             menu = menu.child(separator());
         }
         if !recent.is_empty() {
-            menu = menu.child(section("Recent Projects"));
+            menu = menu.child(section("Recent projects"));
             for (ix, (path, name)) in recent.into_iter().enumerate() {
                 let detail = SharedString::from(path.display().to_string());
                 let group = SharedString::from(format!("menu-recent-{ix}"));
@@ -291,7 +293,8 @@ mod tests {
             .debug_bounds("project-menu-detail")
             .expect("the recent project's path is drawn");
         assert!(detail.size.width > px(0.));
-        // Menu at x = 8, 360px wide.
-        assert!(detail.right() <= px(8. + 360.), "{detail:?}");
+        // Menu under the project chip, at the rail's right edge.
+        let left = arcode_ui_kit::metrics::RAIL_W;
+        assert!(detail.right() <= left + px(super::MENU_W), "{detail:?}");
     }
 }

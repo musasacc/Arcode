@@ -13,6 +13,7 @@ mod element;
 mod ime;
 mod input;
 mod layout;
+mod metrics;
 mod mouse;
 mod view;
 

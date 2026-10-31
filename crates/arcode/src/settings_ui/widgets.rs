@@ -31,7 +31,9 @@ pub fn setting_row(
     if !super::filter::admit(&label, &description) {
         return div();
     }
+    let selector = format!("setting-row-{label}");
     div()
+        .debug_selector(move || selector)
         .flex()
         .flex_wrap()
         .items_center()

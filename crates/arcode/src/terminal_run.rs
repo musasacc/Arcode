@@ -7,12 +7,18 @@
 //! group (Unix only; a cheap `/proc` read on Linux), polled often at first
 //! and rarely later, and only while the command runs. Programs started
 //! without a shell (package commands) report their exit code.
+//!
+//! The running time ticks without redrawing more than it must: whole
+//! seconds for the first minute, then whole minutes (minutes only in
+//! low-end mode), and only while the readout is on screen. A dev server
+//! started with Run thus costs one frame a minute, not one a second.
 
+use std::cell::RefCell;
 use std::time::{Duration, Instant};
 
 use arcode_terminal_view::TerminalView;
 use arcode_ui_kit::metrics::type_scale;
-use arcode_ui_kit::{Tooltip, readout, status_dot, theme, truncated};
+use arcode_ui_kit::{Tooltip, low_end, mono_font_family, status_dot, theme, truncated};
 use gpui::{AnyElement, App, Context, Entity, EntityId, SharedString, Task, div, prelude::*, px};
 
 use super::TerminalPanel;
@@ -45,6 +51,10 @@ pub struct LastRun {
     /// The end can be watched (else the run is only reported as started).
     watched: bool,
     terminal: EntityId,
+    /// The readout text last drawn, taken by the watcher when it asks for
+    /// a redraw: `None` while the readout is not on screen, so a hidden
+    /// readout never makes the window redraw.
+    drawn: RefCell<Option<String>>,
     _watch: Option<Task<()>>,
 }
 
@@ -60,21 +70,40 @@ impl LastRun {
     }
 
     /// The mono readout after the command: `exit 101 · 0.92 s`,
-    /// `running · 4 s`, `done · 0.31 s`.
-    pub fn readout(&self) -> String {
+    /// `running · 4 s`, `done · 0.31 s`; `coarse` (low-end mode) counts a
+    /// running command in whole minutes only.
+    pub fn readout(&self, coarse: bool) -> String {
         readout_text(
             self.status(),
             self.exit.flatten(),
             self.duration,
             self.started.elapsed(),
             self.watched,
+            coarse,
         )
     }
 
-    /// Whole seconds since the start, to redraw the running readout once a
-    /// second.
-    fn shown_seconds(&self) -> u64 {
-        self.started.elapsed().as_secs()
+    /// The readout text to draw now, remembered as drawn (see
+    /// [`LastRun::stale`]). Every view that shows the readout (the bottom
+    /// panel, the footer while the panel is hidden) draws this text.
+    pub fn shown_readout(&self, cx: &App) -> String {
+        let text = self.readout(low_end(cx));
+        *self.drawn.borrow_mut() = Some(text.clone());
+        text
+    }
+
+    /// Whether the readout on screen is out of date: it was drawn (and is
+    /// therefore shown) with another text than `now`. Forgets the drawn
+    /// text, so a readout that is not drawn again is not asked for again.
+    fn stale(&self, now: &str) -> bool {
+        let mut drawn = self.drawn.borrow_mut();
+        match drawn.as_deref() {
+            Some(shown) if shown != now => {
+                *drawn = None;
+                true
+            }
+            _ => false,
+        }
     }
 }
 
@@ -85,19 +114,33 @@ pub fn readout_text(
     duration: Option<Duration>,
     elapsed: Duration,
     watched: bool,
+    coarse: bool,
 ) -> String {
     let with = |head: String, d: Option<Duration>| match d {
         Some(d) => format!("{head} · {}", format_duration(d)),
         None => head,
     };
     match status {
-        RunStatus::Running => format!("running · {} s", elapsed.as_secs()),
+        RunStatus::Running => running_text(elapsed, coarse),
         RunStatus::Succeeded | RunStatus::Failed => match code {
             Some(code) => with(format!("exit {code}"), duration),
             None => with("stopped".to_string(), duration),
         },
         RunStatus::Ended if !watched => "started".to_string(),
         RunStatus::Ended => with("done".to_string(), duration),
+    }
+}
+
+/// The readout of a command running for `elapsed`: `running · 4 s` for
+/// the first minute, then `running · 2 m`. `coarse` (low-end mode) drops
+/// the seconds: `running`, then `running · 1 m`. The text changes at most
+/// once a second, and once a minute after the first.
+pub fn running_text(elapsed: Duration, coarse: bool) -> String {
+    let secs = elapsed.as_secs();
+    match secs {
+        0..60 if coarse => "running".to_string(),
+        0..60 => format!("running · {secs} s"),
+        _ => format!("running · {} m", secs / 60),
     }
 }
 
@@ -161,6 +204,7 @@ impl TerminalPanel {
             exit: None,
             watched,
             terminal: terminal.entity_id(),
+            drawn: RefCell::new(None),
             _watch: watch,
         });
         cx.notify();
@@ -182,12 +226,13 @@ impl TerminalPanel {
     }
 
     /// Polls whether the shell `pid` still runs a command in the
-    /// foreground; ends the run when it went back to the prompt.
+    /// foreground; ends the run when it went back to the prompt. Asks for
+    /// a redraw while it runs only when the readout on screen is out of
+    /// date (see [`LastRun::stale`]).
     fn watch_shell(&self, pid: u32, cx: &mut Context<Self>) -> Task<()> {
         cx.spawn(async move |this, cx| {
             let started = Instant::now();
             let mut seen_busy = false;
-            let mut shown = 0;
             loop {
                 cx.background_executor()
                     .timer(poll_interval(started.elapsed()))
@@ -209,8 +254,7 @@ impl TerminalPanel {
                             cx.notify();
                             return false;
                         }
-                        if run.shown_seconds() != shown {
-                            shown = run.shown_seconds();
+                        if run.stale(&run.readout(low_end(cx))) {
                             cx.notify();
                         }
                         true
@@ -226,10 +270,13 @@ impl TerminalPanel {
 
 /// The run readout of `panel`'s last run: a status dot (`accent` running,
 /// `success` / `error` by exit code, muted when unknown), the command and
-/// the mono readout. `None` before the first run.
+/// the mono readout, both ending in `…` when the header is short of room.
+/// `None` before the first run.
 pub fn render_run_readout(panel: &Entity<TerminalPanel>, cx: &App) -> Option<AnyElement> {
     let run = panel.read(cx).last_run.as_ref()?;
     let c = theme(cx).colors.clone();
+    let scale = type_scale(cx);
+    let text = run.shown_readout(cx);
     let status = run.status();
     let dot = match status {
         RunStatus::Running => c.accent,
@@ -253,103 +300,33 @@ pub fn render_run_readout(panel: &Entity<TerminalPanel>, cx: &App) -> Option<Any
             .min_w_0()
             .items_center()
             .gap(px(6.))
-            .text_size(type_scale(cx).meta)
+            .overflow_hidden()
+            .text_size(scale.meta)
             .child(status_dot(dot))
             .child(
                 div()
+                    .flex()
                     .min_w(px(24.))
                     .max_w(px(200.))
                     .overflow_hidden()
                     .text_color(c.text)
                     .child(truncated(run.command.clone())),
             )
-            .child(div().flex_none().child(readout(run.readout())))
+            .child(
+                div()
+                    .flex()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .font_family(mono_font_family())
+                    .text_size(scale.readout)
+                    .text_color(c.text_muted)
+                    .child(truncated(text)),
+            )
             .tooltip(move |_, cx| Tooltip::text(tip.clone(), cx))
             .into_any_element(),
     )
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn durations_read_like_instruments() {
-        assert_eq!(format_duration(Duration::from_millis(920)), "0.92 s");
-        assert_eq!(format_duration(Duration::from_millis(9_994)), "9.99 s");
-        assert_eq!(format_duration(Duration::from_millis(12_340)), "12.3 s");
-        assert_eq!(format_duration(Duration::from_secs(125)), "2 m 05 s");
-    }
-
-    #[test]
-    fn readouts_follow_the_status() {
-        let d = Some(Duration::from_millis(920));
-        let e = Duration::from_millis(4_100);
-        assert_eq!(
-            readout_text(RunStatus::Failed, Some(101), d, e, true),
-            "exit 101 · 0.92 s"
-        );
-        assert_eq!(
-            readout_text(RunStatus::Succeeded, Some(0), d, e, true),
-            "exit 0 · 0.92 s"
-        );
-        assert_eq!(
-            readout_text(RunStatus::Failed, None, d, e, true),
-            "stopped · 0.92 s"
-        );
-        assert_eq!(
-            readout_text(RunStatus::Running, None, None, e, true),
-            "running · 4 s"
-        );
-        assert_eq!(
-            readout_text(RunStatus::Ended, None, d, e, true),
-            "done · 0.92 s"
-        );
-        assert_eq!(readout_text(RunStatus::Ended, None, None, e, true), "done");
-        assert_eq!(
-            readout_text(RunStatus::Ended, None, None, e, false),
-            "started"
-        );
-    }
-
-    #[test]
-    fn polling_slows_down() {
-        assert_eq!(poll_interval(Duration::ZERO), Duration::from_millis(100));
-        assert_eq!(
-            poll_interval(Duration::from_secs(5)),
-            Duration::from_millis(250)
-        );
-        assert_eq!(
-            poll_interval(Duration::from_secs(60)),
-            Duration::from_secs(1)
-        );
-    }
-
-    fn run(ended: bool, exit: Option<Option<i32>>, watched: bool) -> LastRun {
-        LastRun {
-            command: "cargo run".into(),
-            started: Instant::now(),
-            duration: None,
-            ended,
-            exit,
-            watched,
-            terminal: EntityId::from(1u64),
-            _watch: None,
-        }
-    }
-
-    #[test]
-    fn status_from_the_exit() {
-        assert_eq!(run(false, None, true).status(), RunStatus::Running);
-        assert_eq!(
-            run(true, Some(Some(0)), true).status(),
-            RunStatus::Succeeded
-        );
-        assert_eq!(run(true, Some(Some(2)), true).status(), RunStatus::Failed);
-        assert_eq!(run(true, Some(None), true).status(), RunStatus::Failed);
-        assert_eq!(run(true, None, true).status(), RunStatus::Ended);
-        // Not watchable (no way to see the end): reported as started.
-        assert_eq!(run(false, None, false).status(), RunStatus::Ended);
-        assert_eq!(run(false, None, false).readout(), "started");
-    }
-}
+#[path = "terminal_run_tests.rs"]
+mod tests;

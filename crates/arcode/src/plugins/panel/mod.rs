@@ -32,7 +32,7 @@ use arcode_plugin_host::bindings::{NodeId, PanelId};
 use arcode_plugin_host::instance::Pending;
 use arcode_plugin_host::ui_tree::{Changes, PanelSnapshot};
 use arcode_plugin_host::{CallError, PluginId};
-use arcode_ui_kit::{IconName, button, icon, theme};
+use arcode_ui_kit::{IconName, button, icon, theme, type_scale};
 use gpui::{
     AnyElement, App, Context, EventEmitter, FocusHandle, Focusable, SharedString, Window, div,
     prelude::*, px,
@@ -330,7 +330,7 @@ impl PanelView {
                 .gap_2()
                 .px_3()
                 .py_1p5()
-                .bg(c.error.opacity(0.12))
+                .bg(c.pill)
                 .border_b_1()
                 .border_color(c.border)
                 .child(icon(IconName::CircleX).size(px(14.)).color(c.error))
@@ -373,7 +373,7 @@ impl Render for PanelView {
             .overflow_hidden()
             .bg(c.background)
             .text_color(c.text)
-            .text_sm()
+            .text_size(type_scale(cx).body)
             .children(self.render_banner(cx))
             .child(
                 div()

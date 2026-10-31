@@ -97,7 +97,7 @@ impl StatusBar {
         }
         let run = terminals.read(cx).last_run()?;
         let c = theme(cx).colors.clone();
-        let text = run.readout();
+        let text = run.shown_readout(cx);
         let (head, tail) = split_readout(&text);
         let head_color = run_color(run.status(), cx);
         let command = run.command.clone();
