@@ -54,7 +54,7 @@ fn settings_page_is_a_tab_and_writes_config(cx: &mut TestAppContext) {
         assert!(ws.settings_page().is_some());
         assert!(ws.active_editor(cx).is_none());
         let pane = ws.active_pane().read(cx);
-        assert_eq!(pane.active_page().map(|p| p.key), Some("settings"));
+        assert_eq!(pane.active_page().map(|p| p.key.as_ref()), Some("settings"));
     });
     // Opening it again activates the same tab.
     cx.dispatch_action(OpenSettings);

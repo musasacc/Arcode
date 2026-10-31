@@ -1,0 +1,21 @@
+{
+    "_meta": {
+        "hash": {"sha256": "abc"},
+        "pipfile-spec": 6
+    },
+    "default": {
+        "django": {
+            "hashes": [],
+            "index": "pypi",
+            "version": "==4.2.9"
+        },
+        "requests": {
+            "version": "==2.31.0"
+        }
+    },
+    "develop": {
+        "black": {
+            "version": "==23.12.1"
+        }
+    }
+}

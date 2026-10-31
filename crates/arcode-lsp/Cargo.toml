@@ -15,7 +15,8 @@ anyhow.workspace = true
 log.workspace = true
 async-channel.workspace = true
 
-[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
+# mallopt (Linux/glibc, see memory.rs) and killing server process groups.
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]

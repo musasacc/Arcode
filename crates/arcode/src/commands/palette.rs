@@ -82,6 +82,15 @@ pub fn capture_entries(recent: &[String], window: &mut Window, cx: &mut App) -> 
         if !global && !window.is_action_available(action.as_ref(), cx) {
             continue;
         }
+        // Plugin commands with `when = "language == …"` follow the editor.
+        #[cfg(feature = "plugins")]
+        if let Some(run) = action
+            .as_any()
+            .downcast_ref::<crate::plugins::RunPluginCommand>()
+            && !crate::plugins::commands::listed(&run.id, window.window_handle().window_id(), cx)
+        {
+            continue;
+        }
         // The first binding registered is the primary one (Ctrl+C rather
         // than Ctrl+Insert for Copy).
         let binding = match &focus {

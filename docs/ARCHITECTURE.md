@@ -805,6 +805,43 @@ demand; "Packages: Install Missing Packages" works without a banner too
 (dismissed, hidden for the project, or turned off): it checks first, in the
 background, and installs what is missing.
 
+### Packages view
+
+`arcode_project::deps` reads every manifest under the project (breadth
+first, at most 6 levels, skipping `node_modules`, `target`, `vendor`,
+virtualenvs and hidden folders) with its lockfile, offline: `Cargo.toml` +
+`Cargo.lock` (workspace inheritance, renamed and target-specific
+dependencies), `package.json` + `package-lock.json` / `yarn.lock` (classic
+and berry) / `pnpm-lock.yaml` (a small YAML subset reader) / `bun.lock`,
+`pyproject.toml` (PEP 621, PEP 735 groups, uv and Poetry tables) + `uv.lock`
+/ `poetry.lock`, `Pipfile` + `Pipfile.lock`, `requirements*.txt` (versions
+from the project virtualenv's `*.dist-info`), `go.mod`, `composer.json` +
+`composer.lock`, `Gemfile` + `Gemfile.lock`. Parsers never panic; a
+malformed file shows its error under its section. The scan runs in the
+background the first time the view is shown (never before) and again 400 ms
+after a manifest or lockfile changes on disk.
+
+Add, Remove, Update and Update all build the manager's own command as an
+argument list (`cargo add`, `npm install`, `pnpm add`, `yarn add` /
+`upgrade` / `up`, `bun add`, `uv add` / `lock --upgrade-package`, `poetry
+add`, `pipenv install`, `<venv python> -m pip install`, `go get`, `composer
+require`, `bundle add`, ...) after checking names (no leading `-`, only
+package-name characters) and versions; on Windows npm, pnpm and Yarn run
+through their `.cmd` shims (Composer and Bundler through `.bat`), where
+`cmd.exe`-special characters are refused. The command runs in a terminal tab
+started directly on the program (`TerminalPanel::run_program`, no shell),
+in the manifest's folder; the tab stays after the program exits and the
+view is read again then. A missing program gives a toast with how to
+install it. "Check for updates" is the only network use and runs only on
+click, in the background, cancellable: `cargo update --dry-run --verbose`,
+`uv lock --upgrade --dry-run`, `npm outdated --json`, `pnpm outdated
+--format json`, `yarn outdated --json`, `pip list --outdated --format json`
+(the virtualenv's interpreter; `pipenv run` for Pipenv), `poetry show
+--outdated`, `go list -m -u -json all`, `composer outdated --format=json`,
+`bundle outdated --parseable`. Output that cannot be read (or a manager
+without such a command, like Bun) is shown by running the command in a
+terminal tab instead.
+
 ## Settings, themes, first run, tour and low-end mode
 
 Settings live only in `config.toml`. The Settings page

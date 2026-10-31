@@ -1,6 +1,7 @@
 //! [`LspClient`]: a handle to one running language server.
 
 mod dispatch;
+mod group;
 mod process;
 mod resolve;
 mod shared;
@@ -122,7 +123,12 @@ impl LspClient {
             }
         };
         let (kill_tx, kill_rx) = oneshot::channel();
-        tokio::spawn(process::supervise(shared.clone(), spawned.child, kill_rx));
+        tokio::spawn(process::supervise(
+            shared.clone(),
+            spawned.child,
+            spawned.group,
+            kill_rx,
+        ));
         if let Some(stderr) = spawned.stderr {
             tokio::spawn(process::forward_stderr(shared.clone(), stderr));
         }

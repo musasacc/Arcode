@@ -19,8 +19,11 @@ pub mod list_picker;
 pub mod lsp_bridge;
 pub mod navigation;
 pub mod new_project;
+pub mod packages;
 pub mod pane;
 pub mod path_prompt;
+#[cfg(feature = "plugins")]
+pub mod plugins;
 pub mod prefs;
 pub mod problems;
 pub mod project;

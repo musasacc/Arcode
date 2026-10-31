@@ -97,6 +97,8 @@ pub fn run() {
             find_bar::bind_keys(cx);
             search_view::bind_keys(cx);
             commands::init(cx);
+            #[cfg(feature = "plugins")]
+            crate::plugins::commands::init(cx);
             crate::lsp_bridge::init(cx);
             path_prompt::bind_keys(cx);
             sidebar::file_tree::bind_keys(cx);

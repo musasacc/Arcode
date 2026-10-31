@@ -14,6 +14,12 @@ name = "arcode"
 path = "src/main.rs"
 test = false
 
+[features]
+default = ["plugins"]
+# The WASM plugin system (docs/PLUGINS.md §2); without it wasmtime and the
+# plugin host are not built.
+plugins = ["dep:arcode-plugin-host", "dep:globset"]
+
 [dependencies]
 gpui.workspace = true
 arcode-buffer.workspace = true
@@ -39,6 +45,8 @@ memory-stats.workspace = true
 notify.workspace = true
 async-channel.workspace = true
 unicode-width.workspace = true
+arcode-plugin-host = { workspace = true, optional = true }
+globset = { workspace = true, optional = true }
 
 # Placing restored windows on X11 (GPUI sets no position hint there).
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]

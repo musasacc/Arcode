@@ -50,12 +50,22 @@ Shared reference for the GPUI crates. Read `docs/ARCHITECTURE.md` first.
 +--------------------------------------------------------------------------+
 ```
 
-- Activity bar (44px): Files, Search, Git, Debug, Plugins, Todo. The
+- Activity bar (44px): Files, Search, Git, Debug, Plugins, Todo, Packages. The
   Plugins view lists the language packs ("Languages"): per pack its
   languages and extensions, snippets, each language server as installed
   or not installed (with the install command as text and a copy button;
   nothing is downloaded), an enable switch, and on click the comment
   tokens, run commands and file associations.
+- Packages activity (package icon, after Todo): a filter box and one
+  section per manifest (nested projects too) with its manager badge
+  (cargo, npm, pnpm, yarn, bun, uv, poetry, pipenv, pip, go, composer,
+  bundler) and, on hover, Add…, Update all, Check for updates and Refresh.
+  Rows show name, requested → locked version, kind (dev, build, optional,
+  peer, indirect) and source (git, path, workspace) badges, and
+  "newer: x.y.z" after a check. Clicking a row opens the manifest at its
+  line; hover buttons and the context menu offer Update, Remove… (confirmed
+  in the row) and Open Documentation. Add… opens a small form above the
+  list (name, optional version, dev switch; Enter adds, Escape closes).
 - Status bar, right side: cursor, indentation, encoding, line ending,
   language, language servers. Clicking the indentation, line ending or
   language opens a small filterable picker (Ctrl+K M also picks the
