@@ -1,0 +1,394 @@
+//! Reader and writer tasks: route responses to pending requests, answer
+//! server-to-client requests and turn notifications into events.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use lsp_types::{
+    ApplyWorkspaceEditParams, ConfigurationParams, LogMessageParams, MessageType, NumberOrString,
+    ProgressParams, ProgressParamsValue, PublishDiagnosticsParams, ShowMessageParams,
+    WorkDoneProgress,
+};
+use serde_json::{Value, json};
+use tokio::io::{AsyncBufRead, AsyncWrite};
+use tokio::sync::{mpsc, oneshot};
+
+use super::shared::Shared;
+use crate::error::{INVALID_PARAMS, METHOD_NOT_FOUND};
+use crate::event::{EditOutcome, EditReply, LspEvent};
+use crate::rpc::{self, Incoming};
+use crate::transport;
+use crate::uri::{path_to_uri, uri_to_path};
+
+/// How long a server's `workspace/applyEdit` waits for the UI's answer.
+const APPLY_EDIT_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Reads messages until EOF, an error, or termination.
+pub(crate) async fn read_loop<R>(shared: Arc<Shared>, mut reader: R)
+where
+    R: AsyncBufRead + Unpin + Send,
+{
+    let mut progress = ProgressTracker::default();
+    let terminated = shared.terminated();
+    tokio::pin!(terminated);
+    loop {
+        let next = tokio::select! {
+            next = transport::read_message(&mut reader) => next,
+            () = &mut terminated => return,
+        };
+        match next {
+            Ok(Some(text)) => handle_message(&shared, &mut progress, &text),
+            Ok(None) => {
+                shared.terminate("server closed the connection");
+                return;
+            }
+            Err(e) => {
+                shared.terminate(format!("read error: {e}"));
+                return;
+            }
+        }
+    }
+}
+
+/// Writes queued messages until the queue closes or the connection ends.
+pub(crate) async fn write_loop<W>(
+    shared: Arc<Shared>,
+    mut rx: mpsc::UnboundedReceiver<String>,
+    mut writer: W,
+) where
+    W: AsyncWrite + Unpin + Send,
+{
+    let terminated = shared.terminated();
+    tokio::pin!(terminated);
+    loop {
+        let message = tokio::select! {
+            biased;
+            m = rx.recv() => m,
+            () = &mut terminated => None,
+        };
+        let Some(message) = message else { return };
+        if let Err(e) = transport::write_message(&mut writer, &message).await {
+            shared.terminate(format!("write error: {e}"));
+            return;
+        }
+    }
+}
+
+fn handle_message(shared: &Arc<Shared>, progress: &mut ProgressTracker, text: &str) {
+    match rpc::parse_incoming(text) {
+        Ok(Incoming::Response { id, result }) => match rpc::numeric_id(&id) {
+            Some(id) => shared.complete(id, result),
+            None => log::debug!("[{}] response with foreign id {id}", shared.name),
+        },
+        Ok(Incoming::Request { id, method, params }) => {
+            match handle_request(shared, &method, params) {
+                Reply::Now(result) => answer(shared, &id, &method, result),
+                Reply::Later(rx) => {
+                    let shared = shared.clone();
+                    tokio::spawn(async move {
+                        let outcome = tokio::time::timeout(APPLY_EDIT_TIMEOUT, rx).await;
+                        answer(&shared, &id, &method, Ok(edit_outcome(outcome)));
+                    });
+                }
+            }
+        }
+        Ok(Incoming::Notification { method, params }) => {
+            handle_notification(shared, progress, &method, params)
+        }
+        Err(e) => shared.log(
+            MessageType::WARNING,
+            format!("ignoring invalid message: {e}"),
+        ),
+    }
+}
+
+type ReplyResult = Result<Value, (i64, String)>;
+
+/// How a server request is answered.
+enum Reply {
+    /// Right away.
+    Now(ReplyResult),
+    /// When the UI decides (`workspace/applyEdit`).
+    Later(oneshot::Receiver<EditOutcome>),
+}
+
+fn answer(shared: &Shared, id: &Value, method: &str, result: ReplyResult) {
+    let reply = match result {
+        Ok(result) => rpc::response_ok(id, result),
+        Err((code, message)) => rpc::response_err(id, code, &message),
+    };
+    if let Err(e) = shared.send_raw(reply) {
+        log::debug!("[{}] could not answer {method}: {e}", shared.name);
+    }
+}
+
+/// The `ApplyWorkspaceEditResult` for what the UI answered (or did not).
+fn edit_outcome<E1, E2>(outcome: Result<Result<EditOutcome, E1>, E2>) -> Value {
+    let outcome = match outcome {
+        Ok(Ok(outcome)) => outcome,
+        Ok(Err(_)) => EditOutcome {
+            applied: false,
+            failure_reason: Some("the edit was not applied".into()),
+        },
+        Err(_) => EditOutcome {
+            applied: false,
+            failure_reason: Some("timed out waiting for the editor".into()),
+        },
+    };
+    match outcome.failure_reason {
+        Some(reason) if !outcome.applied => json!({ "applied": false, "failureReason": reason }),
+        _ => json!({ "applied": outcome.applied }),
+    }
+}
+
+fn parse<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, (i64, String)> {
+    serde_json::from_value(params).map_err(|e| (INVALID_PARAMS, e.to_string()))
+}
+
+/// Answers a request sent by the server.
+fn handle_request(shared: &Shared, method: &str, params: Value) -> Reply {
+    if method == "workspace/applyEdit" {
+        let params: ApplyWorkspaceEditParams = match parse(params) {
+            Ok(params) => params,
+            Err(e) => return Reply::Now(Err(e)),
+        };
+        let (reply, rx) = EditReply::channel();
+        shared.events.send(LspEvent::ApplyEdit {
+            server: shared.name.clone(),
+            root: shared.root.clone(),
+            encoding: shared.encoding(),
+            label: params.label,
+            edit: params.edit,
+            reply,
+        });
+        return Reply::Later(rx);
+    }
+    Reply::Now(handle_plain_request(shared, method, params))
+}
+
+/// Requests answered right away.
+fn handle_plain_request(shared: &Shared, method: &str, params: Value) -> ReplyResult {
+    match method {
+        "workspace/configuration" => {
+            let params: ConfigurationParams = parse(params)?;
+            let options = shared.initialization_options.as_ref();
+            let items = params
+                .items
+                .iter()
+                .map(|item| config_value(options, item.section.as_deref()))
+                .collect();
+            Ok(Value::Array(items))
+        }
+        "window/workDoneProgress/create"
+        | "client/registerCapability"
+        | "client/unregisterCapability" => Ok(Value::Null),
+        m if refresh_feature(m).is_some() => {
+            shared.events.send(LspEvent::Refresh {
+                server: shared.name.clone(),
+                root: shared.root.clone(),
+                feature: refresh_feature(m).unwrap_or_default().to_string(),
+            });
+            Ok(Value::Null)
+        }
+        "workspace/workspaceFolders" => {
+            let name = shared
+                .root
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            Ok(json!([{ "uri": path_to_uri(&shared.root), "name": name }]))
+        }
+        "window/showMessageRequest" => {
+            let params: ShowMessageParams = parse(params)?;
+            shared.events.send(LspEvent::ShowMessage {
+                server: shared.name.clone(),
+                typ: params.typ,
+                message: params.message,
+            });
+            Ok(Value::Null)
+        }
+        _ => Err((METHOD_NOT_FOUND, format!("unhandled method {method}"))),
+    }
+}
+
+/// `inlayHint` for `workspace/inlayHint/refresh`.
+fn refresh_feature(method: &str) -> Option<&str> {
+    method
+        .strip_prefix("workspace/")?
+        .strip_suffix("/refresh")
+        .filter(|f| !f.is_empty())
+}
+
+/// Looks up a configuration section in the initialization options.
+///
+/// `None` returns the whole object. A dotted section is looked up as a path;
+/// if that fails, the first segment is assumed to name the options object
+/// itself (e.g. `rust-analyzer.cargo` finds `cargo` in rust-analyzer's
+/// options). Anything not found is `null`.
+pub(crate) fn config_value(options: Option<&Value>, section: Option<&str>) -> Value {
+    let Some(options) = options else {
+        return Value::Null;
+    };
+    let Some(section) = section.filter(|s| !s.is_empty()) else {
+        return options.clone();
+    };
+    let lookup = |path: &str| {
+        if path.is_empty() {
+            return Some(options);
+        }
+        options.get(path).or_else(|| {
+            path.split('.')
+                .try_fold(options, |value, key| value.get(key))
+        })
+    };
+    if let Some(v) = lookup(section) {
+        return v.clone();
+    }
+    let rest = section.split_once('.').map_or("", |(_, rest)| rest);
+    lookup(rest).cloned().unwrap_or(Value::Null)
+}
+
+fn handle_notification(
+    shared: &Shared,
+    progress: &mut ProgressTracker,
+    method: &str,
+    params: Value,
+) {
+    let server = shared.name.clone();
+    match method {
+        "textDocument/publishDiagnostics" if !shared.features.diagnostics => {}
+        "textDocument/publishDiagnostics" => {
+            let Ok(p) = serde_json::from_value::<PublishDiagnosticsParams>(params) else {
+                return shared.log(MessageType::WARNING, "invalid publishDiagnostics".into());
+            };
+            match uri_to_path(&p.uri) {
+                Some(path) => shared.events.send(LspEvent::Diagnostics {
+                    server,
+                    path,
+                    version: p.version,
+                    diagnostics: p.diagnostics,
+                }),
+                None => log::debug!("[{server}] diagnostics for non-file URI {}", p.uri.as_str()),
+            }
+        }
+        "window/logMessage" => {
+            if let Ok(p) = serde_json::from_value::<LogMessageParams>(params) {
+                shared.log(p.typ, p.message);
+            }
+        }
+        "window/showMessage" => {
+            if let Ok(p) = serde_json::from_value::<ShowMessageParams>(params) {
+                shared.events.send(LspEvent::ShowMessage {
+                    server,
+                    typ: p.typ,
+                    message: p.message,
+                });
+            }
+        }
+        "$/progress" => {
+            if let Ok(p) = serde_json::from_value::<ProgressParams>(params) {
+                progress.handle(shared, p);
+            }
+        }
+        _ => log::trace!("[{server}] ignoring notification {method}"),
+    }
+}
+
+/// Tracks active work-done progress tokens to derive `Busy`/`Running`.
+/// The oldest active token's title is the one shown.
+#[derive(Default)]
+struct ProgressTracker {
+    active: Vec<(String, String)>,
+}
+
+impl ProgressTracker {
+    fn handle(&mut self, shared: &Shared, params: ProgressParams) {
+        let token = match params.token {
+            NumberOrString::Number(n) => n.to_string(),
+            NumberOrString::String(s) => s,
+        };
+        let ProgressParamsValue::WorkDone(work) = params.value;
+        let (title, message, percentage, done) = match work {
+            WorkDoneProgress::Begin(b) => {
+                self.active.retain(|(t, _)| *t != token);
+                self.active.push((token.clone(), b.title.clone()));
+                (Some(b.title), b.message, b.percentage, false)
+            }
+            WorkDoneProgress::Report(r) => (self.title(&token), r.message, r.percentage, false),
+            WorkDoneProgress::End(e) => {
+                let title = self.title(&token);
+                self.active.retain(|(t, _)| *t != token);
+                (title, e.message, None, true)
+            }
+        };
+        shared.events.send(LspEvent::Progress {
+            server: shared.name.clone(),
+            token,
+            title,
+            message,
+            percentage,
+            done,
+        });
+        shared.set_busy(self.active.first().map(|(_, title)| title.clone()));
+    }
+
+    fn title(&self, token: &str) -> Option<String> {
+        self.active
+            .iter()
+            .find(|(t, _)| t == token)
+            .map(|(_, title)| title.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refresh_methods_name_their_feature() {
+        assert_eq!(
+            refresh_feature("workspace/inlayHint/refresh"),
+            Some("inlayHint")
+        );
+        assert_eq!(
+            refresh_feature("workspace/semanticTokens/refresh"),
+            Some("semanticTokens")
+        );
+        assert_eq!(refresh_feature("workspace/refresh"), None);
+        assert_eq!(refresh_feature("workspace//refresh"), None);
+        assert_eq!(refresh_feature("window/inlayHint/refresh"), None);
+    }
+
+    #[test]
+    fn edit_outcomes_become_results() {
+        let ok: Result<Result<EditOutcome, ()>, ()> = Ok(Ok(EditOutcome {
+            applied: true,
+            failure_reason: None,
+        }));
+        assert_eq!(edit_outcome(ok), json!({ "applied": true }));
+        let dropped: Result<Result<EditOutcome, ()>, ()> = Ok(Err(()));
+        assert_eq!(edit_outcome(dropped)["applied"], false);
+        let late: Result<Result<EditOutcome, ()>, ()> = Err(());
+        assert!(
+            edit_outcome(late)["failureReason"]
+                .as_str()
+                .unwrap()
+                .contains("timed out")
+        );
+    }
+
+    #[test]
+    fn config_lookup() {
+        let opts = json!({ "cargo": { "features": "all" }, "a.b": 1, "x": { "y": { "z": 2 } } });
+        assert_eq!(config_value(None, Some("x")), Value::Null);
+        assert_eq!(config_value(Some(&opts), None), opts);
+        assert_eq!(config_value(Some(&opts), Some("a.b")), json!(1));
+        assert_eq!(config_value(Some(&opts), Some("x.y.z")), json!(2));
+        assert_eq!(config_value(Some(&opts), Some("rust-analyzer")), opts);
+        assert_eq!(
+            config_value(Some(&opts), Some("rust-analyzer.cargo")),
+            json!({ "features": "all" })
+        );
+        assert_eq!(config_value(Some(&opts), Some("nope.missing")), Value::Null);
+    }
+}
