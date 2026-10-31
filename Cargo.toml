@@ -1,0 +1,84 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+exclude = ["plugins", "crates/arcode-plugin-host/test-programs"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/musasacc/arcode"
+rust-version = "1.90"
+
+[workspace.dependencies]
+# GUI: pinned exactly. Bumping GPUI is a deliberate, reviewed change.
+gpui = { version = "=0.2.2" }
+
+arcode-buffer = { path = "crates/arcode-buffer" }
+arcode-syntax = { path = "crates/arcode-syntax" }
+arcode-lsp = { path = "crates/arcode-lsp" }
+arcode-terminal = { path = "crates/arcode-terminal" }
+arcode-config = { path = "crates/arcode-config" }
+arcode-git = { path = "crates/arcode-git" }
+arcode-editor = { path = "crates/arcode-editor" }
+arcode-terminal-view = { path = "crates/arcode-terminal-view" }
+arcode-ui-kit = { path = "crates/arcode-ui-kit" }
+arcode-search = { path = "crates/arcode-search" }
+arcode-dap = { path = "crates/arcode-dap" }
+arcode-completion = { path = "crates/arcode-completion" }
+arcode-project = { path = "crates/arcode-project" }
+arcode-vim = { path = "crates/arcode-vim" }
+arcode-plugin-api = { path = "crates/arcode-plugin-api" }
+arcode-plugin-host = { path = "crates/arcode-plugin-host" }
+
+ropey = "1.6.1"
+tree-sitter = "0.25"
+streaming-iterator = "0.1.9"
+tree-sitter-rust = "0.24"
+tree-sitter-toml-ng = "0.7"
+tree-sitter-json = "0.24"
+lsp-types = "0.97"
+tokio = "1.48"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+# Comment-preserving edits of config.toml (pack toggles, file associations).
+toml_edit = "0.25"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+dirs = "6"
+alacritty_terminal = "0.26"
+async-channel = "2"
+futures = "0.3"
+tempfile = "3"
+ignore = "0.4"
+nucleo-matcher = "0.3"
+memory-stats = "1"
+unicode-width = "0.2"
+notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
+
+# Plugin system (docs/PLUGINS.md). Pinned exactly, like GPUI.
+wit-bindgen = { version = "=0.63.0", default-features = false, features = ["macros", "realloc"] }
+globset = "0.4"
+# wasmtime/wasmtime-wasi pinned exactly (§2): runtime + cranelift + component model, sync API only.
+wasmtime = { version = "=50.0.1", default-features = false, features = ["runtime", "cranelift", "component-model", "std"] }
+wasmtime-wasi = { version = "=50.0.1", default-features = false, features = ["p2"] }
+sha2 = "0.10"
+bytes = "1"
+# Plugin http import (§1): ureq 3 + rustls (ring, webpki roots); no gzip, no cookies.
+ureq = { version = "3.5", default-features = false, features = ["rustls"] }
+# Plugin host (unix): geteuid, getrlimit, O_NONBLOCK for cache/fd checks.
+libc = "0.2"
+
+[profile.dev]
+# GPUI is unusably slow unoptimized; keep deps fast, our code debuggable.
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
