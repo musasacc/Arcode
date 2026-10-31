@@ -9,9 +9,7 @@
 
 use arcode_ui_kit::metrics::{CONTROL_H, ICON_BUTTON_RADIUS, type_scale};
 use arcode_ui_kit::{IconName, Tooltip, icon, mono_font_family, theme};
-use gpui::{
-    Context, IntoElement, Pixels, SharedString, canvas, div, prelude::*, px, uniform_list,
-};
+use gpui::{Context, IntoElement, Pixels, SharedString, canvas, div, prelude::*, px, uniform_list};
 
 use super::{DebugPanel, REPL_CONTEXT, ReplHistoryDown, ReplHistoryUp};
 use crate::debugger::console::LineKind;
