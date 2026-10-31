@@ -40,6 +40,13 @@ use gpui::{
 
 use super::client::PluginClient;
 
+/// Space between a panel's content and the edges of the rounded panel or
+/// pane it sits in (docs/DESIGN.md 5.3: nothing touches a panel edge), so
+/// a plugin's header row or button never runs into the border.
+pub const CONTENT_INSET_X: f32 = 8.;
+/// The same at the top and bottom.
+pub const CONTENT_INSET_Y: f32 = 6.;
+
 /// What a panel reports to the workspace.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PanelViewEvent {
@@ -382,6 +389,8 @@ impl Render for PanelView {
                     .min_w_0()
                     .flex()
                     .flex_col()
+                    .px(px(CONTENT_INSET_X))
+                    .py(px(CONTENT_INSET_Y))
                     .child(body),
             )
     }

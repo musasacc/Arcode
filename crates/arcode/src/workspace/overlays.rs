@@ -152,7 +152,7 @@ impl Workspace {
                 .text_size(type_scale(cx).body)
                 .text_color(c.text)
                 .child(icon(glyph).size(px(14.)).color(color))
-                .child(div().flex_1().min_w_0().child(toast.clone()))
+                .child(toast_text(toast))
                 .child(
                     icon_button("toast-close", IconName::X)
                         .size(px(24.))
@@ -173,6 +173,53 @@ impl Workspace {
         }
         root
     }
+}
+
+/// Longest chunk of a toast kept on one line; longer ones (a long path)
+/// may wrap inside themselves rather than be clipped.
+const TOAST_CHUNK_NOWRAP: usize = 48;
+
+/// The words of a toast message, a `code span` (with the punctuation
+/// around it) counting as one word, so a wrapped toast never breaks inside
+/// `cargo run` or starts its second line with `)`.
+pub(super) fn toast_chunks(message: &str) -> Vec<&str> {
+    let mut chunks = Vec::new();
+    let (mut start, mut in_code) = (None, false);
+    for (ix, ch) in message.char_indices() {
+        if ch == '`' {
+            in_code = !in_code;
+        }
+        if ch.is_whitespace() && !in_code {
+            if let Some(s) = start.take() {
+                chunks.push(&message[s..ix]);
+            }
+        } else if start.is_none() {
+            start = Some(ix);
+        }
+    }
+    if let Some(s) = start {
+        chunks.push(&message[s..]);
+    }
+    chunks
+}
+
+/// A toast's message: its chunks (see [`toast_chunks`]) wrapped as words.
+fn toast_text(message: &str) -> Div {
+    div()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .flex_wrap()
+        .gap_x(px(4.))
+        .children(toast_chunks(message).into_iter().map(|chunk| {
+            div()
+                .min_w_0()
+                .max_w_full()
+                .when(chunk.chars().count() <= TOAST_CHUNK_NOWRAP, |el| {
+                    el.whitespace_nowrap()
+                })
+                .child(chunk.to_string())
+        }))
 }
 
 /// The status icon of a toast (docs/DESIGN.md 6.12).
@@ -207,8 +254,14 @@ pub(super) fn toast_level(message: &str) -> ToastLevel {
     ]
     .iter()
     .any(|w| lower.contains(w));
+    // Something missing that the user can install or set up.
+    let warning = ["not installed", "not on path", "not found", "warning"]
+        .iter()
+        .any(|w| lower.contains(w));
     if error {
         ToastLevel::Error
+    } else if warning {
+        ToastLevel::Warning
     } else {
         ToastLevel::Info
     }
@@ -224,6 +277,29 @@ mod tests {
         assert_eq!(toast_level("git status failed: x"), ToastLevel::Error);
         assert_eq!(toast_level("Copied path"), ToastLevel::Info);
         assert_eq!(toast_level("Saved 3 files"), ToastLevel::Info);
+        assert_eq!(
+            toast_level(
+                "Language server taplo is not installed (command: `taplo lsp stdio`). \
+                 Install it, then restart it from the status bar."
+            ),
+            ToastLevel::Warning
+        );
+        assert_eq!(
+            toast_level("pnpm is not installed (or not on PATH)."),
+            ToastLevel::Warning
+        );
+    }
+
+    #[test]
+    fn code_spans_stay_in_one_chunk() {
+        assert_eq!(
+            toast_chunks("server taplo (command: `taplo lsp stdio`). Install it"),
+            vec!["server", "taplo", "(command:", "`taplo lsp stdio`).", "Install", "it"]
+        );
+        assert_eq!(toast_chunks("  a   b "), vec!["a", "b"]);
+        assert!(toast_chunks("").is_empty());
+        // An unclosed span runs to the end.
+        assert_eq!(toast_chunks("run `a b"), vec!["run", "`a b"]);
     }
 }
 

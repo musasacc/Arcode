@@ -15,6 +15,14 @@ use gpui::{
     Entity, Focusable, Modifiers, TestAppContext, VisualTestContext, div, point, prelude::*, px,
 };
 
+/// Go to the start of the document as bound on this platform (Cmd+Up on
+/// macOS, Ctrl+Home elsewhere).
+const DOC_START: &str = if cfg!(target_os = "macos") {
+    "cmd-up"
+} else {
+    "ctrl-home"
+};
+
 type Events = Rc<RefCell<Vec<EditorEvent>>>;
 
 fn open_with<'a>(
@@ -131,7 +139,7 @@ fn gutter_clicks_emit_events(cx: &mut TestAppContext) {
             (3, GutterLane::Runnables, Some(7), false),
         ]
     );
-    cx.simulate_keystrokes("ctrl-home");
+    cx.simulate_keystrokes(DOC_START);
     // Decorations follow inserted lines.
     cx.simulate_keystrokes("enter");
     let line = editor.read_with(cx, |e, _| e.gutter_decorations("run")[0].line);

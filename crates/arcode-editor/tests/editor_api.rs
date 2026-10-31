@@ -12,6 +12,14 @@ use arcode_editor::{
 };
 use gpui::{Entity, Focusable, TestAppContext, VisualTestContext};
 
+/// Go to the end of the document as bound on this platform (Cmd+Down on
+/// macOS, Ctrl+End elsewhere).
+const DOC_END: &str = if cfg!(target_os = "macos") {
+    "cmd-down"
+} else {
+    "ctrl-end"
+};
+
 type Events = Rc<RefCell<Vec<EditorEvent>>>;
 
 fn open_with<'a>(
@@ -100,7 +108,7 @@ fn output_is_appended_to_a_read_only_editor(cx: &mut TestAppContext) {
     assert_eq!(cursor(&editor, cx), Point::new(0, 0));
     assert!(!editor.read_with(cx, |e, _| e.is_dirty()));
     // A cursor at the end follows the output.
-    cx.simulate_keystrokes("secondary-end");
+    cx.simulate_keystrokes(DOC_END);
     editor.update(cx, |e, cx| e.append_output("three\n", cx));
     assert_eq!(cursor(&editor, cx), Point::new(3, 0));
     assert!(editor.read_with(cx, |e, _| e.is_read_only() && !e.is_dirty()));
@@ -204,7 +212,7 @@ fn large_files_skip_the_full_tree(cx: &mut TestAppContext) {
     assert!(editor.read_with(cx, |e, _| e.is_large_file()));
     editor.update(cx, |e, cx| e.scroll_to_line(4000, ScrollAnchor::Center, cx));
     cx.run_until_parked();
-    cx.simulate_keystrokes("secondary-end");
+    cx.simulate_keystrokes(DOC_END);
     cx.simulate_input("// end");
     cx.run_until_parked();
     assert!(text(&editor, cx).ends_with("}\n// end"));

@@ -75,11 +75,11 @@ fn sample_database_tree_rows_query_and_errors() {
         rows.rows[1],
         [Cell::Text("user 8".into()), Cell::Real(29.6)]
     );
-    let started =
-        v.outputs.lock().unwrap().iter().any(
-            |o| matches!(o, PluginOutput::TaskStarted { title, .. } if title == "Running query"),
-        );
-    assert!(started, "Run is a gesture and becomes a task");
+    let started = v.wait_output(|o| {
+        matches!(o, PluginOutput::TaskStarted { title, .. } if title == "Running query")
+            .then_some(())
+    });
+    assert!(started.is_some(), "Run is a gesture and becomes a task");
 
     db.run_wait(&v, "SELECT * FROM nope");
     assert!(db.shows("no such table: nope"), "{:?}", db.texts());

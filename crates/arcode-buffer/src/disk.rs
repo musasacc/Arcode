@@ -5,7 +5,14 @@
 use std::fs::{File, Metadata};
 use std::io::{self, Read, Write};
 use std::path::Path;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
+
+/// How old a file's mtime must be, when it is stamped, for an unchanged
+/// mtime to vouch for unchanged content. File times advance in coarse
+/// ticks (the clock tick on Windows, the kernel's coarse clock on Linux,
+/// 2 s on FAT), so a write right after the stamp can keep the same mtime
+/// (and length) with other bytes; such a stamp compares content instead.
+const MTIME_SETTLE: Duration = Duration::from_secs(2);
 
 /// A fingerprint of a file's bytes and the metadata seen with them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,15 +51,23 @@ impl DiskStamp {
     }
 
     fn new(hash: u64, len: u64, meta: Option<&Metadata>) -> Self {
+        // Only a settled mtime is kept (see `MTIME_SETTLE`); one in the
+        // future (clock skew) is not trusted either.
+        let settled = |t: &SystemTime| {
+            SystemTime::now()
+                .duration_since(*t)
+                .is_ok_and(|age| age >= MTIME_SETTLE)
+        };
         Self {
-            modified: meta.and_then(|m| m.modified().ok()),
+            modified: meta.and_then(|m| m.modified().ok()).filter(settled),
             len,
             hash,
         }
     }
 
     /// Compares the file at `path` with this stamp: unchanged metadata
-    /// means the same content; otherwise the file is read and hashed. An
+    /// (with an mtime that was settled when stamped) means the same
+    /// content; otherwise the file is read and hashed. An
     /// unreadable file counts as the same (nothing to warn about).
     pub fn check(&self, path: &Path) -> DiskCheck {
         let meta = match std::fs::metadata(path) {
@@ -160,5 +175,39 @@ mod tests {
         assert_eq!(stamp.check(&path), DiskCheck::Changed);
         std::fs::remove_file(&path).unwrap();
         assert_eq!(stamp.check(&path), DiskCheck::Missing);
+    }
+
+    /// A same-length rewrite within one mtime tick of the stamp keeps the
+    /// mtime on coarse clocks; the stamp must still see the change.
+    #[test]
+    fn a_rewrite_with_the_same_mtime_and_length_is_a_change() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("a.txt");
+        std::fs::write(&path, "one\n").unwrap();
+        let mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let stamp = DiskStamp::read(&path).unwrap();
+        std::fs::write(&path, "two\n").unwrap();
+        File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(mtime)
+            .unwrap();
+        assert_eq!(stamp.check(&path), DiskCheck::Changed);
+    }
+
+    /// An mtime that was settled when stamped is trusted: no read needed.
+    #[test]
+    fn a_settled_mtime_skips_the_read() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("a.txt");
+        std::fs::write(&path, "one\n").unwrap();
+        let old = SystemTime::now() - Duration::from_secs(60);
+        let file = File::options().write(true).open(&path).unwrap();
+        file.set_modified(old).unwrap();
+        drop(file);
+        let stamp = DiskStamp::read(&path).unwrap();
+        assert_eq!(stamp.modified, Some(old));
+        assert_eq!(stamp.check(&path), DiskCheck::Same);
     }
 }

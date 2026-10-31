@@ -2,7 +2,7 @@
 //! themes, UI size, animations and low-end mode.
 
 use arcode_config::{Appearance, ThemeChoice, low_end_edits};
-use arcode_ui_kit::{ButtonStyle, IconName, button, settings, theme, type_scale};
+use arcode_ui_kit::{ButtonStyle, IconName, button, settings, switch, theme, type_scale};
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use super::theme_card::{CardKind, card_subtitle, theme_card};
@@ -162,17 +162,24 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             Steps { step: 1., min: 8., max: 32., int: false },
             cx,
         ))
-        .child(page.bool_row(
-            "Animations",
-            if low_end {
-                "Off while low-end mode is on."
-            } else {
-                "Short (100–150 ms) transitions for panels, popups and messages."
-            },
-            "ui.animations",
-            ui.animations,
-            cx,
-        ))
+        // Low-end mode turns animations off whatever the setting says: the
+        // switch then shows them off and cannot be flipped.
+        .child(if low_end {
+            setting_row(
+                "Animations",
+                "Off while low-end mode is on.",
+                switch("ui.animations", false).disabled(true),
+                cx,
+            )
+        } else {
+            page.bool_row(
+                "Animations",
+                "Short (100–150 ms) transitions for panels, popups and messages.",
+                "ui.animations",
+                ui.animations,
+                cx,
+            )
+        })
         .child(page.number_row(
             "Animation duration (ms)",
             "",

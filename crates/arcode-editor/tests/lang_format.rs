@@ -29,7 +29,7 @@ fn format_document_keeps_the_cursor(cx: &mut TestAppContext) {
     editor.update(cx, |e, cx| e.undo(cx));
     assert_eq!(text(&editor, cx), CODE);
     // Format selection asks for the cursor line.
-    cx.simulate_keystrokes("ctrl-k ctrl-f");
+    cx.simulate_keystrokes("secondary-k secondary-f");
     cx.run_until_parked();
     assert_eq!(
         log.borrow().formats.last().cloned().flatten(),
@@ -47,7 +47,7 @@ fn format_on_save_never_hangs(cx: &mut TestAppContext) {
     config.editor.format_on_save_timeout_ms = 200;
     let (editor, cx) = open_at(cx, CODE, path.to_str().unwrap(), config);
     let log = install_services(&editor, true, cx);
-    cx.simulate_keystrokes("ctrl-s");
+    cx.simulate_keystrokes("secondary-s");
     cx.run_until_parked();
     assert!(editor.read_with(cx, |e, _| e.is_saving()));
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
@@ -66,7 +66,7 @@ fn format_on_save_formats_first(cx: &mut TestAppContext) {
     config.editor.format_on_save = true;
     let (editor, cx) = open_at(cx, CODE, path.to_str().unwrap(), config);
     install_services(&editor, false, cx);
-    cx.simulate_keystrokes("ctrl-s");
+    cx.simulate_keystrokes("secondary-s");
     cx.run_until_parked();
     let saved = std::fs::read_to_string(&path).unwrap();
     assert!(saved.contains("let x = 1;"), "{saved}");
@@ -81,7 +81,7 @@ fn read_only_files_offer_no_edits(cx: &mut TestAppContext) {
     move_to(&editor, Point::new(1, 6), cx);
     settle(cx);
     assert_eq!(editor.read_with(cx, |e, _| e.lightbulb_line()), None);
-    for keys in ["ctrl-.", "f2"] {
+    for keys in ["secondary-.", "f2"] {
         cx.simulate_keystrokes(keys);
         cx.run_until_parked();
         let notice = editor.read_with(cx, |e, cx| e.notice_text(cx));

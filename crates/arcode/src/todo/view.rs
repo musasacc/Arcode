@@ -240,13 +240,17 @@ impl TodoView {
                         .size(icon_size::ROW)
                         .color(file_icon_color),
                 )
-                .child(crate::sidebar::name_then_hint(
-                    div().text_color(c.text).child(truncated(name)),
-                    div()
-                        .text_size(type_scale(cx).meta)
-                        .text_color(c.text_muted)
-                        .child(truncated(dir).start()),
-                ))
+                // The badge follows the name, as in the Problems tab.
+                .child(
+                    crate::sidebar::name_then_hint(
+                        div().text_color(c.text).child(truncated(name)),
+                        div()
+                            .text_size(type_scale(cx).meta)
+                            .text_color(c.text_muted)
+                            .child(truncated(dir).start()),
+                    )
+                    .flex_initial(),
+                )
                 .child(badge(count.to_string()))
                 .into_any_element()
             }

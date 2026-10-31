@@ -67,7 +67,7 @@ impl TerminalPanel {
             view.entity_id(),
             SharedString::from(command.display.clone()),
         );
-        self.track_run(&command.display, &view, true, cx);
+        self.track_run(&command.display, &view, true, false, cx);
         self.terminals.push(view);
         self.active = self.terminals.len() - 1;
         self.error = None;

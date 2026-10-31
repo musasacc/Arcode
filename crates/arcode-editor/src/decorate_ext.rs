@@ -2,13 +2,14 @@
 //! virtual text, lens pills and code lenses.
 
 use arcode_ui_kit::ThemeColors;
-use gpui::{Bounds, SharedString, fill, point, px, size};
+use gpui::{Bounds, Pixels, SharedString, fill, point, px, size};
 
 use crate::Editor;
 use crate::decorate::range_rects;
 use crate::ext::HighlightRange;
 use crate::inline_lens::{PILL_H, PILL_RADIUS};
 use crate::layout::LayoutSnapshot;
+use crate::layout_extras::ExtraItem;
 use crate::paint::{Decorations, GutterIcon, row_band};
 
 /// Adds extension decorations for the visible lines to `d`.
@@ -72,15 +73,26 @@ pub(crate) fn ext_decorations(
             }
         }
         for item in &v.eol {
-            d.extras
-                .push((point(left + item.x, top), item.shaped.clone()));
+            push_extra(d, item, left, top, lh);
         }
     }
     for row in &layout.block_rows {
         let top = layout.line_top(row.line) - lh;
         for item in &row.items {
-            d.extras
-                .push((point(left + item.x, top), item.shaped.clone()));
+            push_extra(d, item, left, top, lh);
         }
     }
+}
+
+/// Adds an extra text item (and its icon) on the row at `top`.
+fn push_extra(d: &mut Decorations, item: &ExtraItem, left: Pixels, top: Pixels, lh: Pixels) {
+    if let Some((icon, color, s, x)) = item.icon {
+        d.lens_icons.push(GutterIcon {
+            bounds: Bounds::new(point(left + x, top + (lh - s) * 0.5), size(s, s)),
+            path: SharedString::new_static(icon.path()),
+            color,
+        });
+    }
+    d.extras
+        .push((point(left + item.x, top), item.shaped.clone()));
 }

@@ -24,7 +24,7 @@ fn format_while_a_formatted_save_waits_still_saves(cx: &mut TestAppContext) {
     let (editor, cx) = open_at(cx, CODE, path.to_str().unwrap(), config);
     install_services(&editor, true, cx);
 
-    cx.simulate_keystrokes("ctrl-s");
+    cx.simulate_keystrokes("secondary-s");
     cx.run_until_parked();
     assert!(editor.read_with(cx, |e, _| e.is_saving()));
     // The user formats by hand while the save waits.
@@ -45,7 +45,7 @@ fn format_while_a_formatted_save_waits_still_saves(cx: &mut TestAppContext) {
 
     // And a later Ctrl+S must not be ignored.
     cx.simulate_input("x");
-    cx.simulate_keystrokes("ctrl-s");
+    cx.simulate_keystrokes("secondary-s");
     cx.executor().advance_clock(Duration::from_millis(500));
     cx.run_until_parked();
     assert!(

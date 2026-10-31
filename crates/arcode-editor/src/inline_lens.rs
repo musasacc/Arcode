@@ -21,10 +21,10 @@ const PILL_GAP: Pixels = px(6.);
 /// Space between the paused lens and the inline values.
 const VALUES_GAP: Pixels = px(12.);
 /// Space kept free at the right edge of the text area.
-const EDGE_ROOM: Pixels = px(8.);
+pub(crate) const EDGE_ROOM: Pixels = px(8.);
 /// Least room for the message of a diagnostic lens; with less the lens is
 /// left out (the gutter dot marks the line instead) rather than clipped.
-const MIN_MESSAGE: Pixels = px(40.);
+pub(crate) const MIN_MESSAGE: Pixels = px(40.);
 
 /// A lens pill behind text: x and width relative to the text origin.
 pub(crate) struct LensPill {
@@ -80,7 +80,7 @@ impl LensShaper {
     }
 
     /// Shapes `text`, cut with an ellipsis to fit `max` (when it can).
-    fn shape_fit(
+    pub(crate) fn shape_fit(
         &self,
         text: &str,
         color: Hsla,
@@ -150,6 +150,7 @@ pub(crate) fn diagnostic_lens(
             x,
             shaped,
             target: None,
+            icon: None,
         });
     }
     Some(x + width)
@@ -183,6 +184,7 @@ pub(crate) fn paused_lens(
         x: xs[0],
         shaped: label,
         target: None,
+        icon: None,
     });
     let mut end = x + width;
     if !paused.values.is_empty() {
@@ -201,6 +203,7 @@ pub(crate) fn paused_lens(
                 x: vx,
                 shaped,
                 target: None,
+                icon: None,
             });
         }
     }

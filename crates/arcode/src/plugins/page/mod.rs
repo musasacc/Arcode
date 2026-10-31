@@ -221,14 +221,14 @@ impl PluginsPage {
             .collect();
         let empty = (loaded && rows.is_empty()).then(|| {
             div()
-                .px_3()
+                .px_1()
                 .text_size(type_scale(cx).meta)
                 .text_color(c.text_muted)
                 .child("No plugins. Install one from a folder (plugin.toml + plugin.wasm).")
         });
         let loading = (!loaded).then(|| {
             div()
-                .px_3()
+                .px_1()
                 .text_size(type_scale(cx).meta)
                 .text_color(c.text_muted)
                 .child("Plugins are not loaded yet.")
@@ -248,6 +248,7 @@ impl PluginsPage {
                     .flex()
                     .flex_col()
                     .gap_2()
+                    .px_2()
                     .pb_3()
                     .children(loading)
                     .children(empty)

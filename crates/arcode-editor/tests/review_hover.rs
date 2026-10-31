@@ -11,6 +11,14 @@ use arcode_editor::{Documentation, Editor, HoverInfo, HoverProvider};
 use common::*;
 use gpui::{Context, Entity, Modifiers, Task, TestAppContext, VisualTestContext, point, px};
 
+/// Go to the end of the document as bound on this platform (Cmd+Down on
+/// macOS, Ctrl+End elsewhere).
+const DOC_END: &str = if cfg!(target_os = "macos") {
+    "cmd-down"
+} else {
+    "ctrl-end"
+};
+
 /// Answers every hover with the hovered word after `delay` (a real
 /// language server never answers in the same frame).
 struct SlowHover {
@@ -68,7 +76,7 @@ fn keyboard_hover_is_not_cancelled_by_mouse_motion(cx: &mut TestAppContext) {
     editor.update(cx, |e, cx| {
         e.select_ranges(vec![Point::new(0, 14)..Point::new(0, 14)], cx)
     });
-    cx.simulate_keystrokes("ctrl-k ctrl-i");
+    cx.simulate_keystrokes("secondary-k secondary-i");
     cx.run_until_parked();
     // The mouse moves over an empty line of the editor before the answer.
     let blank = pos_of(&editor, Point::new(2, 0), cx);
@@ -94,7 +102,7 @@ fn hover_hides_when_the_editor_loses_focus(cx: &mut TestAppContext) {
     editor.update(cx, |e, cx| {
         e.select_ranges(vec![Point::new(0, 14)..Point::new(0, 14)], cx)
     });
-    cx.simulate_keystrokes("ctrl-k ctrl-i");
+    cx.simulate_keystrokes("secondary-k secondary-i");
     cx.run_until_parked();
     assert!(docs(&editor, cx).is_some(), "keyboard hover shown");
     // Something else (a picker's text field) takes focus.
@@ -168,7 +176,7 @@ fn mouse_hover_hides_when_the_view_scrolls_away(cx: &mut TestAppContext) {
     cx.executor().advance_clock(Duration::from_millis(400));
     cx.run_until_parked();
     assert!(docs(&editor, cx).is_some(), "mouse hover shown");
-    cx.simulate_keystrokes("ctrl-end");
+    cx.simulate_keystrokes(DOC_END);
     cx.run_until_parked();
     let visible = editor.read_with(cx, |e, _| e.visible_line_range());
     assert!(!visible.contains(&0), "the view scrolled: {visible:?}");

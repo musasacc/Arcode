@@ -62,7 +62,7 @@ impl TerminalPanel {
                             panel.active = ix;
                         }
                         terminal.read(cx).run_command(&command);
-                        panel.track_run(&title, &terminal, false, cx);
+                        panel.track_run(&title, &terminal, false, false, cx);
                         cx.notify();
                         if let Some(f) = on_started {
                             f(Some(&terminal), cx);
@@ -88,7 +88,7 @@ impl TerminalPanel {
         let terminal = self.new_terminal_in(cwd, window, cx);
         if let Some(terminal) = &terminal {
             terminal.read(cx).run_command(command);
-            self.track_run(&title, terminal, false, cx);
+            self.track_run(&title, terminal, false, true, cx);
             self.names
                 .insert(terminal.entity_id(), SharedString::from(title));
         }

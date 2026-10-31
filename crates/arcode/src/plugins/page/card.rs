@@ -72,18 +72,34 @@ pub(super) fn render(
                     cx.emit(PluginsPageEvent::SetEnabled(toggle_id.clone(), !enabled))
                 })),
         );
+    // One line, the source cut with an ellipsis in a narrow sidebar: a
+    // wrapping row would be measured at its narrowest (every part on its
+    // own line) and leave blank space under the card.
     let state = div()
+        .w_full()
         .flex()
-        .flex_wrap()
         .items_center()
         .gap_x_1()
-        .child(icon(IconName::CircleDot).size(px(10.)).color(status_color))
-        .child(div().text_color(status_color).child(row.status.label()))
-        .child(div().text_color(c.text_disabled).child("·"))
+        .overflow_hidden()
+        .whitespace_nowrap()
         .child(
             div()
+                .flex_none()
+                .child(icon(IconName::CircleDot).size(px(10.)).color(status_color)),
+        )
+        .child(
+            div()
+                .flex_none()
+                .text_color(status_color)
+                .child(row.status.label()),
+        )
+        .child(div().flex_none().text_color(c.text_disabled).child("·"))
+        .child(
+            div()
+                .min_w_0()
+                .overflow_hidden()
                 .text_color(c.text_muted)
-                .child(source_label(Some(row.source))),
+                .child(truncated(source_label(Some(row.source)))),
         );
     let details = expanded.then(|| {
         div()
@@ -190,12 +206,14 @@ pub(super) fn render(
     div()
         .id(SharedString::from(format!("plugin-card-{key}")))
         // Never shrunk in the scrolling list: shrinking sizes a card by its
-        // text wrapped at its narrowest, leaving blank space under it.
+        // text wrapped at its narrowest, leaving blank space under it. Its
+        // width is definite too (the list pads it, not a margin), so its
+        // height is measured with its text wrapped at the width it gets.
         .flex_none()
+        .w_full()
         .flex()
         .flex_col()
         .gap_1()
-        .mx_2()
         .p_2()
         .rounded_md()
         .border_1()
@@ -203,7 +221,7 @@ pub(super) fn render(
         .text_size(type_scale(cx).meta)
         .child(header)
         .when_some(row.description.clone(), |el, d| {
-            el.child(div().text_color(c.text_muted).child(d))
+            el.child(div().w_full().text_color(c.text_muted).child(d))
         })
         .child(state)
         .children(details)

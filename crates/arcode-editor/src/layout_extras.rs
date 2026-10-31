@@ -2,8 +2,12 @@
 //! paused line) and code lenses (at the end of a line or on a block row
 //! above it), and their click targets. All of it is set in the UI font at
 //! the meta size (Inter 12), so it never reads as code.
+//!
+//! End-of-line text (blame) ends with an ellipsis at the pane edge. A code
+//! lens label starting with `▶` (a plugin's "▶ Send request") gets the
+//! Lucide `play` icon in `success` instead of the glyph (DESIGN 6.7 Run).
 
-use arcode_ui_kit::{ThemeColors, settings, theme, type_scale, ui_font_family};
+use arcode_ui_kit::{IconName, ThemeColors, settings, theme, type_scale, ui_font_family};
 use gpui::{
     Bounds, Context, Font, FontStyle, FontWeight, Hsla, Pixels, ShapedLine, SharedString,
     UnderlineStyle, Window, point, px, size,
@@ -14,7 +18,9 @@ use crate::diagnostics::lens_diagnostics;
 use crate::display::text_run;
 use crate::ext::LensTarget;
 use crate::ext::{CodeLens, LensPlacement};
-use crate::inline_lens::{LENS_GAP, LensShaper, diagnostic_lens, paused_lens};
+use crate::inline_lens::{
+    EDGE_ROOM, LENS_GAP, LensShaper, MIN_MESSAGE, diagnostic_lens, paused_lens,
+};
 use crate::layout::LayoutSnapshot;
 
 /// A shaped piece of extra text; `x` is relative to the text origin.
@@ -22,6 +28,30 @@ pub(crate) struct ExtraItem {
     pub x: Pixels,
     pub shaped: ShapedLine,
     pub target: Option<LensTarget>,
+    /// An icon before the text: icon, color, size and x (text-origin
+    /// relative).
+    pub icon: Option<(IconName, Hsla, Pixels, Pixels)>,
+}
+
+/// Size of the play icon of a lens label, and the space after it.
+const LENS_ICON: Pixels = px(12.);
+const LENS_ICON_GAP: Pixels = px(4.);
+
+/// The rest of a lens label that starts with a play glyph (`▶ Send
+/// request` gives `Send request`); `None` for other labels.
+pub(crate) fn play_label(label: &str) -> Option<&str> {
+    let rest = label
+        .strip_prefix('▶')
+        .or_else(|| label.strip_prefix('▷'))?;
+    let rest = rest.strip_prefix('\u{fe0f}').unwrap_or(rest).trim_start();
+    (!rest.is_empty()).then_some(rest)
+}
+
+/// Room for end-of-line text at `x` before the pane edge at `right`;
+/// `None` when too little is left for anything readable.
+pub(crate) fn eol_room(x: Pixels, right: Pixels) -> Option<Pixels> {
+    let room = right - EDGE_ROOM - x;
+    (room >= MIN_MESSAGE).then_some(room)
 }
 
 /// A block row drawn above `line`.
@@ -85,18 +115,28 @@ impl Shaper<'_> {
                     x,
                     shaped: sep,
                     target: None,
+                    icon: None,
                 });
                 x += w;
             }
             let target: LensTarget = (set.clone(), lens.line, item.id);
             let hovered = self.hovered == Some(&target);
             let color = if hovered { self.colors.accent } else { muted };
-            let shaped = self.shape(item.label.clone(), color, false, hovered, window);
+            let (label, icon) = match play_label(&item.label) {
+                Some(rest) => {
+                    let icon = (IconName::Play, self.colors.success, LENS_ICON, x);
+                    x += LENS_ICON + LENS_ICON_GAP;
+                    (SharedString::from(rest.to_string()), Some(icon))
+                }
+                None => (item.label.clone(), None),
+            };
+            let shaped = self.shape(label, color, false, hovered, window);
             let w = shaped.width;
             out.push(ExtraItem {
                 x,
                 shaped,
                 target: Some(target),
+                icon,
             });
             x += w;
         }
@@ -158,14 +198,20 @@ impl Editor {
                 x = end + shaper.gap;
                 diag_lens = true;
             }
+            // Blame and other end-of-line text: cut with an ellipsis at
+            // the pane edge, left out where nothing readable fits.
             for text in self.ext.eol_text(v.line) {
+                let Some(room) = eol_room(x, right) else {
+                    break;
+                };
                 let color = text.color.resolve(&colors);
-                let shaped = shaper.shape(text.text.clone(), color, text.italic, false, window);
+                let shaped = lens.shape_fit(&text.text, color, text.italic, room, window);
                 let w = shaped.width;
                 items.push(ExtraItem {
                     x,
                     shaped,
                     target: None,
+                    icon: None,
                 });
                 x += w + shaper.gap;
             }
@@ -213,7 +259,10 @@ fn lens_hits(snap: &LayoutSnapshot) -> Vec<LensHit> {
     let mut push = |items: &[ExtraItem], top: Pixels| {
         for item in items {
             if let Some(target) = &item.target {
-                let full = Bounds::new(point(left + item.x, top), size(item.shaped.width, lh));
+                // The icon before a label takes clicks too.
+                let start = item.icon.map_or(item.x, |(_, _, _, x)| x);
+                let width = item.x + item.shaped.width - start;
+                let full = Bounds::new(point(left + start, top), size(width, lh));
                 let bounds = full.intersect(&clip);
                 if bounds.size.width > Pixels::ZERO && bounds.size.height > Pixels::ZERO {
                     hits.push(LensHit {
@@ -231,4 +280,28 @@ fn lens_hits(snap: &LayoutSnapshot) -> Vec<LensHit> {
         push(&row.items, snap.line_top(row.line) - lh);
     }
     hits
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn play_glyphs_become_an_icon() {
+        assert_eq!(play_label("▶ Send request"), Some("Send request"));
+        assert_eq!(play_label("▷Run"), Some("Run"));
+        assert_eq!(play_label("▶\u{fe0f} Run"), Some("Run"));
+        assert_eq!(play_label("Send request"), None);
+        assert_eq!(play_label("Accept ▶"), None);
+        // A lone glyph keeps its text (there would be no label left).
+        assert_eq!(play_label("▶ "), None);
+    }
+
+    #[test]
+    fn end_of_line_text_needs_room_before_the_edge() {
+        assert_eq!(eol_room(px(100.), px(300.)), Some(px(192.)));
+        assert_eq!(eol_room(px(100.), px(148.)), Some(px(40.)));
+        assert_eq!(eol_room(px(100.), px(147.)), None);
+        assert_eq!(eol_room(px(500.), px(300.)), None);
+    }
 }
