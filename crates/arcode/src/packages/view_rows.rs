@@ -12,6 +12,7 @@ use super::rows::{Row, relative_dir, version_text};
 use super::store::CheckState;
 use super::view::{PackagesView, ROW_HEIGHT};
 use super::view_actions::{DepCommand, can_add, removable};
+use arcode_ui_kit::metrics::ROW_RADIUS;
 
 impl PackagesView {
     pub(super) fn render_row(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
@@ -102,7 +103,7 @@ impl PackagesView {
             }
             _ => None,
         };
-        div()
+        let row = div()
             .id(("pkg-section", ix))
             .group("pkg-section")
             .relative()
@@ -113,10 +114,10 @@ impl PackagesView {
             .w_full()
             .pl_1()
             .pr_1()
+            .rounded(ROW_RADIUS)
             .overflow_hidden()
             .whitespace_nowrap()
             .cursor_pointer()
-            .bg(c.surface_raised.opacity(0.5))
             .hover(|s| s.bg(c.hover))
             .child(
                 icon(if collapsed {
@@ -124,7 +125,7 @@ impl PackagesView {
                 } else {
                     IconName::ChevronDown
                 })
-                .size(px(12.))
+                .size(px(14.))
                 .color(c.text_muted),
             )
             .child(badge(m.manager.label(), manager_color(m.manager, &c)))
@@ -156,7 +157,7 @@ impl PackagesView {
                     .items_center()
                     .gap_0p5()
                     .pl_1()
-                    .bg(c.surface)
+                    .bg(c.hover)
                     .invisible()
                     .group_hover("pkg-section", |s| s.visible())
                     .when(addable, |el| {
@@ -207,8 +208,8 @@ impl PackagesView {
                         }),
                     )),
             )
-            .on_click(cx.listener(move |view, _, _, cx| view.toggle_section(section, cx)))
-            .into_any_element()
+            .on_click(cx.listener(move |view, _, _, cx| view.toggle_section(section, cx)));
+        crate::sidebar::inset(row).into_any_element()
     }
 
     fn render_dep(
@@ -241,35 +242,37 @@ impl PackagesView {
             .w_full()
             .pl(px(24.))
             .pr_2()
+            .rounded(ROW_RADIUS)
             .overflow_hidden()
             .whitespace_nowrap()
             .cursor_pointer()
             .hover(|s| s.bg(c.hover));
         if confirming {
-            return base
-                .bg(c.error.opacity(0.12))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .child(format!("Remove {}?", d.name)),
-                )
-                .child(
-                    button(("pkg-remove-yes", ix), "Remove")
-                        .style(ButtonStyle::Primary)
-                        .on_click(cx.listener(|view, _, _, cx| view.confirm_removal(cx))),
-                )
-                .child(
-                    icon_button(("pkg-remove-no", ix), IconName::X)
-                        .size(px(20.))
-                        .tooltip("Keep it")
-                        .on_click(cx.listener(|view, _, _, cx| {
-                            view.confirm_remove = None;
-                            cx.notify();
-                        })),
-                )
-                .into_any_element();
+            return crate::sidebar::inset(
+                base.bg(c.error.opacity(0.12))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .child(format!("Remove {}?", d.name)),
+                    )
+                    .child(
+                        button(("pkg-remove-yes", ix), "Remove")
+                            .style(ButtonStyle::Primary)
+                            .on_click(cx.listener(|view, _, _, cx| view.confirm_removal(cx))),
+                    )
+                    .child(
+                        icon_button(("pkg-remove-no", ix), IconName::X)
+                            .size(px(20.))
+                            .tooltip("Keep it")
+                            .on_click(cx.listener(|view, _, _, cx| {
+                                view.confirm_remove = None;
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .into_any_element();
         }
         let newer = self.newer(&m.path, d, cx);
         let detail = dep_tooltip(d);
@@ -293,7 +296,7 @@ impl PackagesView {
             .items_center()
             .gap_0p5()
             .pl_1()
-            .bg(c.surface)
+            .bg(c.hover)
             .invisible()
             .group_hover("pkg-row", |s| s.visible())
             .child(action(
@@ -323,7 +326,8 @@ impl PackagesView {
             DepKind::Optional | DepKind::Peer => c.warning,
             _ => c.text_muted,
         };
-        base.child(div().flex_none().text_color(c.text).child(d.name.clone()))
+        let row = base
+            .child(div().flex_none().text_color(c.text).child(d.name.clone()))
             .child(
                 div()
                     .flex_1()
@@ -352,8 +356,8 @@ impl PackagesView {
                 cx.listener(move |view, event: &MouseDownEvent, _, cx| {
                     view.open_menu(section, dep, event.position, cx)
                 }),
-            )
-            .into_any_element()
+            );
+        crate::sidebar::inset(row).into_any_element()
     }
 
     fn render_note(&self, section: usize, cx: &mut Context<Self>) -> AnyElement {

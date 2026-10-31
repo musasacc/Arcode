@@ -6,20 +6,24 @@
 
 mod appearance;
 mod editor;
+mod filter;
 mod fonts;
 mod keymap;
 mod languages;
+mod nav;
 mod other;
 mod plugins;
 mod rows;
 #[cfg(test)]
 mod tests;
+pub mod theme_card;
 pub mod widgets;
 
 pub(crate) use rows::{Steps, keymap_index};
 
 use arcode_config::SettingEdit;
-use arcode_ui_kit::{ButtonStyle, IconName, button, icon, theme};
+use arcode_ui_kit::metrics::{WEIGHT_SEMIBOLD, type_scale};
+use arcode_ui_kit::{IconName, theme};
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -130,6 +134,8 @@ pub struct SettingsPage {
     writer: Writer,
     /// Filter of the Keymap section.
     keymap_filter: Entity<TextField>,
+    /// "Filter settings": rows of every section that match.
+    filter: Entity<TextField>,
     scroll: ScrollHandle,
     /// The theme card whose theme is previewed (hovered).
     hover_preview: Option<SharedString>,
@@ -152,15 +158,21 @@ impl SettingsPage {
     /// A page that reports write failures to `workspace`.
     pub fn new(workspace: WeakEntity<Workspace>, cx: &mut Context<Self>) -> Self {
         let keymap_filter = cx.new(|cx| TextField::new("Filter commands or keys", cx));
+        let filter = cx.new(|cx| TextField::new("Filter settings", cx));
         let subs = vec![
             cx.observe_global::<arcode_ui_kit::Settings>(|_, cx| cx.notify()),
             cx.subscribe(&keymap_filter, |_, _, _: &TextChanged, cx| cx.notify()),
+            cx.subscribe(&filter, |page, _, _: &TextChanged, cx| {
+                page.scroll.set_offset(gpui::point(px(0.), px(0.)));
+                cx.notify()
+            }),
         ];
         Self {
             focus: cx.focus_handle(),
             section: Section::Appearance,
             writer: Writer(workspace),
             keymap_filter,
+            filter,
             scroll: ScrollHandle::new(),
             hover_preview: None,
             compact: false,
@@ -222,50 +234,17 @@ impl SettingsPage {
         self.writer.clone()
     }
 
-    fn render_nav(&self, cx: &mut Context<Self>) -> gpui::Div {
-        let c = theme(cx).colors.clone();
-        let compact = self.compact;
-        let mut nav = div()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .w(px(if compact { 44. } else { 180. }))
-            .h_full()
-            .gap_0p5()
-            .p_2()
-            .border_r_1()
-            .border_color(c.border)
-            .bg(c.surface);
-        for section in Section::ALL {
-            let on = section == self.section;
-            nav = nav.child(
-                div()
-                    .id(SharedString::from(format!(
-                        "settings-nav-{}",
-                        section.name()
-                    )))
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .h(px(28.))
-                    .px_2()
-                    .rounded_md()
-                    .text_sm()
-                    .cursor_pointer()
-                    .when(on, |el| el.bg(c.selection).text_color(c.text))
-                    .when(!on, |el| {
-                        el.text_color(c.text_muted).hover(|s| s.bg(c.hover))
-                    })
-                    .child(icon(section.icon()).size(px(14.)).color(if on {
-                        c.accent
-                    } else {
-                        c.text_muted
-                    }))
-                    .when(!compact, |el| el.child(section.name()))
-                    .on_click(cx.listener(move |page, _, _, cx| page.set_section(section, cx))),
-            );
+    /// Whether the page filter holds text (every section's matching rows
+    /// are shown).
+    pub fn filtering(&self, cx: &App) -> bool {
+        !filter::words(self.filter.read(cx).text()).is_empty()
+    }
+
+    /// Empties the page filter.
+    pub fn clear_filter(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if !self.filter.read(cx).text().is_empty() {
+            self.filter.update(cx, |f, cx| f.set_text("", cx));
         }
-        nav
     }
 
     /// Records whether the page is narrow; redraws the page when that
@@ -295,7 +274,11 @@ impl SettingsPage {
     }
 
     fn render_section(&self, cx: &mut Context<Self>) -> gpui::Div {
-        match self.section {
+        self.render_section_of(self.section, cx)
+    }
+
+    fn render_section_of(&self, section: Section, cx: &mut Context<Self>) -> gpui::Div {
+        match section {
             Section::Appearance => appearance::render(self, cx),
             Section::Editor => editor::render(self, cx),
             Section::Fonts => fonts::render(self, cx),
@@ -308,49 +291,38 @@ impl SettingsPage {
     }
 }
 
-/// The heading above a group of rows.
+/// The heading above a group of rows: title size SemiBold, sentence case.
+/// Hidden while the page filter shows matching rows only.
 pub(crate) fn group_title(text: &'static str, cx: &App) -> gpui::Div {
+    if filter::active() {
+        return div();
+    }
     div()
-        .pt_4()
-        .pb_1()
-        .text_xs()
-        .font_weight(gpui::FontWeight::SEMIBOLD)
-        .text_color(theme(cx).colors.text_muted)
-        .child(text.to_uppercase())
+        .pt(px(22.))
+        .pb(px(2.))
+        .text_size(type_scale(cx).title)
+        .font_weight(WEIGHT_SEMIBOLD)
+        .text_color(theme(cx).colors.text)
+        .child(text)
 }
 
 impl Render for SettingsPage {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.compact = self.measured_compact.get();
         let c = theme(cx).colors.clone();
-        let header = div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap_2()
-            .pb_2()
-            .border_b_1()
-            .border_color(c.border)
-            .child(
-                div()
-                    .flex_1()
-                    .text_lg()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .child(self.section.name()),
-            )
-            .child(
-                button("open-config-file", "Open config.toml")
-                    .icon(IconName::FileText)
-                    .style(ButtonStyle::Secondary)
-                    .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::OpenFile))),
-            );
+        let header = self.render_header(window, cx);
+        let body = if self.filtering(cx) {
+            self.render_filtered(cx)
+        } else {
+            self.render_section(cx)
+        };
         div()
             .id("settings-page")
             .track_focus(&self.focus)
             .relative()
             .size_full()
             .flex()
-            .bg(c.background)
+            .bg(c.panel())
             .text_color(c.text)
             .child(self.measure_width(cx))
             .child(self.render_nav(cx))
@@ -364,11 +336,12 @@ impl Render for SettingsPage {
                     .overflow_y_scroll()
                     .child(
                         div()
-                            .max_w(px(760.))
-                            .px(px(if self.compact { 12. } else { 24. }))
-                            .py_4()
+                            .max_w(px(812.))
+                            .px(px(if self.compact { 12. } else { 36. }))
+                            .pt(px(22.))
+                            .pb(px(36.))
                             .child(header)
-                            .child(self.render_section(cx)),
+                            .child(body),
                     ),
             )
     }

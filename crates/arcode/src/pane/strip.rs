@@ -8,9 +8,7 @@ use arcode_ui_kit::metrics::{CONTROL_H_PANEL, TAB_STRIP_H};
 use arcode_ui_kit::{
     IconName, icon, icon_button, list_row, popover, theme, truncated, unsaved_ring,
 };
-use gpui::{
-    AnyElement, Context, Pixels, Window, anchored, canvas, deferred, div, prelude::*, px,
-};
+use gpui::{AnyElement, Context, Pixels, Window, anchored, canvas, deferred, div, prelude::*, px};
 
 use super::{Pane, PaneEvent};
 use crate::actions::{SplitRight, shortcut_label};
@@ -41,7 +39,10 @@ impl Pane {
             .map(|(ix, e)| self.render_tab(ix, e, focused, cx).into_any_element())
             .collect();
         for (ix, page) in self.pages.clone().iter().enumerate() {
-            tabs.push(self.render_page_tab(ix, page, focused, cx).into_any_element());
+            tabs.push(
+                self.render_page_tab(ix, page, focused, cx)
+                    .into_any_element(),
+            );
         }
         // Activating a tab scrolls it into view with the strip's width of
         // the frame before; the breadcrumb may have changed width since, so
@@ -184,7 +185,13 @@ impl Pane {
                     .mx(px(0.))
                     .h(px(26.))
                     .child(icon(glyph).size(px(15.)).color(tint))
-                    .child(div().flex_1().min_w_0().overflow_hidden().child(truncated(title)))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .child(truncated(title)),
+                    )
                     .when(dirty, |el| el.child(unsaved_ring(None, cx)))
                     .on_click(cx.listener(move |pane, _, window, cx| {
                         pane.tab_menu_open = false;

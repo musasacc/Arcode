@@ -3,14 +3,16 @@
 
 use std::path::PathBuf;
 
-use arcode_ui_kit::{IconName, icon, icon_button, theme, truncated};
+use arcode_ui_kit::metrics::{ROW_RADIUS, WEIGHT_MEDIUM, icon_size};
+use arcode_ui_kit::{IconName, icon, icon_button, panel_title, readout, theme, truncated};
 use gpui::{
     AnyElement, Context, MouseButton, MouseDownEvent, SharedString, Window, canvas, div,
     prelude::*, px, uniform_list,
 };
 
+use super::decor::FileMark;
 use super::*;
-use crate::file_icons::file_icon;
+use crate::file_icons::file_icon_tinted;
 
 /// What is dragged when a row is dragged.
 #[derive(Clone)]
@@ -25,10 +27,10 @@ impl Render for DraggedEntry {
         div()
             .px_2()
             .py_1()
-            .rounded_md()
+            .rounded(ROW_RADIUS)
             .border_1()
-            .border_color(c.border_focused)
-            .bg(c.surface_raised)
+            .border_color(c.border_strong)
+            .bg(c.panel_raised())
             .text_sm()
             .text_color(c.text)
             .child(self.name.clone())
@@ -69,30 +71,38 @@ impl FileTree {
             .border_color(if edit.error.is_some() {
                 c.error
             } else {
-                c.border_focused
+                c.accent
             })
-            .bg(c.background)
+            .bg(c.panel())
             .child(edit.input.clone())
             .into_any_element()
     }
 
-    fn render_row(&self, ix: usize, focused: bool, cx: &mut Context<Self>) -> AnyElement {
-        let c = theme(cx).colors.clone();
+    fn render_row(&self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+        let ui = theme(cx);
+        let c = ui.colors.clone();
         let row = &self.rows[ix];
         let renaming = matches!(self.editing(), Some(EditKind::Rename(p)) if *p == row.path);
         let selected = !row.placeholder && self.selected.as_ref() == Some(&row.path);
-        let focused = selected && focused && self.edit.is_none();
+        let mark = if row.is_dir || row.placeholder {
+            FileMark::default()
+        } else {
+            self.decor.file(&row.path)
+        };
+        let dir_changed = row.is_dir && !row.placeholder && self.decor.dir_changed(&row.path);
         let (icon_name, icon_color) = if row.is_dir {
             let name = if row.expanded {
                 IconName::FolderOpen
             } else {
                 IconName::Folder
             };
-            (name, c.accent)
+            (name, c.text_muted)
         } else if row.placeholder {
             (IconName::File, c.text_muted)
+        } else if selected {
+            (file_icon_tinted(&row.name, ui).0, c.accent)
         } else {
-            file_icon(&row.name, &c)
+            file_icon_tinted(&row.name, ui)
         };
         let chevron = if row.expanded {
             IconName::ChevronDown
@@ -110,6 +120,20 @@ impl FileTree {
                 .child(truncated(row.name.clone()))
                 .into_any_element()
         };
+        let trailing = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(6.))
+            .when(mark.errors > 0, |el| {
+                el.child(readout(mark.errors.to_string()).color(c.error))
+            })
+            .when_some(mark.git, |el, git| {
+                el.child(crate::sidebar::git_letter(git.letter(), git.color(&c), cx))
+            })
+            .when(dir_changed, |el| {
+                el.child(div().size(px(6.)).rounded_full().bg(c.diff_modified))
+            });
         let mut el = div()
             .id(ix)
             .relative()
@@ -117,23 +141,21 @@ impl FileTree {
             .overflow_hidden()
             .flex()
             .items_center()
-            .gap_1()
+            .gap(px(5.))
             .h(px(ROW_HEIGHT))
             .pl(indent)
-            .pr_2()
+            .pr(px(8.))
+            .rounded(ROW_RADIUS)
             .cursor_pointer()
-            .text_color(if selected { c.text } else { c.text_muted })
-            .when(selected, |el| el.bg(c.selection))
-            .when(focused, |el| el.border_1().border_color(c.border_focused))
-            .when(!selected, |el| {
-                el.hover(|s| s.bg(c.hover).text_color(c.text))
-            })
+            .text_color(if mark.errors > 0 { c.error } else { c.text })
+            .when(selected, |el| el.bg(c.pill).font_weight(WEIGHT_MEDIUM))
+            .when(!selected, |el| el.hover(|s| s.bg(c.hover)))
             .children((0..row.depth).map(|d| {
                 div()
                     .absolute()
                     .top_0()
                     .bottom_0()
-                    .left(px(LEFT_PAD + d as f32 * INDENT + 6.))
+                    .left(px(LEFT_PAD + d as f32 * INDENT + 7.))
                     .w(px(1.))
                     .bg(c.border)
             }))
@@ -142,13 +164,14 @@ impl FileTree {
                     .size(px(14.))
                     .flex_none()
                     .when(row.is_dir && !row.placeholder, |el| {
-                        el.child(icon(chevron).size(px(14.)))
+                        el.child(icon(chevron).size(px(14.)).color(c.text_muted))
                     }),
             )
-            .child(icon(icon_name).size(px(14.)).color(icon_color))
-            .child(name);
+            .child(icon(icon_name).size(icon_size::ROW).color(icon_color))
+            .child(name)
+            .child(trailing);
         if row.placeholder || renaming {
-            return el.into_any_element();
+            return crate::sidebar::inset(el).into_any_element();
         }
         let path = row.path.clone();
         let drop_dir = self.drop_dir(ix);
@@ -174,61 +197,33 @@ impl FileTree {
             .on_drop(cx.listener(move |tree, dragged: &DraggedEntry, _, cx| {
                 tree.move_entry(&dragged.path.clone(), &drop_dir.clone(), cx);
             }));
-        el.into_any_element()
+        crate::sidebar::inset(el).into_any_element()
     }
 
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let c = theme(cx).colors.clone();
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_between()
-            .h(px(34.))
-            .pl_3()
-            .pr_1()
-            .text_xs()
-            .font_weight(gpui::FontWeight::SEMIBOLD)
-            .text_color(c.text_muted)
+        let button = |id: &'static str, glyph: IconName, tip: &'static str| {
+            icon_button(id, glyph).size(px(24.)).tooltip(tip)
+        };
+        panel_title("Files", self.title.clone(), cx)
             .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .child(truncated(self.title.to_uppercase())),
+                button("tree-new-file", IconName::Plus, "New File…")
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(NewFile), cx)),
             )
             .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .child(
-                        icon_button("tree-new-file", IconName::Plus)
-                            .size(px(24.))
-                            .tooltip("New File…")
-                            .on_click(|_, window, cx| {
-                                window.dispatch_action(Box::new(NewFile), cx)
-                            }),
-                    )
-                    .child(
-                        icon_button("tree-new-folder", IconName::Folder)
-                            .size(px(24.))
-                            .tooltip("New Folder…")
-                            .on_click(|_, window, cx| {
-                                window.dispatch_action(Box::new(NewFolder), cx)
-                            }),
-                    )
-                    .child(
-                        icon_button("tree-refresh", IconName::Refresh)
-                            .size(px(24.))
-                            .tooltip("Refresh")
-                            .on_click(cx.listener(|tree, _, _, cx| tree.refresh(cx))),
-                    )
-                    .child(
-                        icon_button("tree-collapse", IconName::ChevronsDownUp)
-                            .size(px(24.))
-                            .tooltip("Collapse folders")
-                            .on_click(cx.listener(|tree, _, _, cx| tree.collapse_all(cx))),
-                    ),
+                button("tree-new-folder", IconName::Folder, "New Folder…")
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(NewFolder), cx)),
+            )
+            .child(
+                button("tree-refresh", IconName::Refresh, "Refresh")
+                    .on_click(cx.listener(|tree, _, _, cx| tree.refresh(cx))),
+            )
+            .child(
+                button(
+                    "tree-collapse",
+                    IconName::ChevronsDownUp,
+                    "Collapse folders",
+                )
+                .on_click(cx.listener(|tree, _, _, cx| tree.collapse_all(cx))),
             )
     }
 }
@@ -240,11 +235,8 @@ impl Render for FileTree {
         let list = uniform_list(
             "file-tree",
             self.rows.len(),
-            cx.processor(|tree, range: std::ops::Range<usize>, window, cx| {
-                let focused = tree.focus_handle.contains_focused(window, cx);
-                range
-                    .map(|ix| tree.render_row(ix, focused, cx))
-                    .collect::<Vec<_>>()
+            cx.processor(|tree, range: std::ops::Range<usize>, _, cx| {
+                range.map(|ix| tree.render_row(ix, cx)).collect::<Vec<_>>()
             }),
         )
         .track_scroll(self.scroll.clone())
@@ -252,10 +244,10 @@ impl Render for FileTree {
         .text_sm();
         let empty = self.rows.is_empty().then(|| {
             div()
-                .px_3()
+                .px(px(14.))
                 .py_2()
                 .text_sm()
-                .text_color(c.text_disabled)
+                .text_color(c.text_muted)
                 .child("This folder is empty.")
         });
         let error = self.edit.as_ref().and_then(|e| e.error.clone()).map(|err| {
@@ -266,7 +258,7 @@ impl Render for FileTree {
                 .rounded_sm()
                 .border_1()
                 .border_color(c.error)
-                .bg(c.surface_raised)
+                .bg(c.panel_raised())
                 .text_xs()
                 .text_color(c.error)
                 .child(err)

@@ -5,9 +5,7 @@
 
 use arcode_dap::Variable;
 use arcode_ui_kit::metrics::{ROW_H_DENSE, ROW_INSET, ROW_RADIUS, WEIGHT_MEDIUM, type_scale};
-use arcode_ui_kit::{
-    IconName, Tooltip, icon, icon_button, mono_font_family, theme, unsaved_ring,
-};
+use arcode_ui_kit::{IconName, Tooltip, icon, icon_button, mono_font_family, theme, unsaved_ring};
 use gpui::{AnyElement, App, ElementId, Entity, SharedString, div, prelude::*, px};
 
 use super::value_style::{strip_paths, styled_value};
@@ -74,7 +72,10 @@ impl Row {
 
 /// A multi-line value on one line.
 pub fn one_line(text: &str) -> String {
-    text.split('\n').map(str::trim_end).collect::<Vec<_>>().join(" ")
+    text.split('\n')
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The first non-empty line of an adapter's message (errors come with
@@ -272,21 +273,26 @@ pub fn render_row(
                                 )
                             })
                             .when_some(value, |el, value| {
-                                el.child(div().flex_none().text_color(c.text_muted).child("\u{a0}=\u{a0}"))
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .overflow_hidden()
-                                            .text_color(if row.error { c.error } else { c.text })
-                                            .map(|el| {
-                                                if row.error {
-                                                    el.child(value)
-                                                } else {
-                                                    el.child(styled_value(value, cx))
-                                                }
-                                            }),
-                                    )
+                                el.child(
+                                    div()
+                                        .flex_none()
+                                        .text_color(c.text_muted)
+                                        .child("\u{a0}=\u{a0}"),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .overflow_hidden()
+                                        .text_color(if row.error { c.error } else { c.text })
+                                        .map(|el| {
+                                            if row.error {
+                                                el.child(value)
+                                            } else {
+                                                el.child(styled_value(value, cx))
+                                            }
+                                        }),
+                                )
                             }),
                     )
             }

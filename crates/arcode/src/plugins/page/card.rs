@@ -135,7 +135,11 @@ pub(super) fn render(
             .flex_col()
             .gap_0p5()
             .pt_1()
-            .child(div().text_color(c.text_muted).child("PERMISSIONS"))
+            .child(
+                div()
+                    .font_weight(arcode_ui_kit::metrics::WEIGHT_SEMIBOLD)
+                    .child("Permissions"),
+            )
             .children(grants)
     });
     let log_id = id.clone();

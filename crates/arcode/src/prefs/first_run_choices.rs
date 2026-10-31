@@ -1,33 +1,55 @@
 //! The choices of the first-run dialog: theme cards, editor font with a
 //! preview line, keymap and performance mode.
 
-use arcode_config::Keymap;
+use arcode_config::{Appearance, Keymap};
 use arcode_ui_kit::theme;
-use gpui::{Context, SharedString, div, prelude::*};
+use gpui::{Context, SharedString, div, prelude::*, px};
 
 use super::first_run::{FirstRunDialog, THEME_CARDS};
-use crate::settings_ui::widgets::{segmented, theme_swatch};
+use crate::settings_ui::theme_card::{CardKind, card_subtitle, cards_width, theme_card};
+use crate::settings_ui::widgets::segmented;
+
+/// Space between theme cards.
+pub(super) const CARD_GAP: f32 = 10.;
+
+/// Width of the dialog's content: three theme cards a row.
+pub(super) fn content_width() -> gpui::Pixels {
+    cards_width(3, px(CARD_GAP))
+}
 use crate::theme_sync::Themes;
 
 impl FirstRunDialog {
     pub(super) fn render_choices(&self, cx: &mut Context<Self>) -> gpui::Div {
         let c = theme(cx).colors.clone();
         let themes = cx.global::<Themes>().0.clone();
-        let mut cards = div().flex().gap_2();
+        // Three cards a row (the dialog is as wide as three).
+        let mut cards = div().flex().flex_wrap().gap(px(CARD_GAP));
         for (value, label) in THEME_CARDS {
             let selected = self.choices.theme.as_str().eq_ignore_ascii_case(value);
+            let (dark_name, light_name) = (
+                arcode_config::DEFAULT_DARK_THEME,
+                arcode_config::DEFAULT_LIGHT_THEME,
+            );
             let (dark, light) = match value {
-                "system" => (
-                    themes.get(arcode_config::DEFAULT_DARK_THEME),
-                    themes.get(arcode_config::DEFAULT_LIGHT_THEME),
-                ),
+                "system" => (themes.get(dark_name), themes.get(light_name)),
                 name => (themes.get(name), None),
+            };
+            let kind = match value {
+                "system" => CardKind::System {
+                    dark: dark_name,
+                    light: light_name,
+                },
+                name => CardKind::Named {
+                    name,
+                    appearance: dark.map_or(Appearance::Dark, |t| t.appearance),
+                },
             };
             let value = value.to_owned();
             cards = cards.child(
-                theme_swatch(
+                theme_card(
                     SharedString::from(format!("fr-theme-{value}")),
                     label,
+                    card_subtitle(kind, false),
                     dark,
                     light,
                     selected,
@@ -46,8 +68,7 @@ impl FirstRunDialog {
         let perf_ix = usize::from(self.choices.low_end);
         let label = |text: &'static str| {
             div()
-                .text_sm()
-                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .font_weight(arcode_ui_kit::metrics::WEIGHT_SEMIBOLD)
                 .child(text)
         };
         let this = cx.entity().downgrade();
@@ -75,10 +96,10 @@ impl FirstRunDialog {
                 div()
                     .px_3()
                     .py_2()
-                    .rounded_md()
-                    .bg(c.background)
+                    .rounded(px(8.))
+                    .bg(c.canvas)
                     .border_1()
-                    .border_color(c.border)
+                    .border_color(c.border_strong)
                     .font_family(self.choices.editor_font.clone())
                     .child("fn main() => x != y && a === b // 漢字 🚀"),
             )
@@ -130,7 +151,7 @@ impl FirstRunDialog {
             )
             .child(
                 div()
-                    .text_xs()
+                    .text_size(arcode_ui_kit::type_scale(cx).meta)
                     .text_color(c.text_muted)
                     .child("Low-end: no animations or cursor blink, flat popups, no inlay hints or inline blame, slower background refreshes."),
             )

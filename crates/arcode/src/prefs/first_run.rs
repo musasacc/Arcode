@@ -6,9 +6,9 @@
 //! the failure is reported.
 
 use arcode_config::{FirstRunChoices, ThemeChoice};
+use arcode_ui_kit::metrics::{WEIGHT_SEMIBOLD, type_scale};
 use arcode_ui_kit::{
-    BUNDLED_MONO_FONT, ButtonStyle, Elevated, IconName, button, font_choices, icon,
-    looks_monospace, theme,
+    BUNDLED_MONO_FONT, ButtonStyle, button, font_choices, logo, looks_monospace, overlay, theme,
 };
 use gpui::{
     App, AppContext, Context, EventEmitter, FocusHandle, Focusable, Global, KeyBinding,
@@ -31,6 +31,9 @@ actions!(
 /// Key context of the dialog.
 pub const CONTEXT: &str = "FirstRun";
 
+/// Padding around the dialog's content.
+const PADDING: f32 = 20.;
+
 /// Enter accepts, Escape skips.
 pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
@@ -51,12 +54,15 @@ pub fn wanted(config_exists: bool, skip_env: Option<&str>) -> bool {
     !config_exists && skip_env.is_none_or(|v| v.is_empty() || v == "0")
 }
 
-/// Theme cards offered: follow the system, then the built-in themes.
-pub(super) const THEME_CARDS: [(&str, &str); 4] = [
-    ("system", "Follow System"),
-    ("Arcode Dark", "Dark"),
-    ("Arcode Light", "Light"),
-    ("Arcode Midnight", "Midnight"),
+/// Theme cards offered: follow the system, Arcode Ember and Arcode Chalk,
+/// then the Classic themes (docs/DESIGN.md 6.16).
+pub(super) const THEME_CARDS: [(&str, &str); 6] = [
+    ("system", "Follow system"),
+    ("Arcode Ember", "Arcode Ember"),
+    ("Arcode Chalk", "Arcode Chalk"),
+    ("Arcode Dark", "Arcode Dark"),
+    ("Arcode Light", "Arcode Light"),
+    ("Arcode Midnight", "Arcode Midnight"),
 ];
 
 /// What the dialog reports.
@@ -223,44 +229,39 @@ impl Render for FirstRunDialog {
             ("Skip", "Save and Continue")
         };
         let busy = self.writing.is_some();
-        div()
+        let scale = type_scale(cx);
+        overlay(cx)
             .id("first-run")
             .key_context(CONTEXT)
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::accept))
             .on_action(cx.listener(Self::skip))
-            .w(px(560.))
+            .w(super::first_run_choices::content_width() + px(2. * PADDING))
             .max_h(max_h)
             .overflow_y_scroll()
-            .flex()
-            .flex_col()
             .gap_3()
-            .p_5()
-            .rounded_lg()
-            .border_1()
-            .border_color(c.border)
-            .bg(c.surface_raised)
-            .elevated_lg(cx)
+            .p(px(PADDING))
             .text_color(c.text)
+            .text_size(scale.body)
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .gap_2()
-                    .child(icon(IconName::Sun).size(px(20.)).color(c.accent))
+                    .gap(px(10.))
+                    .child(logo(px(22.)))
                     .child(
                         div()
-                            .text_lg()
-                            .font_weight(gpui::FontWeight::BOLD)
+                            .text_size(scale.title)
+                            .font_weight(WEIGHT_SEMIBOLD)
                             .child(title),
                     ),
             )
-            .child(div().text_sm().text_color(c.text_muted).child(subtitle))
+            .child(div().text_color(c.text_muted).child(subtitle))
             .when(!self.saved, |el| el.child(self.render_choices(cx)))
             .when_some(self.error.clone(), |el, error| {
                 el.child(
                     div()
-                        .text_xs()
+                        .text_size(scale.meta)
                         .text_color(c.error)
                         .child(format!("{error}. Skip closes this dialog without saving.")),
                 )
@@ -297,6 +298,22 @@ fn initial_fonts(current: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ember_and_chalk_come_first_then_every_classic_theme() {
+        let values: Vec<&str> = THEME_CARDS.iter().map(|(v, _)| *v).collect();
+        assert_eq!(
+            values[..3],
+            [
+                "system",
+                arcode_config::DEFAULT_DARK_THEME,
+                arcode_config::DEFAULT_LIGHT_THEME
+            ]
+        );
+        for name in arcode_config::theme::BUILTIN_THEME_NAMES {
+            assert!(values.contains(&name), "{name} is offered");
+        }
+    }
 
     #[test]
     fn shown_only_without_a_config_and_without_the_opt_out() {

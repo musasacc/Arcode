@@ -63,7 +63,38 @@ fn theme_card_labels_fit_their_cards(cx: &mut TestAppContext) {
     let label = cx
         .debug_bounds("theme-card-label")
         .expect("a theme card label is drawn");
-    // 124px card, 6px padding and a 2px border on each side.
+    // The label shares the card's width with the ember diamond (7 px and
+    // a 6 px gap) on the selected card.
     assert!(label.size.width > px(0.));
-    assert!(label.size.width <= px(124. - 16.), "{label:?}");
+    assert!(
+        label.size.width <= px(super::theme_card::CARD_W + 3.),
+        "{label:?}"
+    );
+}
+
+/// The page filter shows the matching rows of every section and hides
+/// the rest; picking a section in the nav ends it.
+#[gpui::test]
+fn filter_searches_every_section(cx: &mut TestAppContext) {
+    crate::test_support::init(cx);
+    let dir = tempfile::tempdir().expect("tempdir");
+    cx.update(|cx| cx.set_global(ConfigPathOverride(dir.path().join("config.toml"))));
+    let (page, cx) = cx.add_window_view(|_, cx| SettingsPage::new(WeakEntity::new_invalid(), cx));
+    page.update(cx, |page, cx| {
+        page.filter.update(cx, |f, cx| f.set_text("low-end", cx))
+    });
+    cx.run_until_parked();
+    assert!(page.read_with(cx, |p, cx| p.filtering(cx)));
+    cx.update(|window, cx| window.draw(cx).clear());
+    // Theme cards are not drawn while filtering.
+    assert!(cx.debug_bounds("theme-card-label").is_none());
+    // Nothing of the filter outlives the draw.
+    assert!(!super::filter::active());
+    page.update_in(cx, |page, window, cx| {
+        page.clear_filter(window, cx);
+        page.set_section(Section::Editor, cx)
+    });
+    cx.run_until_parked();
+    assert!(!page.read_with(cx, |p, cx| p.filtering(cx)));
+    cx.update(|window, cx| window.draw(cx).clear());
 }

@@ -105,11 +105,7 @@ impl DebugPanel {
                                     .truncate()
                                     .child(SharedString::from(frame.name.clone())),
                             )
-                            .child(
-                                div()
-                                    .flex_none()
-                                    .child(readout(file).size(scale.micro)),
-                            )
+                            .child(div().flex_none().child(readout(file).size(scale.micro)))
                             .on_click(cx.listener(move |panel, _, _, cx| {
                                 panel
                                     .debugger

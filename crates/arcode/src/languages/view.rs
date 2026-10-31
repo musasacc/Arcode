@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use arcode_ui_kit::{IconName, icon, icon_button, settings, switch, theme};
+use arcode_ui_kit::{IconName, icon, icon_button, section_header, settings, spacer, switch, theme};
 use gpui::{
     App, ClipboardItem, Context, EventEmitter, IntoElement, SharedString, Subscription, Task,
     Window, div, prelude::*, px,
@@ -361,25 +361,25 @@ impl Render for LanguagesView {
                 el.child(crate::sidebar::header("Plugins", cx))
             })
             .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_between()
-                    .px_3()
-                    .pb_1()
-                    .text_xs()
-                    .text_color(c.text_muted)
-                    .child(if self.checking {
-                        "LANGUAGES · checking…".to_string()
-                    } else if missing > 0 {
-                        format!("LANGUAGES · {missing} servers missing")
-                    } else {
-                        "LANGUAGES".to_string()
-                    })
+                section_header("Languages", cx)
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_color(c.text_muted)
+                            .font_weight(gpui::FontWeight::NORMAL)
+                            .child(if self.checking {
+                                "checking…".to_string()
+                            } else if missing > 0 {
+                                format!("{missing} servers missing")
+                            } else {
+                                String::new()
+                            }),
+                    )
+                    .child(spacer())
                     .child(
                         icon_button("languages-refresh", IconName::Refresh)
-                            .size(px(22.))
+                            .size(px(24.))
                             .tooltip("Check servers again")
                             .on_click(cx.listener(|v, _, _, cx| v.check_servers(cx))),
                     ),

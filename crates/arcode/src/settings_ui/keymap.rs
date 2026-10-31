@@ -1,8 +1,8 @@
 //! Keymap: a read-only, filterable list of every command and its key
 //! bindings.
 
-use arcode_ui_kit::{kbd, theme};
-use gpui::{App, Context, Div, Entity, div, prelude::*, px};
+use arcode_ui_kit::{input_frame, kbd, theme};
+use gpui::{App, Context, Div, Entity, div, prelude::*};
 
 use super::{SettingsPage, group_title};
 use crate::commands::{binding_label, commands};
@@ -59,7 +59,7 @@ pub(super) fn render(
             .gap_3()
             .py_1p5()
             .border_b_1()
-            .border_color(c.border.opacity(0.5))
+            .border_color(c.border)
             .child(
                 div()
                     .flex_1()
@@ -69,7 +69,7 @@ pub(super) fn render(
                     .child(label.clone()),
             );
         if keys.is_empty() {
-            row = row.child(div().text_xs().text_color(c.text_disabled).child("—"));
+            row = row.child(div().text_xs().text_color(c.text_muted).child("—"));
         }
         for key in keys {
             row = row.child(kbd(key.clone()));
@@ -86,17 +86,9 @@ pub(super) fn render(
                 .child("Read-only. Shortcuts use Cmd on macOS where this list shows Ctrl."),
         )
         .child(
-            div()
-                .flex()
-                .items_center()
-                .h(px(30.))
-                .px_2()
+            input_frame(false, false, cx)
                 .mb_2()
-                .rounded_md()
-                .border_1()
-                .border_color(c.border)
-                .bg(c.surface)
-                .child(filter.clone()),
+                .child(div().flex_1().min_w_0().child(filter.clone())),
         )
         .child(
             div()

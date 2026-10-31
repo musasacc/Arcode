@@ -106,16 +106,19 @@ impl Pane {
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let active = self.active_page == Some(ix);
-        pill_tab(SharedString::from(format!("page-tab-{}", page.key)), page.title.clone())
-            .icon(page.icon, None)
-            .active(active)
-            .focused(focused)
-            .on_click(cx.listener(move |pane, _, window, cx| pane.activate_page(ix, window, cx)))
-            .on_close(cx.listener(move |pane, _, window, cx| pane.close_page(ix, window, cx)))
-            .build(cx)
-            .on_mouse_down(
-                MouseButton::Middle,
-                cx.listener(move |pane, _, window, cx| pane.close_page(ix, window, cx)),
-            )
+        pill_tab(
+            SharedString::from(format!("page-tab-{}", page.key)),
+            page.title.clone(),
+        )
+        .icon(page.icon, None)
+        .active(active)
+        .focused(focused)
+        .on_click(cx.listener(move |pane, _, window, cx| pane.activate_page(ix, window, cx)))
+        .on_close(cx.listener(move |pane, _, window, cx| pane.close_page(ix, window, cx)))
+        .build(cx)
+        .on_mouse_down(
+            MouseButton::Middle,
+            cx.listener(move |pane, _, window, cx| pane.close_page(ix, window, cx)),
+        )
     }
 }

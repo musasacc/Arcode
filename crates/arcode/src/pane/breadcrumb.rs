@@ -14,7 +14,9 @@ use arcode_editor::Editor;
 use arcode_syntax::{OutlineItem, OutlineKind};
 use arcode_ui_kit::metrics::{WEIGHT_MEDIUM, type_scale};
 use arcode_ui_kit::{IconName, icon, theme};
-use gpui::{AnyElement, Context, Entity, EntityId, SharedString, Task, div, prelude::*, px, relative};
+use gpui::{
+    AnyElement, Context, Entity, EntityId, SharedString, Task, div, prelude::*, px, relative,
+};
 
 use super::Pane;
 
@@ -209,9 +211,14 @@ impl Pane {
                     ),
                 );
             }
-            row = row.child(div().flex_none().when(ix == last, |el| {
-                el.text_color(c.text).font_weight(WEIGHT_MEDIUM)
-            }).child(part));
+            row = row.child(
+                div()
+                    .flex_none()
+                    .when(ix == last, |el| {
+                        el.text_color(c.text).font_weight(WEIGHT_MEDIUM)
+                    })
+                    .child(part),
+            );
         }
         let tooltip = SharedString::from(path.display().to_string());
         Some(
@@ -276,7 +283,10 @@ mod tests {
             symbol_label(OutlineKind::Impl, "Display for Rect", true),
             "impl Display for Rect"
         );
-        assert_eq!(symbol_label(OutlineKind::Struct, "Rect", true), "struct Rect");
+        assert_eq!(
+            symbol_label(OutlineKind::Struct, "Rect", true),
+            "struct Rect"
+        );
         assert_eq!(symbol_label(OutlineKind::Function, "main", false), "main");
         assert_eq!(symbol_label(OutlineKind::Class, "Shape", false), "Shape");
         assert_eq!(symbol_label(OutlineKind::Heading, "Intro", true), "Intro");

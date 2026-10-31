@@ -26,8 +26,14 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<FileTree> {
-        let tree = cx.new(|cx| FileTree::new(root, name, cx));
-        let sub = cx.subscribe_in(&tree, window, |ws, _, event: &FileTreeEvent, window, cx| {
+        let (git, lsp) = (self.git.store.clone(), self.lsp.clone());
+        let tree = cx.new(|cx| {
+            let mut tree = FileTree::new(root, name, cx);
+            // Git letters and error counts on the rows.
+            tree.follow_sources(git, lsp, cx);
+            tree
+        });
+        let sub =cx.subscribe_in(&tree, window, |ws, _, event: &FileTreeEvent, window, cx| {
             ws.on_tree_event(event, window, cx)
         });
         self.subs.set("file_tree", sub);
