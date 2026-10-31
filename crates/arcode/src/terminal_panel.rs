@@ -1,0 +1,398 @@
+//! The Terminal tab: any number of integrated terminals, started lazily in
+//! the project root, with a small tab strip to switch, add and close them.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+use arcode_terminal_view::{TerminalView, TerminalViewEvent};
+use arcode_ui_kit::metrics::CONTROL_H_PANEL;
+use arcode_ui_kit::{IconName, button, icon, icon_button, pill_tab, theme};
+use gpui::{
+    App, Context, Entity, EntityId, FocusHandle, Focusable, MouseButton, SharedString,
+    Subscription, Window, div, prelude::*, px,
+};
+
+use crate::actions::{NewTerminal, shortcut_label};
+
+#[path = "terminal_named.rs"]
+mod named;
+#[path = "terminal_program.rs"]
+mod program;
+#[path = "terminal_run.rs"]
+mod run;
+
+pub use named::OnStarted;
+pub use program::OnExit;
+pub use run::{LastRun, RunStatus, render_run_readout};
+
+/// Longest terminal title shown in a tab.
+const MAX_TITLE_CHARS: usize = 24;
+
+/// The terminals of one workspace.
+pub struct TerminalPanel {
+    terminals: Vec<Entity<TerminalView>>,
+    active: usize,
+    cwd: Option<PathBuf>,
+    /// Why the last terminal could not be started.
+    error: Option<SharedString>,
+    focus_handle: FocusHandle,
+    subscriptions: Vec<(EntityId, Subscription)>,
+    /// Fixed tab names (terminals started for a run command or a debuggee).
+    names: HashMap<EntityId, SharedString>,
+    /// The last command started in a named terminal (the run readout).
+    last_run: Option<LastRun>,
+}
+
+impl Focusable for TerminalPanel {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
+impl TerminalPanel {
+    /// Creates an empty panel; terminals start on first use.
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        Self {
+            terminals: Vec::new(),
+            active: 0,
+            cwd: None,
+            error: None,
+            focus_handle: cx.focus_handle(),
+            subscriptions: Vec::new(),
+            names: HashMap::new(),
+            last_run: None,
+        }
+    }
+
+    /// Sets the folder new terminals start in. Changing it closes the
+    /// running terminals (they belong to the previous project).
+    pub fn set_cwd(&mut self, cwd: Option<PathBuf>, cx: &mut Context<Self>) {
+        if self.cwd != cwd {
+            self.cwd = cwd;
+            self.terminals.clear();
+            self.subscriptions.clear();
+            self.names.clear();
+            self.last_run = None;
+            self.active = 0;
+            self.error = None;
+            cx.notify();
+        }
+    }
+
+    /// Process ids of the shells still running (to ask before they are
+    /// closed while running a command).
+    pub fn shell_pids(&self, cx: &App) -> Vec<u32> {
+        self.terminals
+            .iter()
+            .filter_map(|t| {
+                let t = t.read(cx);
+                t.is_alive().then(|| t.terminal().child_pid()).flatten()
+            })
+            .collect()
+    }
+
+    /// The running terminals in tab order.
+    pub fn terminals(&self) -> &[Entity<TerminalView>] {
+        &self.terminals
+    }
+
+    /// The terminal shown.
+    pub fn active_terminal(&self) -> Option<&Entity<TerminalView>> {
+        self.terminals.get(self.active)
+    }
+
+    /// The active terminal, starting one if none is running.
+    pub fn ensure_terminal(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Entity<TerminalView>> {
+        match self.active_terminal() {
+            Some(terminal) => Some(terminal.clone()),
+            None => self.new_terminal(window, cx),
+        }
+    }
+
+    /// Starts a new terminal in the project root and activates it.
+    pub fn new_terminal(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Entity<TerminalView>> {
+        self.new_terminal_in(self.cwd.clone(), window, cx)
+    }
+
+    /// Starts a new terminal in `cwd` (the project root when `None`) and
+    /// activates it.
+    pub fn new_terminal_in(
+        &mut self,
+        cwd: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Entity<TerminalView>> {
+        // Shells on Windows reject the `\\?\` form canonical paths have.
+        let cwd = cwd
+            .or_else(|| self.cwd.clone())
+            .map(|dir| arcode_project::files::external_path(&dir));
+        let terminal = match TerminalView::spawn(cwd, window, cx) {
+            Ok(terminal) => terminal,
+            Err(err) => {
+                log::error!("cannot start a terminal: {err:#}");
+                self.error = Some(format!("Cannot start a terminal: {err:#}").into());
+                cx.notify();
+                return None;
+            }
+        };
+        let sub =
+            cx.subscribe_in(
+                &terminal,
+                window,
+                |panel, terminal, event, window, cx| match event {
+                    TerminalViewEvent::Exited => {
+                        let had_focus = terminal.focus_handle(cx).contains_focused(window, cx);
+                        panel.remove(terminal.entity_id(), cx);
+                        if had_focus {
+                            panel.focus_existing(window, cx);
+                        }
+                    }
+                    TerminalViewEvent::TitleChanged => cx.notify(),
+                    TerminalViewEvent::Bell => {}
+                },
+            );
+        self.subscriptions.push((terminal.entity_id(), sub));
+        self.terminals.push(terminal.clone());
+        self.active = self.terminals.len() - 1;
+        self.error = None;
+        cx.notify();
+        Some(terminal)
+    }
+
+    /// Activates the terminal at `ix`.
+    pub fn activate(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if ix < self.terminals.len() {
+            self.active = ix;
+            self.focus(window, cx);
+            cx.notify();
+        }
+    }
+
+    /// Closes the terminal at `ix` (its shell is terminated).
+    pub fn close(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(terminal) = self.terminals.get(ix) {
+            let had_focus = terminal.focus_handle(cx).contains_focused(window, cx);
+            self.remove(terminal.entity_id(), cx);
+            if had_focus {
+                self.focus_existing(window, cx);
+            }
+        }
+    }
+
+    fn remove(&mut self, id: EntityId, cx: &mut Context<Self>) {
+        let Some(ix) = self.terminals.iter().position(|t| t.entity_id() == id) else {
+            return;
+        };
+        let code = self.terminals[ix].read(cx).exit_code();
+        self.run_terminal_exited(id, code);
+        self.terminals.remove(ix);
+        self.subscriptions.retain(|(sid, _)| *sid != id);
+        self.names.remove(&id);
+        if self.active > ix || self.active >= self.terminals.len() {
+            self.active = self.active.saturating_sub(1);
+        }
+        cx.notify();
+    }
+
+    /// Focuses the active terminal, starting one if needed.
+    pub fn focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(terminal) = self.ensure_terminal(window, cx) {
+            window.focus(&terminal.focus_handle(cx));
+        } else {
+            window.focus(&self.focus_handle);
+        }
+    }
+
+    /// Focuses the active terminal without starting one.
+    fn focus_existing(&self, window: &mut Window, cx: &App) {
+        match self.active_terminal() {
+            Some(terminal) => window.focus(&terminal.focus_handle(cx)),
+            None => window.focus(&self.focus_handle),
+        }
+    }
+
+    /// Runs `command` in the active terminal (started if needed) and
+    /// focuses it.
+    pub fn run_command(&mut self, command: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(terminal) = self.ensure_terminal(window, cx) {
+            terminal.read(cx).run_command(command);
+            window.focus(&terminal.focus_handle(cx));
+        }
+    }
+}
+
+/// The terminal sessions shown in the bottom panel header: 24 tall pills
+/// (the active one `hover` filled with its icon), then `+`. The pills
+/// scroll when the header is short of room; `+` always stays in view.
+pub fn render_strip(panel: &Entity<TerminalPanel>, cx: &App) -> impl IntoElement + use<> {
+    let p = panel.read(cx);
+    let tabs: Vec<_> = p
+        .terminals
+        .iter()
+        .enumerate()
+        .map(|(ix, terminal)| {
+            let active = ix == p.active;
+            let named = p.names.contains_key(&terminal.entity_id());
+            let full_title = p
+                .names
+                .get(&terminal.entity_id())
+                .cloned()
+                .unwrap_or_else(|| terminal.read(cx).title());
+            let title = truncate(&short_title(&full_title), MAX_TITLE_CHARS);
+            let select = panel.downgrade();
+            let close = panel.downgrade();
+            let middle = panel.downgrade();
+            let mut pill = pill_tab(("terminal-tab", ix), title)
+                .compact()
+                .active(active)
+                .tooltip(full_title)
+                .on_click(move |_, window, cx| {
+                    select.update(cx, |p, cx| p.activate(ix, window, cx)).ok();
+                })
+                .on_close(move |_, window, cx| {
+                    close.update(cx, |p, cx| p.close(ix, window, cx)).ok();
+                });
+            if active {
+                pill = pill.icon(
+                    if named {
+                        IconName::Play
+                    } else {
+                        IconName::Terminal
+                    },
+                    None,
+                );
+            }
+            pill.build(cx)
+                .on_mouse_down(MouseButton::Middle, move |_, window, cx| {
+                    middle.update(cx, |p, cx| p.close(ix, window, cx)).ok();
+                })
+        })
+        .collect();
+    div()
+        .flex()
+        .flex_shrink()
+        .min_w(CONTROL_H_PANEL)
+        .items_center()
+        .gap(px(2.))
+        .child(
+            div()
+                .id("terminal-sessions")
+                .flex()
+                .flex_shrink()
+                .min_w_0()
+                .items_center()
+                .gap(px(2.))
+                .overflow_x_scroll()
+                .children(tabs),
+        )
+        .child(
+            icon_button("new-terminal", IconName::Plus)
+                .size(CONTROL_H_PANEL)
+                .tooltip(format!(
+                    "New terminal ({})",
+                    shortcut_label("secondary-shift-`")
+                ))
+                .on_click(|_, window, cx| window.dispatch_action(Box::new(NewTerminal), cx)),
+        )
+}
+
+/// A shell title like `user@host: ~/code/app` shortened to `app`; other
+/// titles (e.g. a running program) are kept.
+fn short_title(title: &str) -> String {
+    let title = title.trim();
+    let path = title
+        .split_once(": ")
+        .map_or(title, |(_, rest)| rest)
+        .trim();
+    if path.starts_with('/') || path.starts_with('~') || path.contains(":\\") {
+        let trimmed = path.trim_end_matches(['/', '\\']);
+        let name = trimmed.rsplit(['/', '\\']).next().unwrap_or(trimmed);
+        if !name.is_empty() {
+            return name.to_string();
+        }
+        return path.to_string();
+    }
+    title.to_string()
+}
+
+fn truncate(text: &str, max: usize) -> SharedString {
+    if text.chars().count() <= max {
+        return SharedString::from(text.to_string());
+    }
+    let cut: String = text.chars().take(max.saturating_sub(1)).collect();
+    format!("{cut}…").into()
+}
+
+impl Render for TerminalPanel {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let c = theme(cx).colors.clone();
+        let content = match self.active_terminal() {
+            // The terminal view pads its own grid (16 px at the sides).
+            Some(terminal) => div().size_full().child(terminal.clone()).into_any_element(),
+            None => {
+                let message: SharedString = self
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "No terminal is running.".into());
+                div()
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap_2()
+                    .text_sm()
+                    .text_color(c.text_muted)
+                    .child(
+                        icon(IconName::Terminal)
+                            .size(px(24.))
+                            .color(c.text_disabled),
+                    )
+                    .child(message)
+                    .child(
+                        button("start-terminal", "New Terminal")
+                            .icon(IconName::Plus)
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(NewTerminal), cx)
+                            }),
+                    )
+                    .into_any_element()
+            }
+        };
+        // No fill: the bottom panel's rounded fill shows through.
+        div()
+            .track_focus(&self.focus_handle)
+            .size_full()
+            .child(content)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{short_title, truncate};
+
+    #[test]
+    fn shell_titles_are_shortened() {
+        assert_eq!(short_title("me@laptop: /srv/www/demo"), "demo");
+        assert_eq!(short_title("me@host: ~"), "~");
+        assert_eq!(short_title("me@host: ~/code/app/"), "app");
+        assert_eq!(short_title("/"), "/");
+        assert_eq!(short_title("C:\\Users\\me\\proj"), "proj");
+        assert_eq!(short_title("vim main.rs"), "vim main.rs");
+        assert_eq!(short_title("Terminal"), "Terminal");
+    }
+
+    #[test]
+    fn long_titles_are_truncated() {
+        assert_eq!(truncate("bash", 24).as_ref(), "bash");
+        assert_eq!(truncate("abcdef", 4).as_ref(), "abc…");
+    }
+}

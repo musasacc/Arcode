@@ -1,0 +1,223 @@
+//! Status bar updates and the LSP / Problems wiring of the workspace.
+
+use std::path::{Path, PathBuf};
+
+use arcode_editor::{Editor, EditorEvent};
+use arcode_lsp::lsp_types::Position;
+use gpui::{Context, Entity, SharedString, Subscription, Window};
+
+use super::{Workspace, WorkspaceEvent};
+use crate::bottom_panel::BottomPanel;
+use crate::lsp_bridge::{LspBridge, LspBridgeEvent};
+use crate::problems::ProblemsEvent;
+use crate::project::Project;
+
+/// Base pause before low-end count refreshes (tripled by `debounce`).
+const COUNTS_DEBOUNCE_MS: u64 = 150;
+
+impl Workspace {
+    /// Subscribes to the bridge (counts, status, messages) and to the
+    /// Problems list (jump to a problem).
+    pub(super) fn subscribe_lsp(
+        lsp: &Entity<LspBridge>,
+        panel: &Entity<BottomPanel>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<Subscription> {
+        let bridge = cx.subscribe(lsp, |ws, _, event: &LspBridgeEvent, cx| match event {
+            LspBridgeEvent::DiagnosticsChanged => ws.diagnostics_changed(cx),
+            LspBridgeEvent::StatusChanged => ws.refresh_status(cx),
+            LspBridgeEvent::Message(text) => ws.show_toast(text.clone(), cx),
+            // Applied by `crate::refactor` (it needs the window).
+            LspBridgeEvent::ApplyEdit(_) => {}
+        });
+        let problems = panel.read(cx).problems().clone();
+        let problems = cx.subscribe_in(
+            &problems,
+            window,
+            |ws, _, event: &ProblemsEvent, window, cx| {
+                let ProblemsEvent::Open {
+                    path,
+                    server,
+                    position,
+                } = event;
+                ws.open_problem(path, server, *position, window, cx);
+            },
+        );
+        vec![bridge, problems]
+    }
+
+    /// Opens `path` (or switches to it) and puts the cursor at the
+    /// diagnostic's position.
+    fn open_problem(
+        &mut self,
+        path: &Path,
+        server: &str,
+        position: Position,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_file(path, window, cx);
+        let Some(editor) = self.editor_for_path(path, cx) else {
+            return;
+        };
+        let point = self
+            .lsp
+            .read(cx)
+            .point_in(editor.read(cx), server, position);
+        editor.update(cx, |e, cx| e.go_to(point, window, cx));
+    }
+
+    /// The open editor showing `path`, in any pane.
+    pub fn editor_for_path(&self, path: &Path, cx: &gpui::App) -> Option<Entity<Editor>> {
+        let path: PathBuf = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        self.editors(cx)
+            .into_iter()
+            .find(|e| e.read(cx).path() == Some(path.as_path()))
+    }
+
+    /// Refreshes the counts at once, or after a pause in low-end mode so a
+    /// burst of diagnostics costs one status bar redraw.
+    fn diagnostics_changed(&mut self, cx: &mut Context<Self>) {
+        if !arcode_ui_kit::low_end(cx) {
+            self.refresh_diagnostic_counts(cx);
+            return;
+        }
+        if self.prefs.counts_task.is_some() {
+            return;
+        }
+        let delay = arcode_ui_kit::debounce(COUNTS_DEBOUNCE_MS, cx);
+        self.prefs.counts_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(delay).await;
+            this.update(cx, |ws, cx| {
+                ws.prefs.counts_task = None;
+                ws.refresh_diagnostic_counts(cx);
+            })
+            .ok();
+        }));
+    }
+
+    fn refresh_diagnostic_counts(&mut self, cx: &mut Context<Self>) {
+        let counts = self.lsp.read(cx).counts();
+        self.status_bar.update(cx, |bar, cx| {
+            bar.set_diagnostic_counts(counts.errors, counts.warnings, cx)
+        });
+    }
+
+    /// Re-subscribes to the active editor and refreshes the status bar.
+    pub(super) fn active_editor_changed(&mut self, cx: &mut Context<Self>) {
+        let editor = self.active_editor(cx);
+        self.active_editor_sub = editor.as_ref().map(|editor| {
+            cx.subscribe(editor, |ws, _, event: &EditorEvent, cx| {
+                if matches!(
+                    event,
+                    EditorEvent::SelectionsChanged
+                        | EditorEvent::Edited { .. }
+                        | EditorEvent::VimStatusChanged
+                ) {
+                    ws.refresh_status(cx);
+                }
+            })
+        });
+        let path = editor
+            .as_ref()
+            .and_then(|e| e.read(cx).path().map(Path::to_path_buf));
+        self.git
+            .editors
+            .update(cx, |git, cx| git.set_active(editor.as_ref(), cx));
+        if let Some(path) = &path {
+            self.git
+                .store
+                .update(cx, |git, cx| git.follow_path(path, cx));
+        }
+        if let Some(tree) = &self.file_tree {
+            // Keep the tree selection in sync with the active tab: reveal
+            // its file, or clear the selection when no file is active.
+            match editor
+                .as_ref()
+                .and_then(|e| e.read(cx).path().map(Path::to_path_buf))
+            {
+                Some(path) => tree.update(cx, |tree, cx| tree.reveal(&path, cx)),
+                None => tree.update(cx, |tree, cx| tree.clear_selection(cx)),
+            }
+        }
+        self.refresh_status(cx);
+        cx.emit(WorkspaceEvent::ActiveEditorChanged(editor));
+        cx.notify();
+    }
+
+    /// The branch shown in the title and status bars: from the git store
+    /// once it has read `HEAD`, else read directly from the project. A
+    /// repository nested in a project folder that is no repository itself
+    /// only names its branch (as `repo: branch`) while a file of it is
+    /// active: the folder as a whole has no branch.
+    pub fn branch_label(&self, cx: &gpui::App) -> Option<String> {
+        let store = self.git.store.read(cx);
+        let root = self.project.as_ref().map(|p| p.root.as_path());
+        if let (Some(repo), Some(root)) = (store.active_repo(), root)
+            && !root.starts_with(&repo.workdir)
+        {
+            let active = self.active_editor(cx);
+            let file = active.as_ref().and_then(|e| e.read(cx).path());
+            if !file.is_some_and(|f| f.starts_with(&repo.workdir)) {
+                return None;
+            }
+            let name = repo.workdir.file_name()?.to_string_lossy();
+            return store.branch_label().map(|b| format!("{name}: {b}"));
+        }
+        store
+            .branch_label()
+            .or_else(|| self.project.as_ref().and_then(Project::branch))
+    }
+
+    /// Pushes branch, language, language server status and cursor
+    /// position to the status bar.
+    pub fn refresh_status(&mut self, cx: &mut Context<Self>) {
+        let branch = self.branch_label(cx).map(SharedString::from);
+        let conflicts = self.active_editor(cx).and_then(|editor| {
+            let line = editor.read(cx).cursor_position().line;
+            let git = self.git.editors.read(cx);
+            let conflicts = git.conflicts(editor.entity_id());
+            (!conflicts.is_empty()).then(|| {
+                let current = conflicts.iter().position(|c| c.lines().contains(&line));
+                (current, conflicts.len())
+            })
+        });
+        let (language, cursor, lsp_status) = match self.active_editor(cx) {
+            Some(editor) => {
+                let e = editor.read(cx);
+                let pos = e.cursor_position();
+                let status = self.lsp.read(cx).status_for_language(e.language().id, cx);
+                // A plugin language (the HTTP client's `.http`) replaces
+                // plain text for plugins; show its name too.
+                let contributed = crate::plugins::snapshot::contributed_for(
+                    e.path(),
+                    e.language().id,
+                    &self.plugins.contributions.languages,
+                );
+                let name = contributed.map_or_else(
+                    || SharedString::new_static(e.language().name),
+                    |l| SharedString::from(l.name.clone()),
+                );
+                (Some(name), Some((pos.line, pos.column)), status)
+            }
+            None => (None, None, None),
+        };
+        let language_id = self
+            .active_editor(cx)
+            .map(|e| e.read(cx).language().id.to_lowercase());
+        self.lsp
+            .update(cx, |lsp, cx| lsp.set_active_language(language_id, cx));
+        let vim = self.active_editor(cx).and_then(|e| e.read(cx).vim_status());
+        let doc = self
+            .active_editor(cx)
+            .map(|e| crate::languages::status_items::DocStatus::of(e.read(cx), cx));
+        self.status_bar.update(cx, |bar, cx| {
+            bar.set_vim_status(vim, cx);
+            bar.set_doc_status(doc, cx);
+            bar.set_editor_info(branch, language, cursor, cx);
+            bar.set_lsp_status(lsp_status, cx);
+            bar.set_conflicts(conflicts, cx);
+        });
+    }
+}

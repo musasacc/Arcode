@@ -1,0 +1,21 @@
+//! Git integration of the workspace: the repository store, editor
+//! decorations (change bars, blame, conflicts), the source control view,
+//! the branch picker and diff tabs. Library work lives in `arcode-git`;
+//! everything here only arranges it and runs it off the main thread.
+
+pub mod blame_text;
+#[cfg(test)]
+mod blame_text_tests;
+pub mod branch_picker;
+pub mod diff_view;
+pub mod editor;
+pub mod hunk_popover;
+pub mod ignore_filter;
+pub mod panel;
+pub mod store;
+pub mod watcher;
+#[cfg(test)]
+mod watcher_regression_tests;
+
+pub use editor::{GitEditors, GitEditorsEvent};
+pub use store::{GitEvent, GitSnapshot, GitStore};
