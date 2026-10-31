@@ -24,7 +24,7 @@ use std::collections::HashSet;
 
 use arcode_plugin_host::PluginId;
 use arcode_plugin_host::grants::Capability;
-use arcode_ui_kit::{IconName, icon_button, theme};
+use arcode_ui_kit::{IconName, icon_button, pill_tab, theme};
 use gpui::{Context, Entity, EventEmitter, IntoElement, SharedString, Window, div, prelude::*, px};
 
 use super::PluginClient;
@@ -144,30 +144,21 @@ impl PluginsPage {
         cx.notify();
     }
 
+    /// Installed / Languages as pill tabs (docs/DESIGN.md 6.6).
     fn render_tabs(&self, cx: &mut Context<Self>) -> gpui::Div {
-        let c = theme(cx).colors.clone();
         let tab = |id: &'static str, label: &'static str, which: PageTab| {
-            let on = self.tab == which;
-            div()
-                .id(id)
-                .px_2()
-                .py_0p5()
-                .rounded_md()
-                .text_xs()
-                .cursor_pointer()
-                .when(on, |el| el.bg(c.selection).text_color(c.text))
-                .when(!on, |el| {
-                    el.text_color(c.text_muted).hover(|s| s.bg(c.hover))
-                })
-                .child(label)
+            pill_tab(id, label)
+                .panel()
+                .active(self.tab == which)
                 .on_click(cx.listener(move |p, _, _, cx| p.set_tab(which, cx)))
         };
         div()
             .flex()
             .flex_none()
-            .gap_1()
-            .px_2()
-            .pb_1()
+            .items_center()
+            .gap(px(3.))
+            .px(px(6.))
+            .pb(px(6.))
             .child(tab(
                 "plugins-tab-installed",
                 "Installed",

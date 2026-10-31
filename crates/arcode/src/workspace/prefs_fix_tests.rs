@@ -83,7 +83,7 @@ fn moving_between_theme_cards_keeps_the_new_preview(cx: &mut TestAppContext) {
     page.update_in(cx, |page, window, cx| {
         page.hover_theme(&night, Some(&theme), false, window, cx)
     });
-    assert_eq!(theme_name(cx), "Arcode Dark");
+    assert_eq!(theme_name(cx), "Arcode Ember");
 }
 
 #[gpui::test]
@@ -102,7 +102,7 @@ fn closing_the_settings_tab_ends_a_hover_preview(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(
         theme_name(cx),
-        "Arcode Dark",
+        "Arcode Ember",
         "the preview ended with the tab"
     );
 }

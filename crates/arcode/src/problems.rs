@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use arcode_editor::DiagnosticSeverity;
 use arcode_lsp::DiagnosticStore;
 use arcode_lsp::lsp_types::Position;
-use arcode_ui_kit::{IconName, icon, theme};
+use arcode_ui_kit::metrics::{ROW_INSET, WEIGHT_SEMIBOLD, type_scale};
+use arcode_ui_kit::{IconName, badge, icon, readout, spacer, theme};
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, SharedString, Subscription,
     UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
@@ -17,7 +18,8 @@ use crate::file_icons::file_icon;
 use crate::lsp_bridge::{LspBridge, convert};
 use crate::project::relative_display;
 
-const ROW_HEIGHT: f32 = 22.;
+/// Row height (docs/DESIGN.md 6.8).
+const ROW_HEIGHT: f32 = 26.;
 
 /// Emitted when the user picks a problem.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -108,6 +110,8 @@ pub struct ProblemsPanel {
     root: Option<PathBuf>,
     rows: Vec<ProblemRow>,
     count: usize,
+    /// Some of the counted problems are errors.
+    errors: bool,
     selected: Option<usize>,
     scroll: UniformListScrollHandle,
     focus_handle: FocusHandle,
@@ -133,6 +137,7 @@ impl ProblemsPanel {
             root: None,
             rows: Vec::new(),
             count: 0,
+            errors: false,
             selected: None,
             scroll: UniformListScrollHandle::new(),
             focus_handle: cx.focus_handle(),
@@ -176,6 +181,11 @@ impl ProblemsPanel {
         self.count
     }
 
+    /// Whether any problem is an error (the badge turns `error`).
+    pub fn has_errors(&self) -> bool {
+        self.errors
+    }
+
     /// The rows as displayed.
     pub fn rows(&self) -> &[ProblemRow] {
         &self.rows
@@ -206,9 +216,11 @@ impl ProblemsPanel {
         // The badge counts what needs attention: errors and warnings.
         let counts = store.counts();
         let count = counts.errors + counts.warnings;
-        if rows != self.rows || count != self.count {
+        let errors = counts.errors > 0;
+        if rows != self.rows || count != self.count || errors != self.errors {
             self.rows = rows;
             self.count = count;
+            self.errors = errors;
             self.selected = None;
             cx.notify();
         }
@@ -216,34 +228,47 @@ impl ProblemsPanel {
 
     fn render_row(&self, ix: usize, cx: &mut Context<Self>) -> gpui::AnyElement {
         let c = theme(cx).colors.clone();
+        let scale = type_scale(cx);
         let Some(row) = self.rows.get(ix) else {
             return div().into_any_element();
         };
         let base = div()
             .id(ix)
             .flex()
+            .flex_1()
+            .min_w_0()
             .items_center()
-            .gap_1p5()
+            .gap(px(8.))
             .h(px(ROW_HEIGHT))
-            .px_2()
-            .w_full()
+            .px(px(8.))
+            .rounded(px(7.))
             .overflow_hidden()
             .whitespace_nowrap();
-        match row {
+        let chip = match row {
             ProblemRow::File { label, count, .. } => {
-                let (file_icon_name, file_icon_color) = file_icon(label, &c);
-                base.child(icon(file_icon_name).size(px(13.)).color(file_icon_color))
-                    .child(div().text_color(c.text).child(label.clone()))
+                let (dir, name) = split_label(label);
+                let (file_icon_name, file_icon_color) = file_icon(name, &c);
+                base.gap(px(6.))
+                    .text_size(scale.meta)
+                    .child(icon(IconName::ChevronDown).size(px(13.)).color(c.text_muted))
+                    .child(icon(file_icon_name).size(px(14.)).color(file_icon_color))
                     .child(
                         div()
-                            .px_1p5()
-                            .rounded_full()
-                            .bg(c.surface_raised)
-                            .text_xs()
-                            .text_color(c.text_muted)
-                            .child(count.to_string()),
+                            .flex_none()
+                            .font_weight(WEIGHT_SEMIBOLD)
+                            .text_color(c.text)
+                            .child(SharedString::from(name.to_string())),
                     )
-                    .into_any_element()
+                    .when(!dir.is_empty(), |el| {
+                        el.child(
+                            div()
+                                .min_w_0()
+                                .overflow_hidden()
+                                .text_color(c.text_muted)
+                                .child(SharedString::from(dir.to_string())),
+                        )
+                    })
+                    .child(badge(count.to_string()))
             }
             ProblemRow::Problem {
                 severity,
@@ -253,13 +278,13 @@ impl ProblemsPanel {
                 ..
             } => {
                 let selected = self.selected == Some(ix);
-                base.pl(px(26.))
+                base.pl(px(36.))
                     .cursor_pointer()
-                    .when(selected, |el| el.bg(c.selection))
-                    .hover(|s| s.bg(c.hover))
+                    .when(selected, |el| el.bg(c.pill))
+                    .when(!selected, |el| el.hover(|s| s.bg(c.hover)))
                     .child(
                         icon(severity.icon())
-                            .size(px(13.))
+                            .size(px(14.))
                             .color(severity.color(&c)),
                     )
                     .child(
@@ -273,18 +298,34 @@ impl ProblemsPanel {
                     .child(
                         div()
                             .flex_none()
+                            .text_size(scale.meta)
                             .text_color(c.text_muted)
                             .child(source.clone()),
                     )
-                    .child(div().flex_none().text_color(c.text_disabled).child(format!(
-                        "[Ln {}, Col {}]",
+                    .child(spacer())
+                    .child(readout(format!(
+                        "{}:{}",
                         position.line + 1,
                         position.character + 1
                     )))
                     .on_click(cx.listener(move |panel, _, _, cx| panel.open_row(ix, cx)))
-                    .into_any_element()
             }
-        }
+        };
+        // Rows are chips inset from the panel edges (docs/DESIGN.md 5.3).
+        div()
+            .flex()
+            .w_full()
+            .px(ROW_INSET)
+            .child(chip)
+            .into_any_element()
+    }
+}
+
+/// A file row's label split into its folder and name (`src`, `main.rs`).
+fn split_label(label: &str) -> (&str, &str) {
+    match label.rsplit_once('/') {
+        Some((dir, name)) => (dir, name),
+        None => ("", label),
     }
 }
 
@@ -296,7 +337,7 @@ impl Render for ProblemsPanel {
             .size_full()
             .flex()
             .flex_col()
-            .text_sm();
+            .text_size(type_scale(cx).body);
         if self.rows.is_empty() {
             return root
                 .items_center()
@@ -337,6 +378,13 @@ mod tests {
             message: msg.into(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn file_labels_split_into_folder_and_name() {
+        assert_eq!(split_label("src/main.rs"), ("src", "main.rs"));
+        assert_eq!(split_label("a/b/c.rs"), ("a/b", "c.rs"));
+        assert_eq!(split_label("Cargo.toml"), ("", "Cargo.toml"));
     }
 
     #[test]

@@ -1,6 +1,9 @@
 //! Monochrome SVG icons tinted with the current text color.
 
-use gpui::{App, Hsla, IntoElement, Pixels, RenderOnce, SharedString, Styled, Window, px, svg};
+use gpui::{
+    App, Hsla, InteractiveElement, IntoElement, Pixels, RenderOnce, SharedString, Styled, Window,
+    prelude::FluentBuilder, px, svg,
+};
 
 /// Every icon shipped with Arcode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -21,12 +24,15 @@ pub enum IconName {
     CircleDot,
     CirclePlay,
     CircleX,
-    /// `</>`: the Arcode logo.
+    /// `</>`: for code contexts only (the logo is [`IconName::LogoArc`]
+    /// plus [`IconName::Ember`]).
     CodeXml,
     Columns,
     Command,
     Copy,
     Ellipsis,
+    /// The ember mark: a diamond, "you are here" (tint it `accent`).
+    Ember,
     ExternalLink,
     File,
     FileText,
@@ -43,6 +49,9 @@ pub enum IconName {
     Lightbulb,
     ListTodo,
     Loader,
+    /// The arc of the Arcode logo (tint it `text`; the spark is
+    /// [`IconName::Ember`]).
+    LogoArc,
     Minus,
     Monitor,
     Moon,
@@ -98,6 +107,7 @@ impl IconName {
             Self::Command => "icons/command.svg",
             Self::Copy => "icons/copy.svg",
             Self::Ellipsis => "icons/ellipsis.svg",
+            Self::Ember => "icons/ember.svg",
             Self::ExternalLink => "icons/external-link.svg",
             Self::File => "icons/file.svg",
             Self::FileText => "icons/file-text.svg",
@@ -114,6 +124,7 @@ impl IconName {
             Self::Lightbulb => "icons/lightbulb.svg",
             Self::ListTodo => "icons/list-todo.svg",
             Self::Loader => "icons/loader.svg",
+            Self::LogoArc => "icons/logo-arc.svg",
             Self::Minus => "icons/minus.svg",
             Self::Monitor => "icons/monitor.svg",
             Self::Moon => "icons/moon.svg",
@@ -156,6 +167,7 @@ pub struct Icon {
     name: IconName,
     size: Pixels,
     color: Option<Hsla>,
+    group_hover: Option<(SharedString, Hsla)>,
 }
 
 /// Creates an [`Icon`].
@@ -164,17 +176,27 @@ pub fn icon(name: IconName) -> Icon {
         name,
         size: px(16.),
         color: None,
+        group_hover: None,
     }
 }
 
 impl Icon {
+    /// Side length (16 by default; DESIGN.md 5.1 lists the sizes).
     pub fn size(mut self, size: Pixels) -> Self {
         self.size = size;
         self
     }
 
+    /// Tint (default `text_muted`).
     pub fn color(mut self, color: Hsla) -> Self {
         self.color = Some(color);
+        self
+    }
+
+    /// Switches to `color` while the mouse is over the element `.group(group)`
+    /// (an SVG does not inherit its parent's text color).
+    pub fn group_hover_color(mut self, group: impl Into<SharedString>, color: Hsla) -> Self {
+        self.group_hover = Some((group.into(), color));
         self
     }
 }
@@ -189,5 +211,8 @@ impl RenderOnce for Icon {
             .size(self.size)
             .flex_none()
             .text_color(color)
+            .when_some(self.group_hover, |el, (group, color)| {
+                el.group_hover(group, move |s| s.text_color(color))
+            })
     }
 }

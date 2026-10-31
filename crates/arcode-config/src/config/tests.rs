@@ -26,8 +26,8 @@ fn defaults_match_spec() {
     assert_eq!(ui.font_family, None);
     assert_eq!(ui.font_size, 13.0);
     assert_eq!(ui.theme, ThemeChoice::System);
-    assert_eq!(ui.dark_theme, "Arcode Dark");
-    assert_eq!(ui.light_theme, "Arcode Light");
+    assert_eq!(ui.dark_theme, "Arcode Ember");
+    assert_eq!(ui.light_theme, "Arcode Chalk");
     assert!(!ui.low_end_mode && ui.animations && ui.show_perf_stats);
     assert_eq!(ui.animation_ms, 120);
 

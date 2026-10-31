@@ -1,12 +1,12 @@
-//! The small Run / Debug menu opened by a gutter run button.
+//! The small Run / Debug menu opened by a gutter run button, drawn as a
+//! popover (docs/DESIGN.md 6.12).
 
-use arcode_ui_kit::Elevated;
 use std::path::Path;
 
 use arcode_buffer::Point;
 use arcode_editor::{Editor, EditorPopover};
 use arcode_project::Runnable;
-use arcode_ui_kit::{IconName, icon, theme};
+use arcode_ui_kit::{IconName, icon, list_row, popover, theme, type_scale};
 use gpui::{
     AppContext, Context, Entity, IntoElement, MouseButton, Render, WeakEntity, Window, div,
     prelude::*, px,
@@ -155,22 +155,16 @@ impl Render for RunMenu {
         let label = self.runnable.command.command_line();
         let row = |ix: usize, glyph: IconName, verb: &'static str, cx: &mut Context<Self>| {
             let selected = self.selected == ix;
-            div()
-                .id(("run-menu-row", ix))
-                .flex()
-                .items_center()
-                .gap_2()
-                .h(px(24.))
-                .px_2()
-                .rounded_sm()
-                .cursor_pointer()
-                .when(selected, |el| el.bg(c.hover))
-                .hover(|s| s.bg(c.hover))
-                .child(
-                    icon(glyph)
-                        .size(px(13.))
-                        .color(if ix == 0 { c.success } else { c.warning }),
-                )
+            // Rows 26, radius 6; the keyboard selection is a `pill` fill.
+            list_row(("run-menu-row", ix), selected, cx)
+                .mx(px(0.))
+                .h(px(26.))
+                .gap(px(8.))
+                .child(icon(glyph).size(px(14.)).color(if ix == 0 {
+                    c.success
+                } else {
+                    c.text_muted
+                }))
                 .child(div().flex_none().child(verb))
                 .child(
                     div()
@@ -183,18 +177,10 @@ impl Render for RunMenu {
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |m, _, _, cx| m.pick(ix == 1, cx)))
         };
-        div()
+        popover(cx)
             .occlude()
-            .flex()
-            .flex_col()
-            .p_1()
             .min_w(px(180.))
-            .rounded_md()
-            .border_1()
-            .border_color(c.border)
-            .bg(c.surface_raised)
-            .elevated(cx)
-            .text_sm()
+            .text_size(type_scale(cx).body)
             .text_color(c.text)
             .child(row(0, IconName::Play, "Run", cx))
             .child(row(1, IconName::Bug, "Debug", cx))

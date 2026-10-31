@@ -9,7 +9,7 @@ use arcode_plugin_host::bindings::ui::{
     Axis, BadgeProps, Node, SplitProps, StackProps, TabsProps, TextProps, Tone,
 };
 use arcode_ui_kit::{
-    BUNDLED_MONO_FONT, IconName, divider as hdivider, icon, theme, vertical_divider,
+    BUNDLED_MONO_FONT, IconName, divider as hdivider, icon, pill_tab, theme, vertical_divider,
 };
 use gpui::{
     AnyElement, App, Bounds, ClipboardItem, Context, CursorStyle, Div, Hsla, MouseButton, Pixels,
@@ -341,33 +341,31 @@ impl PanelView {
         let count = node.children.len();
         let active =
             (*self.tabs.get(&id).unwrap_or(&p.active) as usize).min(count.saturating_sub(1));
+        // Pill tabs (docs/DESIGN.md 6.6) over a hairline.
         let header = div()
             .flex()
             .flex_none()
-            .h(px(30.))
+            .items_center()
+            .gap(px(3.))
+            .h(px(38.))
+            .px(px(6.))
             .border_b_1()
             .border_color(c.border)
             .children(p.titles.iter().enumerate().map(|(i, title)| {
-                let selected = i == active;
-                div()
-                    .id(("tab", id as usize * 64 + i.min(63)))
-                    .flex()
-                    .items_center()
-                    .px_3()
-                    .h_full()
-                    .cursor_pointer()
-                    .text_color(if selected { c.text } else { c.text_muted })
-                    .when(selected, |el| el.border_b_2().border_color(c.accent))
-                    .hover(|s| s.bg(c.hover))
-                    .child(SharedString::from(title.clone()))
-                    .on_click(cx.listener(move |view, _, _, cx| {
-                        let i = i as u32;
-                        if view.tabs.get(&id) != Some(&i) {
-                            view.tabs.insert(id, i);
-                            cx.notify();
-                        }
-                        view.send(id, arcode_plugin_host::bindings::ui::EventKind::Tab(i), cx);
-                    }))
+                pill_tab(
+                    ("tab", id as usize * 64 + i.min(63)),
+                    SharedString::from(title.clone()),
+                )
+                .panel()
+                .active(i == active)
+                .on_click(cx.listener(move |view, _, _, cx| {
+                    let i = i as u32;
+                    if view.tabs.get(&id) != Some(&i) {
+                        view.tabs.insert(id, i);
+                        cx.notify();
+                    }
+                    view.send(id, arcode_plugin_host::bindings::ui::EventKind::Tab(i), cx);
+                }))
             }));
         let body = node
             .children

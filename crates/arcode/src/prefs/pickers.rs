@@ -2,7 +2,7 @@
 
 use arcode_config::theme::BUILTIN_THEME_NAMES;
 use arcode_config::{Config, SettingEdit, Theme, ThemeChoice, ThemeRegistry};
-use arcode_ui_kit::{BUNDLED_MONO_FONT, looks_monospace};
+use arcode_ui_kit::{BUNDLED_MONO_FONT, BUNDLED_UI_FONT, SYSTEM_UI_FONT, looks_monospace};
 
 use crate::list_picker::PickItem;
 
@@ -105,7 +105,7 @@ pub fn theme_edit(slot: ThemeSlot, option: &ThemeOption) -> SettingEdit {
 pub enum FontTarget {
     /// `editor.font_family`.
     Editor,
-    /// `ui.font_family` (unset: the system UI font).
+    /// `ui.font_family` (unset: the bundled Inter).
     Ui,
     /// `terminal.font_family` (unset: the editor font).
     Terminal,
@@ -153,16 +153,32 @@ pub fn font_items(
     let mut values = Vec::new();
     let default = match target {
         FontTarget::Editor => None,
-        FontTarget::Ui => Some(("System UI Font", "default")),
+        FontTarget::Ui => Some((BUNDLED_UI_FONT, "bundled · default")),
         FontTarget::Terminal => Some(("Same as Editor", config.editor.font_family.as_str())),
     };
     if let Some((label, detail)) = default {
-        items.push(PickItem::new(label, detail.to_owned()).current(current.is_none()));
+        // An explicit "Inter" renders the same as the unset default.
+        let is_default =
+            current.is_none() || (target == FontTarget::Ui && current == Some(BUNDLED_UI_FONT));
+        items.push(PickItem::new(label, detail.to_owned()).current(is_default));
         values.push(String::new());
     }
+    if target == FontTarget::Ui {
+        // The platform UI font is a hidden family name, so offer it here.
+        items.push(
+            PickItem::new(SYSTEM_UI_FONT_LABEL, "platform")
+                .current(current == Some(SYSTEM_UI_FONT)),
+        );
+        values.push(SYSTEM_UI_FONT.to_owned());
+    }
     for family in families {
+        if target == FontTarget::Ui && family == BUNDLED_UI_FONT {
+            continue; // already the default row
+        }
         let detail = if family == BUNDLED_MONO_FONT {
             "bundled · monospace"
+        } else if family == BUNDLED_UI_FONT {
+            "bundled"
         } else if looks_monospace(family) {
             "monospace"
         } else {
@@ -172,6 +188,19 @@ pub fn font_items(
         values.push(family.clone());
     }
     (items, values)
+}
+
+/// The picker row and Settings label of [`SYSTEM_UI_FONT`].
+pub const SYSTEM_UI_FONT_LABEL: &str = "System UI Font";
+
+/// The UI font as Settings shows it: the configured family, the bundled
+/// Inter when unset, and "System UI Font" for the platform font.
+pub fn ui_font_label(config: &Config) -> String {
+    match config.ui.font_family.as_deref() {
+        None => BUNDLED_UI_FONT.to_owned(),
+        Some(SYSTEM_UI_FONT) => SYSTEM_UI_FONT_LABEL.to_owned(),
+        Some(family) => family.to_owned(),
+    }
 }
 
 /// `config` with `family` (`""` = default) in the target's setting, for a
@@ -212,15 +241,16 @@ mod tests {
         assert_eq!(items.len(), 3 + BUILTIN_THEME_NAMES.len());
         assert_eq!(options[0], ThemeChoice::System);
         assert!(items[0].current, "system is the default");
-        assert_eq!(items[3].label.as_ref(), "Arcode Dark");
+        assert_eq!(items[3].label.as_ref(), "Arcode Ember");
+        assert_eq!(items[4].label.as_ref(), "Arcode Chalk");
         assert_eq!(
-            theme_edit(ThemeSlot::Main, &options[5]),
+            theme_edit(ThemeSlot::Main, &options[7]),
             SettingEdit::set("ui.theme", "Arcode Midnight")
         );
-        let midnight = preview_theme(&options[5], &registry, &config, false);
+        let midnight = preview_theme(&options[7], &registry, &config, false);
         assert_eq!(midnight.name, "Arcode Midnight");
         let light = preview_theme(&options[0], &registry, &config, false);
-        assert_eq!(light.name, "Arcode Light");
+        assert_eq!(light.name, "Arcode Chalk");
     }
 
     #[test]
@@ -228,14 +258,18 @@ mod tests {
         let registry = ThemeRegistry::builtin();
         let config = Config::default();
         let (items, options) = theme_items(ThemeSlot::Light, &registry, &config);
-        assert_eq!(items.len(), 1);
+        assert_eq!(items.len(), 2);
         assert!(items[0].current);
         assert_eq!(
             theme_edit(ThemeSlot::Light, &options[0]),
+            SettingEdit::set("ui.light_theme", "Arcode Chalk")
+        );
+        assert_eq!(
+            theme_edit(ThemeSlot::Light, &options[1]),
             SettingEdit::set("ui.light_theme", "Arcode Light")
         );
         let (items, _) = theme_items(ThemeSlot::Dark, &registry, &config);
-        assert_eq!(items.len(), 2);
+        assert_eq!(items.len(), 3);
     }
 
     #[test]
@@ -259,6 +293,7 @@ mod tests {
             SettingEdit::set("ui.font_family", "Noto Sans")
         );
         let preview = with_font(&config, FontTarget::Ui, "Noto Sans");
+        assert_eq!(ui_font_label(&preview), "Noto Sans");
         assert_eq!(preview.ui.font_family.as_deref(), Some("Noto Sans"));
         assert_eq!(
             with_font(&config, FontTarget::Editor, "")
@@ -266,5 +301,33 @@ mod tests {
                 .font_family,
             "JetBrains Mono"
         );
+    }
+
+    #[test]
+    fn ui_font_rows_name_inter_and_offer_the_platform_font() {
+        let families = arcode_ui_kit::font_choices(["Inter", "Noto Sans"].map(String::from));
+        let mut config = Config::default();
+        assert_eq!(ui_font_label(&config), "Inter");
+        let (items, values) = font_items(FontTarget::Ui, &families, &config);
+        assert_eq!(values, ["", SYSTEM_UI_FONT, "JetBrains Mono", "Noto Sans"]);
+        assert_eq!(items[0].label.as_ref(), "Inter");
+        assert!(items[0].current && !items[1].current);
+        assert_eq!(items[1].label.as_ref(), SYSTEM_UI_FONT_LABEL);
+        assert_eq!(
+            font_edit(FontTarget::Ui, &values[1]),
+            SettingEdit::set("ui.font_family", SYSTEM_UI_FONT)
+        );
+
+        config.ui.font_family = Some(SYSTEM_UI_FONT.into());
+        assert_eq!(ui_font_label(&config), SYSTEM_UI_FONT_LABEL);
+        let (items, _) = font_items(FontTarget::Ui, &families, &config);
+        assert!(!items[0].current && items[1].current);
+
+        config.ui.font_family = Some("Inter".into());
+        let (items, _) = font_items(FontTarget::Ui, &families, &config);
+        assert!(items[0].current, "an explicit Inter is the default row");
+        let (items, values) = font_items(FontTarget::Editor, &families, &config);
+        assert_eq!(values[1], "Inter");
+        assert_eq!(items[1].detail.as_ref(), "bundled");
     }
 }

@@ -5,6 +5,7 @@ use std::fmt;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::completion::CompletionSettings;
+use super::inline_diagnostics::InlineDiagnostics;
 use crate::lenient::impl_section;
 
 /// The bundled editor font.
@@ -78,6 +79,9 @@ pub struct EditorSettings {
     /// Show a light bulb in the gutter when the cursor line has code
     /// actions.
     pub code_action_lightbulb: bool,
+    /// Which diagnostics get an inline lens after their line: `"errors"`,
+    /// `"all"` or `"off"`.
+    pub inline_diagnostics: InlineDiagnostics,
     /// `[editor.completion]`: completion popup, snippets, signature help.
     pub completion: CompletionSettings,
 }
@@ -116,6 +120,7 @@ impl Default for EditorSettings {
             occurrence_highlight: true,
             inlay_hints: true,
             code_action_lightbulb: true,
+            inline_diagnostics: InlineDiagnostics::Errors,
             completion: CompletionSettings::default(),
         }
     }
@@ -146,6 +151,7 @@ impl_section!(EditorSettings {
     occurrence_highlight,
     inlay_hints,
     code_action_lightbulb,
+    inline_diagnostics,
 });
 
 impl EditorSettings {
@@ -275,7 +281,8 @@ impl<'de> Deserialize<'de> for ThemeChoice {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UiSettings {
-    /// UI font family; `None` uses the system UI font.
+    /// UI font family; `None` uses the bundled Inter (the system UI font
+    /// if Inter cannot be loaded), `".SystemUIFont"` the platform UI font.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub font_family: Option<String>,
     /// UI font size in points.
@@ -302,8 +309,8 @@ impl Default for UiSettings {
             font_family: None,
             font_size: 13.0,
             theme: ThemeChoice::System,
-            dark_theme: "Arcode Dark".to_owned(),
-            light_theme: "Arcode Light".to_owned(),
+            dark_theme: crate::theme::DEFAULT_DARK_THEME.to_owned(),
+            light_theme: crate::theme::DEFAULT_LIGHT_THEME.to_owned(),
             low_end_mode: false,
             animations: true,
             animation_ms: 120,
@@ -381,78 +388,6 @@ impl UiSettings {
                 warnings.push(format!("`{name}` is empty; using default"));
                 *slot = default;
             }
-        }
-    }
-}
-
-/// `[terminal]`: the integrated terminal.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct TerminalSettings {
-    /// Shell program; `None` uses `$SHELL` (Unix) or PowerShell/cmd (Windows).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub shell: Option<String>,
-    /// Arguments passed to the shell.
-    pub args: Vec<String>,
-    /// Font family; `None` uses the editor font.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub font_family: Option<String>,
-    /// Font size in points; `None` uses the editor font size.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub font_size: Option<f32>,
-    /// Lines of scrollback history.
-    pub scrollback: usize,
-}
-
-impl Default for TerminalSettings {
-    fn default() -> Self {
-        Self {
-            shell: None,
-            args: Vec::new(),
-            font_family: None,
-            font_size: None,
-            scrollback: 10_000,
-        }
-    }
-}
-
-impl_section!(TerminalSettings {
-    shell,
-    args,
-    font_family,
-    font_size,
-    scrollback,
-});
-
-impl TerminalSettings {
-    /// Maximum accepted scrollback.
-    pub const MAX_SCROLLBACK: usize = 1_000_000;
-
-    pub(crate) fn validate(&mut self, warnings: &mut Vec<String>) {
-        if let Some(size) = self.font_size
-            && !(size.is_finite() && (4.0..=200.0).contains(&size))
-        {
-            warnings.push(format!(
-                "`terminal.font_size` must be between 4 and 200, got {size}; using editor size"
-            ));
-            self.font_size = None;
-        }
-        if self.scrollback > Self::MAX_SCROLLBACK {
-            warnings.push(format!(
-                "`terminal.scrollback` capped at {}",
-                Self::MAX_SCROLLBACK
-            ));
-            self.scrollback = Self::MAX_SCROLLBACK;
-        }
-        if self.shell.as_deref().is_some_and(|s| s.trim().is_empty()) {
-            self.shell = None;
-        }
-        if self
-            .font_family
-            .as_deref()
-            .is_some_and(|f| f.trim().is_empty())
-        {
-            self.font_family = None;
         }
     }
 }

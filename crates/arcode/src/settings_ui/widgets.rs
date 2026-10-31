@@ -14,7 +14,6 @@ type Handler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 
 /// Width the label column of a row keeps before its control wraps below.
 const LABEL_BASIS: f32 = 220.;
-type StepHandler = Rc<dyn Fn(i32, &mut Window, &mut App)>;
 
 /// A setting: label and description on the left, its control on the right;
 /// in a narrow pane the control wraps below the label.
@@ -60,100 +59,8 @@ pub fn toggle(
     switch(id, on).on_click(move |_, window, cx| toggle(!on, window, cx))
 }
 
-/// `value` moved by `delta` steps of `step`, kept in `min..=max` and
-/// rounded to the step's precision.
-pub fn stepped(value: f32, delta: i32, step: f32, min: f32, max: f32) -> f32 {
-    let raw = value + delta as f32 * step;
-    let snapped = (raw / step).round() * step;
-    let rounded = (snapped * 1000.).round() / 1000.;
-    rounded.clamp(min, max)
-}
-
-/// `[-] value [+]`; the buttons call `change` with -1 or +1.
-pub fn stepper(
-    id: &str,
-    value: impl Into<SharedString>,
-    change: impl Fn(i32, &mut Window, &mut App) + 'static,
-    cx: &App,
-) -> Div {
-    let c = theme(cx).colors.clone();
-    let change: StepHandler = Rc::new(change);
-    let button = |suffix: &str, glyph: IconName, delta: i32| {
-        let change = change.clone();
-        div()
-            .id(SharedString::from(format!("{id}-{suffix}")))
-            .size(px(24.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded_md()
-            .cursor_pointer()
-            .hover(|s| s.bg(c.hover))
-            .child(icon(glyph).size(px(12.)).color(c.text_muted))
-            .on_click(move |_, window, cx| change(delta, window, cx))
-    };
-    div()
-        .flex()
-        .items_center()
-        .gap_1()
-        .p_0p5()
-        .rounded_md()
-        .border_1()
-        .border_color(c.border)
-        .bg(c.surface)
-        .child(button("dec", IconName::Minus, -1))
-        .child(
-            div()
-                .min_w(px(48.))
-                .text_center()
-                .text_sm()
-                .child(value.into()),
-        )
-        .child(button("inc", IconName::Plus, 1))
-}
-
-/// A row of mutually exclusive choices; `select` gets the clicked index.
-pub fn segmented(
-    id: &str,
-    labels: &[&str],
-    selected: usize,
-    select: impl Fn(usize, &mut Window, &mut App) + 'static,
-    cx: &App,
-) -> Div {
-    let c = theme(cx).colors.clone();
-    let select = Rc::new(select);
-    let mut row = div()
-        .flex()
-        .flex_wrap()
-        .p_0p5()
-        .gap_0p5()
-        .rounded_md()
-        .border_1()
-        .border_color(c.border)
-        .bg(c.surface);
-    for (ix, label) in labels.iter().enumerate() {
-        let on = ix == selected;
-        let select = select.clone();
-        row = row.child(
-            div()
-                .id(SharedString::from(format!("{id}-{ix}")))
-                .px_3()
-                .h(px(24.))
-                .flex()
-                .items_center()
-                .rounded_sm()
-                .text_sm()
-                .cursor_pointer()
-                .when(on, |el| el.bg(c.accent).text_color(c.accent_text))
-                .when(!on, |el| {
-                    el.text_color(c.text_muted).hover(|s| s.bg(c.hover))
-                })
-                .child(SharedString::from(label.to_string()))
-                .on_click(move |_, window, cx| select(ix, window, cx)),
-        );
-    }
-    row
-}
+// The stepper and segmented control moved to the kit (Ember/Chalk look).
+pub use arcode_ui_kit::{segmented, stepped, stepper};
 
 /// A button showing the current value of a picked setting.
 pub fn picker_button(
@@ -303,18 +210,4 @@ pub fn theme_swatch(
                         .child(truncated(label)),
                 ),
         )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn steps_snap_and_clamp() {
-        assert_eq!(stepped(14., 1, 1., 4., 200.), 15.);
-        assert_eq!(stepped(1.5, 1, 0.1, 0.5, 4.), 1.6);
-        assert_eq!(stepped(1.6, -1, 0.1, 0.5, 4.), 1.5);
-        assert_eq!(stepped(4., -1, 1., 4., 200.), 4.);
-        assert_eq!(stepped(10_000., 1, 1000., 0., 1_000_000.), 11_000.);
-    }
 }

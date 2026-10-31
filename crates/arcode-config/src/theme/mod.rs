@@ -21,6 +21,7 @@
 //! ```
 
 mod color;
+mod derive;
 mod loader;
 mod palette;
 mod parse;
@@ -34,7 +35,7 @@ use toml::Table;
 
 pub use color::{Color, ColorParseError};
 pub use palette::{ANSI_NAMES, TerminalColors, UiColors};
-pub use registry::{BUILTIN_THEME_NAMES, ThemeRegistry};
+pub use registry::{BUILTIN_THEME_NAMES, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, ThemeRegistry};
 
 /// Whether a theme is dark or light.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
@@ -145,5 +146,9 @@ impl Theme {
     }
 }
 
+#[cfg(test)]
+mod contrast_tests;
+#[cfg(test)]
+mod redesign_tests;
 #[cfg(test)]
 mod tests;

@@ -1,13 +1,19 @@
-//! The status bar: branch, language, LSP status, cursor position,
-//! diagnostic counts and (optionally) startup time and memory use.
+//! The status bar, drawn as the footer (see [`footer`]): branch, language,
+//! LSP status, cursor position, diagnostic counts, the last run while the
+//! bottom panel is hidden and (optionally) startup time and memory use.
 
+mod footer;
+
+use std::cell::Cell;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use arcode_ui_kit::{IconName, icon, settings, theme};
-use gpui::{
-    App, AppContext, Context, Global, IntoElement, ParentElement, Render, SharedString, Styled,
-    Task, Window, div, prelude::*, px,
-};
+use arcode_ui_kit::settings;
+use gpui::{App, AppContext, Context, Entity, Global, SharedString, Task};
+
+use crate::terminal_panel::TerminalPanel;
+
+pub use footer::{item as footer_item, welcome_footer};
 
 /// How often the memory figure may refresh.
 const MEMORY_REFRESH: Duration = Duration::from_secs(2);
@@ -70,6 +76,10 @@ pub struct StatusBar {
     doc: Option<crate::languages::status_items::DocStatus>,
     /// Plugin status items and task chips (see `plugins::status`).
     plugin_view: Option<gpui::AnyView>,
+    /// The terminals whose last run is shown, and whether the bottom panel
+    /// is hidden (the workspace sets it as it draws; the footer shows the
+    /// run only then).
+    run_source: Option<(Entity<TerminalPanel>, Rc<Cell<bool>>)>,
 }
 
 impl StatusBar {
@@ -85,6 +95,7 @@ impl StatusBar {
             vim: None,
             doc: None,
             plugin_view: None,
+            run_source: None,
         };
         bar.sync_sampler(cx);
         bar._settings_sub =
@@ -211,6 +222,15 @@ impl StatusBar {
         cx.notify();
     }
 
+    /// Shows the last run of `terminals` while `panel_hidden` holds.
+    pub fn set_run_source(
+        &mut self,
+        terminals: Entity<TerminalPanel>,
+        panel_hidden: Rc<Cell<bool>>,
+    ) {
+        self.run_source = Some((terminals, panel_hidden));
+    }
+
     /// Sets the language server status text.
     pub fn set_lsp_status(&mut self, status: Option<SharedString>, cx: &mut Context<Self>) {
         let info = StatusInfo {
@@ -265,130 +285,6 @@ pub fn conflict_label(current: Option<usize>, total: usize) -> String {
 /// `Ln 12, Col 4` from a zero-based position.
 pub fn cursor_label(line: usize, column: usize) -> String {
     format!("Ln {}, Col {}", line + 1, column + 1)
-}
-
-fn item(content: impl IntoElement) -> gpui::Div {
-    div()
-        .flex()
-        .items_center()
-        .gap_1()
-        .px_2()
-        .h_full()
-        .child(content)
-}
-
-impl Render for StatusBar {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let c = theme(cx).colors.clone();
-        let info = &self.info;
-        let perf = settings(cx).ui.show_perf_stats;
-        let ready = cx.try_global::<Startup>().and_then(|s| s.ready);
-        let icon_size = px(12.);
-        let left =
-            div()
-                .flex()
-                .items_center()
-                .h_full()
-                .min_w_0()
-                .overflow_hidden()
-                .when_some(self.vim.as_ref(), |el, vim| {
-                    el.child(arcode_editor::vim::status_element(vim, cx))
-                })
-                .when_some(info.branch.clone(), |el, branch| {
-                    el.child(
-                        item(
-                            icon(IconName::GitBranch)
-                                .size(icon_size)
-                                .color(c.text_muted),
-                        )
-                        .id("status-branch")
-                        .cursor_pointer()
-                        .hover(|s| s.bg(c.hover))
-                        .child(branch)
-                        .on_click(|_, window, cx| {
-                            window.dispatch_action(Box::new(crate::actions::SwitchBranch), cx)
-                        }),
-                    )
-                })
-                .when_some(info.conflicts, |el, (current, total)| {
-                    el.child(
-                        item(icon(IconName::GitMerge).size(icon_size).color(c.warning))
-                            .id("status-conflicts")
-                            .cursor_pointer()
-                            .hover(|s| s.bg(c.hover))
-                            .text_color(c.warning)
-                            .child(conflict_label(current, total))
-                            .on_click(|_, window, cx| {
-                                window.dispatch_action(Box::new(crate::actions::NextConflict), cx)
-                            }),
-                    )
-                })
-                .child(
-                    item(
-                        icon(IconName::CircleX)
-                            .size(icon_size)
-                            .color(if info.errors > 0 {
-                                c.error
-                            } else {
-                                c.text_muted
-                            }),
-                    )
-                    .id("status-errors")
-                    .child(info.errors.to_string())
-                    .child(icon(IconName::TriangleAlert).size(icon_size).color(
-                        if info.warnings > 0 {
-                            c.warning
-                        } else {
-                            c.text_muted
-                        },
-                    ))
-                    .child(info.warnings.to_string()),
-                )
-                .when_some(self.plugin_view.clone(), |el, view| el.child(view));
-        let right = div()
-            .flex()
-            .items_center()
-            .h_full()
-            .flex_none()
-            .when_some(info.cursor, |el, (line, col)| {
-                el.child(item(cursor_label(line, col)))
-            })
-            .children(crate::languages::status_items::render(
-                self.doc.as_ref(),
-                info.language.clone(),
-                cx,
-            ))
-            .when_some(self.lsp_view.clone(), |el, view| el.child(view))
-            .when(self.lsp_view.is_none(), |el| {
-                el.when_some(info.lsp_status.clone(), |el, status| {
-                    el.child(item(status).text_color(c.text_muted))
-                })
-            })
-            .when(perf, |el| {
-                el.when_some(ready, |el, ready| {
-                    el.child(
-                        item(format!("ready in {} ms", ready.as_millis())).text_color(c.text_muted),
-                    )
-                })
-                .when_some(self.memory_mib, |el, mib| {
-                    el.child(item(format!("{mib} MB")).text_color(c.text_muted))
-                })
-            });
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_between()
-            .h(px(24.))
-            .px_1()
-            .bg(c.status_bar)
-            .border_t_1()
-            .border_color(c.border)
-            .text_xs()
-            .text_color(c.text_muted)
-            .child(left)
-            .child(right)
-    }
 }
 
 #[cfg(test)]

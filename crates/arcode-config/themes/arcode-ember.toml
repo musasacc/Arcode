@@ -1,0 +1,98 @@
+# Arcode Ember: warm charcoal canvas, floating panels, one ember accent.
+name = "Arcode Ember"
+appearance = "dark"
+
+[ui]
+background = "#25201b"
+surface = "#25201b"
+surface_raised = "#2e2822"
+border = "#3a322b"
+border_focused = "#9c703e"
+text = "#efe7da"
+text_muted = "#b0a494"
+text_disabled = "#6f665b"
+accent = "#f0a24a"
+accent_text = "#1b1208"
+accent_alt = "#86afdf"
+selection = "#3e3226"
+cursor = "#ffb257"
+line_highlight = "#2b2520"
+gutter_text = "#9b8f80"
+gutter_text_active = "#e6dccd"
+error = "#f06c78"
+warning = "#f2d06c"
+info = "#8ab8dc"
+hint = "#ab9f8f"
+success = "#9dc77f"
+scrollbar_thumb = "#3a322a"
+tab_active = "#3a322a"
+tab_inactive = "#25201b"
+title_bar = "#0b0a09"
+status_bar = "#0b0a09"
+activity_bar = "#0b0a09"
+panel_header = "#25201b"
+hover = "#2d2721"
+diff_added = "#8cc06c"
+diff_modified = "#86afdf"
+diff_deleted = "#f06c78"
+canvas = "#0b0a09"
+pill = "#3a322a"
+border_strong = "#857869"
+selection_inactive = "#353029"
+paused_line = "#3c2e1c"
+
+[syntax]
+keyword = { color = "#e6a0c8" }
+function = { color = "#6cc8a2" }
+"function.method" = { color = "#6cc8a2" }
+"function.builtin" = { color = "#6cc8a2" }
+"function.macro" = { color = "#bfaee8" }
+type = { color = "#e2a7a0" }
+"type.builtin" = { color = "#e2a7a0" }
+constructor = { color = "#e2a7a0" }
+string = { color = "#cfd98c" }
+character = { color = "#cfd98c" }
+"string.special" = { color = "#cfd98c" }
+"string.escape" = { color = "#9fd8c0" }
+escape = { color = "#9fd8c0" }
+number = { color = "#88c0e8" }
+boolean = { color = "#88c0e8" }
+constant = { color = "#88c0e8" }
+"constant.builtin" = { color = "#88c0e8" }
+comment = { color = "#ab9f8e", italic = true }
+"comment.doc" = { color = "#ab9f8e", italic = true }
+variable = { color = "#efe7da" }
+"variable.parameter" = { color = "#ead0d8" }
+"variable.builtin" = { color = "#e6a0c8", italic = true }
+property = { color = "#d9c6ab" }
+attribute = { color = "#bfaee8" }
+"tag.attribute" = { color = "#bfaee8" }
+label = { color = "#bfaee8", italic = true }
+module = { color = "#dcc9a2" }
+namespace = { color = "#dcc9a2" }
+punctuation = { color = "#b3a797" }
+"punctuation.delimiter" = { color = "#b3a797" }
+operator = { color = "#cfc2b0" }
+"punctuation.bracket" = { color = "#cfc2b0" }
+tag = { color = "#e6a0c8" }
+
+[terminal]
+background = "#25201b"
+foreground = "#efe7da"
+cursor = "#ffb257"
+black = "#3a322a"
+red = "#f06c78"
+green = "#9dc77f"
+yellow = "#f2d06c"
+blue = "#88b4ea"
+magenta = "#e6a0c8"
+cyan = "#6cc8a2"
+white = "#d8cfc2"
+bright_black = "#9a8e7f"
+bright_red = "#f78e98"
+bright_green = "#b8dc9c"
+bright_yellow = "#f7de93"
+bright_blue = "#aecbf2"
+bright_magenta = "#f0c0dc"
+bright_cyan = "#98dcc0"
+bright_white = "#fbf6ee"

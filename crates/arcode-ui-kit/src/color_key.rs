@@ -83,6 +83,13 @@ impl ThemeColors {
             "diff_added" => self.diff_added,
             "diff_modified" => self.diff_modified,
             "diff_deleted" => self.diff_deleted,
+            "canvas" => self.canvas,
+            "pill" => self.pill,
+            "border_strong" => self.border_strong,
+            "selection_inactive" => self.selection_inactive,
+            "paused_line" => self.paused_line,
+            "shadow" => self.shadow,
+            "accent_hover" => self.accent_hover,
             _ => return None,
         })
     }
@@ -105,6 +112,12 @@ mod tests {
         assert_eq!(c.get("diff_added"), Some(c.diff_added));
         assert_eq!(c.get("warning"), Some(c.warning));
         assert_eq!(c.get("nope"), None);
+        assert_eq!(c.get("canvas"), Some(c.canvas));
+        assert_eq!(c.get("paused_line"), Some(c.paused_line));
+        // Every `[ui]` key of the theme format resolves.
+        for key in arcode_config::UiColors::FIELDS {
+            assert!(c.get(key).is_some(), "{key}");
+        }
     }
 
     #[test]

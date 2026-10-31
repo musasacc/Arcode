@@ -1,9 +1,10 @@
-//! The language servers of the active file in the status bar: one entry
-//! per server with its state; clicking one opens a small menu (restart the
-//! server, show its log in a read-only tab). Clicking the entry again, a
-//! click elsewhere or Escape closes it.
+//! The language servers of the active file in the footer: one entry per
+//! server, a 7 px state dot and its name (the state in words unless it is
+//! ready); clicking one opens a small menu (restart the server, show its
+//! log in a read-only tab). Clicking the entry again, a click elsewhere or
+//! Escape closes it.
 
-use arcode_ui_kit::{IconName, icon, theme};
+use arcode_ui_kit::{IconName, Tooltip, icon, list_row, popover, status_dot, theme, type_scale};
 use gpui::{
     Context, Corner, Entity, FocusHandle, IntoElement, MouseButton, ParentElement, Pixels, Point,
     Render, SharedString, Styled, Subscription, WeakEntity, Window, anchored, deferred, div,
@@ -134,71 +135,59 @@ impl LspStatusView {
 
     fn render_entry(&self, entry: ServerEntry, cx: &mut Context<Self>) -> impl IntoElement {
         let c = theme(cx).colors.clone();
-        let (icon_name, color) = match entry.kind {
-            EntryKind::Ready => (IconName::CircleCheck, c.text_muted),
-            EntryKind::Working => (IconName::Loader, c.text_muted),
-            EntryKind::Stopped => (IconName::CircleDot, c.text_disabled),
-            EntryKind::NotInstalled => (IconName::CircleAlert, c.warning),
-            EntryKind::Failed => (IconName::CircleX, c.error),
+        let color = match entry.kind {
+            EntryKind::Ready => c.success,
+            EntryKind::Working | EntryKind::NotInstalled => c.warning,
+            EntryKind::Stopped => c.text_disabled,
+            EntryKind::Failed => c.error,
         };
         let open = self.menu.as_ref() == Some(&entry.name);
         let name = entry.name.clone();
-        div()
-            .id(SharedString::from(format!("lsp-server-{}", entry.name)))
-            .debug_selector(|| format!("lsp-server-{}", entry.name))
-            .relative()
-            .flex()
-            .items_center()
-            .gap_1()
-            .px_2()
-            .h_full()
-            .cursor_pointer()
-            .hover(|s| s.bg(c.hover))
-            .when(open, |el| el.bg(c.hover))
-            .child(icon(icon_name).size(px(12.)).color(color))
-            .child(format!("{}: {}", entry.name, entry.state))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |view, event: &gpui::MouseDownEvent, window, cx| {
-                    cx.stop_propagation();
-                    view.entry_pressed(name.clone(), event.position, window, cx);
-                }),
-            )
-            .when(open, |el| el.child(self.render_menu(&entry.name, cx)))
+        let tip = SharedString::from(format!("{}: {}", entry.name, entry.state));
+        crate::status_bar::footer_item(
+            SharedString::from(format!("lsp-server-{}", entry.name)),
+            true,
+            cx,
+        )
+        .debug_selector(|| format!("lsp-server-{}", entry.name))
+        .relative()
+        .when(open, |el| el.bg(c.hover))
+        .child(status_dot(color))
+        .child(entry.name.clone())
+        .when(entry.kind != EntryKind::Ready, |el| {
+            el.child(div().text_color(c.text_muted).child(entry.state.clone()))
+        })
+        .when(!open, |el| {
+            el.tooltip(move |_, cx| Tooltip::text(tip.clone(), cx))
+        })
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |view, event: &gpui::MouseDownEvent, window, cx| {
+                cx.stop_propagation();
+                view.entry_pressed(name.clone(), event.position, window, cx);
+            }),
+        )
+        .when(open, |el| el.child(self.render_menu(&entry.name, cx)))
     }
 
     fn render_menu(&self, server: &SharedString, cx: &mut Context<Self>) -> impl IntoElement {
         let c = theme(cx).colors.clone();
         let command = command_line(server, cx);
         let row = |id: &'static str, label: &'static str, icon_name: IconName| {
-            div()
-                .id(id)
-                .flex()
-                .items_center()
-                .gap_2()
+            list_row(id, false, cx)
+                .mx(px(0.))
                 .h(px(26.))
-                .px_2()
-                .mx_1()
-                .rounded_md()
-                .cursor_pointer()
+                .gap(px(8.))
                 .text_color(c.text)
-                .hover(|s| s.bg(c.hover))
                 .child(icon(icon_name).size(px(14.)).color(c.text_muted))
                 .child(div().flex_1().whitespace_nowrap().child(label))
         };
         let (restart, log) = (server.clone(), server.clone());
-        let list = div()
+        let list = popover(cx)
             .id("lsp-server-menu")
             .min_w(px(220.))
-            .py_1()
-            .flex()
-            .flex_col()
-            .rounded_lg()
-            .border_1()
-            .border_color(c.border)
-            .bg(c.surface_raised)
-            .shadow_md()
-            .text_sm()
+            .text_size(type_scale(cx).body)
+            .text_color(c.text)
             .occlude()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|view, event: &gpui::KeyDownEvent, window, cx| {
@@ -217,14 +206,19 @@ impl LspStatusView {
             )
             .child(
                 div()
-                    .px_3()
-                    .pb_1()
+                    .px(px(8.))
+                    .py(px(4.))
                     .flex()
                     .flex_col()
                     .child(div().text_color(c.text).child(server.clone()))
-                    .child(div().text_xs().text_color(c.text_muted).child(command)),
+                    .child(
+                        div()
+                            .text_size(type_scale(cx).meta)
+                            .text_color(c.text_muted)
+                            .child(command),
+                    ),
             )
-            .child(div().h(px(1.)).my_1().bg(c.border))
+            .child(div().h(px(1.)).my(px(4.)).bg(c.border))
             .child(
                 row("lsp-menu-restart", "Restart Server", IconName::Refresh).on_click(cx.listener(
                     move |view, _, window, cx| {
@@ -257,7 +251,7 @@ impl LspStatusView {
 impl Render for LspStatusView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entries = self.bridge.read(cx).server_entries(cx);
-        let mut row = div().flex().items_center().h_full();
+        let mut row = div().flex().items_center().gap(px(4.)).h_full();
         for entry in entries {
             row = row.child(self.render_entry(entry, cx));
         }

@@ -15,6 +15,9 @@ mod features;
 mod files;
 #[cfg(test)]
 mod files_tests;
+mod frame;
+#[cfg(test)]
+mod frame_tests;
 mod git;
 #[cfg(test)]
 mod git_tests;
@@ -168,6 +171,8 @@ pub struct Workspace {
     features: features::Features,
     /// Debugger, run buttons and the Run menu.
     debug: debug::DebugParts,
+    /// Panel focus frame and the title bar's paused state.
+    shell: frame::Shell,
     /// The command palette, while open.
     palette: Option<Entity<crate::commands::palette::CommandPalette>>,
     branch_picker: Option<Entity<BranchPicker>>,
@@ -248,6 +253,7 @@ impl Workspace {
         subscriptions.extend(feature_subs);
         let (debug, debug_subs) = debug::DebugParts::new(&bottom_panel, window, cx);
         subscriptions.extend(debug_subs);
+        let shell = frame::Shell::new(&debug.debugger, &status_bar, &bottom_panel, cx);
         let (langs, lang_subs) = Self::new_lang_parts(cx);
         let (pkgs, pkg_subs) = packages_ui::PackagesParts::new(window, cx);
         subscriptions.extend(pkg_subs);
@@ -274,6 +280,7 @@ impl Workspace {
             git,
             features,
             debug,
+            shell,
             palette: None,
             branch_picker: None,
             path_prompt: None,

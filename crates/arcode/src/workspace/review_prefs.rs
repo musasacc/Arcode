@@ -78,7 +78,7 @@ fn review_font_preview_survives_opening_another_picker(cx: &mut TestAppContext) 
 #[gpui::test]
 fn review_tour_drops_picker_without_restoring_preview(cx: &mut TestAppContext) {
     let (ws, cx, _dir, _path) = open_with_config(cx, Some("[ui]\ntheme = \"dark\"\n"));
-    assert_eq!(theme_name(cx), "Arcode Dark");
+    assert_eq!(theme_name(cx), "Arcode Ember");
     ws.update_in(cx, |ws, window, cx| {
         ws.open_theme_picker(ThemeSlot::Main, window, cx)
     });
@@ -91,7 +91,7 @@ fn review_tour_drops_picker_without_restoring_preview(cx: &mut TestAppContext) {
     cx.run_until_parked();
     ws.update_in(cx, |ws, window, cx| ws.end_tour(window, cx));
     cx.run_until_parked();
-    assert_eq!(theme_name(cx), "Arcode Dark", "the preview must be undone");
+    assert_eq!(theme_name(cx), "Arcode Ember", "the preview must be undone");
 }
 
 /// The command palette opened while a preferences picker is open is drawn
@@ -117,7 +117,7 @@ fn review_palette_while_prefs_picker_open(cx: &mut TestAppContext) {
             "two overlays at once; the picker covers the palette"
         );
     });
-    assert_eq!(theme_name(cx), "Arcode Dark");
+    assert_eq!(theme_name(cx), "Arcode Ember");
 }
 
 /// The first-run dialog is modal. When config.toml cannot be written

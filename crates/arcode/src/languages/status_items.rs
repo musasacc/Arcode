@@ -4,14 +4,14 @@
 use arcode_buffer::LineEnding;
 use arcode_editor::{Editor, IndentOverride};
 use arcode_ui_kit::{Tooltip, theme};
-use gpui::{AnyElement, AnyView, App, SharedString, Window, div, prelude::*};
+use gpui::{AnyElement, AnyView, App, SharedString, Window, prelude::*};
 
 use super::actions::{ChangeIndentation, ChangeLineEnding, SelectLanguageMode};
 
 /// What the status bar shows about the active document.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DocStatus {
-    /// `Spaces: 4` or `Tab Size: 4`.
+    /// `Spaces 4` or `Tab size 4`.
     pub indent: SharedString,
     /// `UTF-8` or `UTF-8 with BOM`.
     pub encoding: SharedString,
@@ -35,12 +35,12 @@ impl DocStatus {
     }
 }
 
-/// `Spaces: 4` / `Tab Size: 4`.
+/// `Spaces 4` / `Tab size 4`.
 pub fn indent_label(indent: IndentOverride) -> String {
     if indent.uses_spaces() {
-        format!("Spaces: {}", indent.size())
+        format!("Spaces {}", indent.size())
     } else {
-        format!("Tab Size: {}", indent.tab_width)
+        format!("Tab size {}", indent.tab_width)
     }
 }
 
@@ -52,23 +52,19 @@ pub fn line_ending_label(ending: LineEnding) -> &'static str {
     }
 }
 
+/// A footer pill (docs/DESIGN.md 6.10); `strong` draws the text in
+/// `text` (the language) instead of muted.
 fn entry(
     id: &'static str,
     text: SharedString,
     tip: &'static str,
     action: Option<Box<dyn gpui::Action>>,
+    strong: bool,
     cx: &App,
 ) -> AnyElement {
     let c = theme(cx).colors.clone();
-    let clickable = action.is_some();
-    div()
-        .id(id)
-        .flex()
-        .items_center()
-        .px_2()
-        .h_full()
-        .whitespace_nowrap()
-        .when(clickable, |el| el.cursor_pointer().hover(|s| s.bg(c.hover)))
+    crate::status_bar::footer_item(id, action.is_some(), cx)
+        .when(strong, |el| el.text_color(c.text))
         .child(text)
         .tooltip(move |_, cx| -> AnyView { Tooltip::text(tip, cx) })
         .when_some(action, |el, action| {
@@ -92,6 +88,7 @@ pub fn render(
             doc.indent.clone(),
             "Select Indentation",
             Some(Box::new(ChangeIndentation)),
+            false,
             cx,
         ));
         items.push(entry(
@@ -99,6 +96,7 @@ pub fn render(
             doc.encoding.clone(),
             "Encoding (Arcode reads and writes UTF-8)",
             None,
+            false,
             cx,
         ));
         items.push(entry(
@@ -106,6 +104,7 @@ pub fn render(
             doc.line_ending.clone(),
             "Select End of Line Sequence",
             Some(Box::new(ChangeLineEnding)),
+            false,
             cx,
         ));
     }
@@ -115,6 +114,7 @@ pub fn render(
             language,
             "Select Language Mode",
             Some(Box::new(SelectLanguageMode)),
+            true,
             cx,
         ));
     }
@@ -127,8 +127,8 @@ mod tests {
 
     #[test]
     fn labels() {
-        assert_eq!(indent_label(IndentOverride::spaces(2)), "Spaces: 2");
-        assert_eq!(indent_label(IndentOverride::tabs(8)), "Tab Size: 8");
+        assert_eq!(indent_label(IndentOverride::spaces(2)), "Spaces 2");
+        assert_eq!(indent_label(IndentOverride::tabs(8)), "Tab size 8");
         assert_eq!(line_ending_label(LineEnding::CrLf), "CRLF");
     }
 }

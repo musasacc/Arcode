@@ -10,7 +10,7 @@ use gpui::{App, Context, Div, FontFallbacks, FontFeatures, SharedString, div, pr
 
 use super::widgets::{picker_button, setting_row};
 use super::{SettingsEvent, SettingsPage, Steps, group_title};
-use crate::prefs::pickers::FontTarget;
+use crate::prefs::pickers::{FontTarget, ui_font_label};
 
 /// Lines of the preview: code with ligature pairs, then CJK and emoji.
 pub(crate) const PREVIEW_LINES: [&str; 4] = [
@@ -68,15 +68,7 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
         )
     };
     let editor_font = pick(FontTarget::Editor, e.font_family.clone(), cx);
-    let ui_font = pick(
-        FontTarget::Ui,
-        config
-            .ui
-            .font_family
-            .clone()
-            .unwrap_or_else(|| "System UI Font".into()),
-        cx,
-    );
+    let ui_font = pick(FontTarget::Ui, ui_font_label(&config), cx);
     div()
         .child(group_title("Editor font", cx))
         .child(setting_row(

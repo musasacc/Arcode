@@ -106,6 +106,23 @@ color_set! {
         diff_modified,
         /// Deleted lines.
         diff_deleted,
+        /// Window background behind the floating panels; the title bar,
+        /// icon rail and footer sit on it with no fill of their own.
+        /// Derived from `title_bar` when a theme omits it.
+        canvas,
+        /// Active tab pill, selected tree and list rows, the active rail
+        /// tile and count badges. Derived from `surface_raised`.
+        pill,
+        /// Control outlines (inputs, checkboxes, switches, kbd chips) and
+        /// overlay edges. Derived as the midpoint of `text_muted` and
+        /// `border`.
+        border_strong,
+        /// Text selection in an unfocused editor or terminal. Derived from
+        /// `line_highlight`.
+        selection_inactive,
+        /// Debugger: the band behind the paused line and the Paused chip.
+        /// Derived as 14 % `warning` over `background`.
+        paused_line,
     }
 }
 
@@ -211,7 +228,8 @@ mod tests {
 
     #[test]
     fn ui_fields_are_complete() {
-        assert_eq!(UiColors::FIELDS.len(), 32);
+        assert_eq!(UiColors::FIELDS.len(), 37);
+        assert!(UiColors::FIELDS.contains(&"paused_line"));
         assert!(UiColors::FIELDS.contains(&"accent_text"));
         let ui = UiColors::from_lookup(|_| Some(Color::WHITE)).unwrap();
         assert_eq!(ui.get("diff_deleted"), Some(Color::WHITE));

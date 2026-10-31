@@ -38,7 +38,7 @@ fn non_utf8_project_path_does_not_break_state_saving() {
 fn unquoted_dotted_syntax_key_does_not_wipe_parent_style() {
     let mut registry = ThemeRegistry::builtin();
     let builtin_function = registry
-        .get("Arcode Dark")
+        .get("Arcode Ember")
         .unwrap()
         .syntax_color("function");
     assert!(builtin_function.is_some());

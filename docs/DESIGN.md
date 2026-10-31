@@ -1212,3 +1212,155 @@ bright_magenta = "#94479f"
 bright_cyan = "#137560"
 bright_white = "#a1988c"
 ```
+
+## Kit components for the redesign
+
+What `arcode-ui-kit` offers the shell, editor and terminal lanes (all
+re-exported at the crate root; `use arcode_ui_kit::*` style imports work).
+Functions that build a styled `Div` take `cx: &App` for the colours; the
+`RenderOnce` builders read the theme when they render. Signatures are
+abbreviated: `Str` is `impl Into<SharedString>`, `Id` is
+`impl Into<ElementId>`, `Click` is `impl Fn(&ClickEvent, &mut Window,
+&mut App) + 'static`.
+
+Difference from section 7: `panel(focused)` and the other `Div` builders
+take `cx`, because GPUI 0.2.2 has no theme-aware style refinements.
+
+### Theme (`theme(cx).colors`)
+
+- New fields `canvas`, `pill`, `border_strong`, `selection_inactive`,
+  `paused_line` (theme keys), `shadow` (overlay shadow colour, derived
+  from `is_dark`), `accent_hover` (solid Primary hover, `#f6b468` /
+  `#74470f` for Ember / Chalk, derived from `accent`).
+- `colors.panel()`: the panel fill (legacy `background`).
+  `colors.panel_raised()`: overlays (legacy `surface_raised`).
+- `colors.get(key)` / `ColorKey` know every new key.
+- `shadow_color(is_dark) -> Hsla`, `accent_hover(accent, is_dark) -> Hsla`.
+- Config side: `arcode_config::{DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME}`
+  ("Arcode Ember", "Arcode Chalk"), `Color::mix(a, b, t)`,
+  `InlineDiagnostics::{Errors, All, Off}` with `.shows(is_error)` for
+  `settings(cx).editor.inline_diagnostics`.
+
+### Metrics and type (`arcode_ui_kit::metrics`)
+
+- Constants of 5.1: `GAP`, `TITLE_BAR_H`, `RAIL_W`, `FOOTER_H`,
+  `PANEL_RADIUS`, `OVERLAY_RADIUS`, `POPOVER_RADIUS`, `CONTROL_H`,
+  `CONTROL_H_PANEL` (26), `CONTROL_RADIUS`, `ICON_BUTTON_RADIUS`, `ROW_H`,
+  `ROW_H_DENSE` (22), `ROW_H_PALETTE` (32), `ROW_H_WELCOME` (40),
+  `ROW_INSET`, `ROW_RADIUS`, `TAB_STRIP_H`, `TAB_H`, `TAB_H_SMALL` (24),
+  `RAIL_TILE`, `RAIL_TILE_RADIUS`, `RAIL_PITCH`, `SIDEBAR_W`, `BOTTOM_H`,
+  `EMBER`, `PANEL_TITLE_H` (40), `SECTION_H` (30), all `Pixels`.
+- `metrics::icon_size::{RAIL, ROW, TOOLBAR, INLINE}`: 18 / 15 / 14 / 13.
+- `WEIGHT_REGULAR`, `WEIGHT_MEDIUM`, `WEIGHT_SEMIBOLD`: Inter 400 / 500 /
+  600 as `FontWeight`.
+- `type_scale(cx) -> TypeScale { micro, meta, readout, body, title, input,
+  heading, display }`: 11 / 12 / 12 / 13 / 14 / 15 / 20 / 28 at
+  `ui.font_size = 13`, whole pixels. `TypeScale::new(font_size)`.
+
+### Fonts and icons
+
+- `BUNDLED_UI_FONT` ("Inter", Regular, Medium and SemiBold bundled),
+  `BUNDLED_MONO_FONT` ("JetBrains Mono"), `SYSTEM_UI_FONT`
+  (".SystemUIFont"; the UI font picker offers it as "System UI Font" and
+  names the unset default "Inter").
+- `ui_font_family(cx) -> SharedString`: `ui.font_family`, else Inter, else
+  the system UI font when Inter failed to load. The workspace root already
+  uses it; set it on any other root (tooltips do it themselves).
+- `mono_font_family() -> SharedString`: the font of every readout.
+- `IconName::LogoArc` (the logo arc) and `IconName::Ember` (the diamond).
+  All Lucide icons now use `stroke-width="1.75"`.
+- `icon(name).group_hover_color(group, color)`: an SVG does not inherit
+  the parent's text colour, so hover tints go on the icon itself.
+
+### Effects
+
+- `.elevated(cx)`: one shadow, y 8, blur 16, `colors.shadow` (popovers,
+  menus, tooltips, toasts). `.elevated_lg(cx)`: y 12, blur 24 (palette,
+  dialogs). Both draw nothing in low-end mode.
+
+### Surfaces (`components/surface.rs`)
+
+- `panel(focused: bool, cx) -> Div`: `panel` fill, 1 px `border` or
+  `border_focused`, radius 10, `overflow_hidden`, flex column.
+- `panel_border(focused, cx) -> Hsla`: just the edge colour.
+- `panel_title(title: Str, subtitle: Str, cx) -> Div`: 40 tall title row,
+  Inter 14 SemiBold plus a muted 12 subtitle (empty for none) and a
+  spacer; append 24 px `icon_button`s as children.
+- `section_header(text: Str, cx) -> Div`: 30 tall, 12 SemiBold `text`;
+  append `badge(..)`, a muted suffix, `spacer()`, buttons.
+- `spacer() -> Div`: `flex_1`, pushes later children right.
+- `list_row(id: Id, selected: bool, cx) -> Stateful<Div>`: 24 tall row chip
+  inset 6, radius 6, solid hover, `pill` + Medium when selected; override
+  with `.h(..)` / `.mx(..)` (22 in debugger columns, 26 in menus, 32 in the
+  palette with `.rounded(px(8.))`).
+- `overlay(cx) -> Div`: palette and dialogs (`panel_raised`,
+  `border_strong`, radius 12, `elevated_lg`).
+- `popover(cx) -> Div`: popovers and menus (radius 10, padding 4,
+  `elevated`).
+- `input_frame(focused: bool, on_raised: bool, cx) -> Div`: 28 tall input
+  frame, `border_strong`, `accent` edge when focused, `canvas` fill on
+  raised surfaces.
+- `border_width(el, px) -> el`: fractional border width on any `Styled`.
+
+### Marks (`components/marks.rs`)
+
+- `ember() -> EmberMark` with `.size(px)`, `.color(hsla)`: the 7 px
+  `accent` diamond.
+- `unsaved_ring(color: Option<Hsla>, cx) -> Div`: the 8 px hollow ring,
+  1.5 px `accent_alt` (or `color`) stroke.
+- `status_dot(color) -> Div`: a 7 px dot.
+- `logo(size: Pixels) -> Logo`: the spark (arc in `text`, diamond in
+  `accent`); 22 in the title bar, 56 on the welcome screen.
+  `logo_spark_box(size)` gives the diamond's box.
+
+### Pill tabs (`components/pill_tab.rs`, `components/tab_layout.rs`)
+
+- `pill_tab(id: Id, label: Str) -> PillTab`, then `.icon(IconName,
+  Option<Hsla>)`, `.active(bool)`, `.focused(bool)` (ember on the active
+  tab), `.dirty(bool)`, `.ring_color(hsla)`, `.closable(bool)`,
+  `.badge(text: Str, Option<Hsla>)`, `.size(TabSize::{Editor, Panel,
+  Session})` (6.6 / 6.8), with shorthands `.panel()` (bottom panel tabs:
+  icon 14, padding 0 9) and `.compact()` (24 tall terminal sessions,
+  label 12, icon 13, active fill `hover`), `.italic(bool)`, `.strikethrough(bool)`, `.label_color(hsla)`,
+  `.max_label_width(px)`, `.tooltip(Str)`, `.on_click(Click)`,
+  `.on_close(Click)` (stops propagation, implies closable).
+- `PillTab::build(self, cx) -> Stateful<Div>` to chain more handlers
+  (middle click, drag); otherwise use it as an element.
+- `tab_trailing(active, dirty, closable) -> TabTrailing` is the rule for
+  the trailing slot (ring, `x`, `x` on hover, nothing).
+- `TabSize::metrics(&TypeScale) -> TabMetrics { height, text, icon, pad }`
+  gives a size's numbers, for strips that line other controls up with it.
+
+### Readouts, badges, kbd
+
+- `readout(text: Str) -> Readout` with `.color(hsla)`, `.size(px)`: mono 12
+  muted (`Ln 15, Col 18`, `exit 101 · 0.92 s`).
+- `badge(text: Str) -> Badge` with `.color(hsla)`, `.fill(hsla)`,
+  `.rail()`: 16 tall mono 11 count badge on `pill`; `.rail()` is the 14
+  tall outlined rail badge.
+- `kbd(keys: Str) -> Kbd`: one chip per key (`"Ctrl+Shift+P"`, chords
+  split on spaces). `kbd_keys(label) -> Vec<Vec<String>>` is the split.
+
+### Controls
+
+- `button(id: Id, label: Str) -> Button` with `.style(ButtonStyle::
+  {Primary, Secondary, Ghost})`, `.icon(IconName)`, `.icon_color(hsla)`
+  (idle Run: `accent` play icon on a Secondary button), `.compact()` (26
+  tall), `.disabled(bool)`, `.tooltip(Str)`, `.on_click(Click)`. Radius 8,
+  padding 0 11, Inter 13 Medium, icon 15. Secondary is an outline.
+  Disabled is solid, never opacity: `text_disabled`, an outline drops to
+  `border`, a Primary trades its accent for a `pill` fill.
+- `icon_button(id: Id, IconName) -> IconButton` with `.size(px)` (28
+  default), `.icon_size(px)`, `.icon_color(hsla)`, `.active(bool)` (`pill`
+  fill, `accent` icon), `.tooltip(Str)`, `.on_click(Click)`. Radius 7.
+  `icon_size_for(size)` gives 16 / 15 / 14 for 28 / 26 / 24.
+- `switch(id: Id, on: bool) -> Switch` with `.on_click(Click)`,
+  `.tooltip(Str)`: 30x18 per 6.13.
+- `segmented(id: &str, labels: &[&str], selected: usize, select: impl
+  Fn(usize, &mut Window, &mut App), cx) -> Div`.
+- `stepper(id: &str, value: Str, change: impl Fn(i32, &mut Window, &mut
+  App), cx) -> Div` and `stepped(value, delta, step, min, max) -> f32`.
+  (Moved from `settings_ui/widgets.rs`, which re-exports them.)
+- `Tooltip::text(text: Str, cx) -> AnyView`: `panel_raised`,
+  `border_strong`, radius 6, Inter 12, `elevated`.
+- `divider()` / `vertical_divider()`: 1 px `border` hairlines.

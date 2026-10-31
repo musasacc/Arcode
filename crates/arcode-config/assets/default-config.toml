@@ -56,6 +56,9 @@ occurrence_highlight = true
 inlay_hints = true
 # Show a light bulb in the gutter when code actions exist on the cursor line.
 code_action_lightbulb = true
+# Show diagnostics as a lens after the end of their line: "errors", "all"
+# or "off".
+inline_diagnostics = "errors"
 
 [editor.completion]
 # Open the completion popup while typing. When false, only Ctrl+Space
@@ -70,16 +73,18 @@ snippets = true
 signature_help = true
 
 [ui]
-# UI font. Leave unset to use the system UI font.
-# font_family = "Inter"
+# UI font. Leave unset to use the bundled Inter (or the system UI font if
+# Inter cannot be loaded); ".SystemUIFont" picks the platform UI font.
+# font_family = "Noto Sans"
 font_size = 13.0
 # "system" (follow the OS), "dark", "light" or the name of a theme.
 theme = "system"
 # Themes used by "system", "dark" and "light". Built-in themes:
-# "Arcode Dark", "Arcode Light", "Arcode Midnight". Put your own themes as
-# .toml files in the "themes" folder next to this file.
-dark_theme = "Arcode Dark"
-light_theme = "Arcode Light"
+# "Arcode Ember" (dark) and "Arcode Chalk" (light), plus the Classic
+# "Arcode Dark", "Arcode Light" and "Arcode Midnight". Put your own themes
+# as .toml files in the "themes" folder next to this file.
+dark_theme = "Arcode Ember"
+light_theme = "Arcode Chalk"
 # Reduce visual effects on slow machines: no animations, no cursor blink,
 # flat popups without shadows and slower (longer debounced) diagnostics and
 # git refreshes. Inlay hints and inline blame are off unless set here. The
@@ -89,7 +94,7 @@ low_end_mode = false
 animations = true
 # Animation duration in milliseconds.
 animation_ms = 120
-# Show frame time and memory use in the status bar.
+# Show frame time and memory use in the footer.
 show_perf_stats = true
 
 [terminal]

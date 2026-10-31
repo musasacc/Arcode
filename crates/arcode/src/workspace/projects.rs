@@ -68,6 +68,7 @@ impl Workspace {
             .then(|| app_state::session(&project.root, cx))
             .flatten();
         self.project = Some(project);
+        self.sync_pane_roots(cx);
         self.project_files = Arc::default();
         self.reset_panes(window, cx);
         self.activity = Activity::Files;

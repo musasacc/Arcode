@@ -54,6 +54,62 @@ pub struct ThemeColors {
     pub diff_added: Hsla,
     pub diff_modified: Hsla,
     pub diff_deleted: Hsla,
+    /// Window background; title bar, rail and footer sit on it unfilled.
+    pub canvas: Hsla,
+    /// Active tab pill, selected rows, the active rail tile, count badges.
+    pub pill: Hsla,
+    /// Control outlines (inputs, checkboxes, switches, kbd) and overlay edges.
+    pub border_strong: Hsla,
+    /// Text selection in an unfocused editor or terminal.
+    pub selection_inactive: Hsla,
+    /// Debugger: band behind the paused line, the Paused chip.
+    pub paused_line: Hsla,
+    /// Overlay shadow color (not a theme key): black at 45 % in dark
+    /// themes, a warm brown at 16 % in light ones.
+    pub shadow: Hsla,
+    /// Solid hover fill of a Primary (accent) button, precomputed from
+    /// `accent` (not a theme key).
+    pub accent_hover: Hsla,
+}
+
+impl ThemeColors {
+    /// Fill of every floating panel, the editor and the terminal (the
+    /// legacy `background` key).
+    pub fn panel(&self) -> Hsla {
+        self.background
+    }
+
+    /// Fill of overlays: palette, menus, popovers, dialogs, toasts (the
+    /// legacy `surface_raised` key).
+    pub fn panel_raised(&self) -> Hsla {
+        self.surface_raised
+    }
+}
+
+/// The overlay shadow color for a dark or light theme.
+pub fn shadow_color(is_dark: bool) -> Hsla {
+    if is_dark {
+        hsla(Color::rgba(0, 0, 0, 115))
+    } else {
+        hsla(Color::rgba(40, 32, 20, 41))
+    }
+}
+
+/// The solid hover fill of an accent-filled button: lighter in dark
+/// themes, darker in light ones, same hue.
+pub fn accent_hover(accent: Hsla, is_dark: bool) -> Hsla {
+    if is_dark {
+        Hsla {
+            s: (accent.s + 0.04).min(1.),
+            l: (accent.l + 0.07).min(1.),
+            ..accent
+        }
+    } else {
+        Hsla {
+            l: (accent.l - 0.05).max(0.),
+            ..accent
+        }
+    }
 }
 
 /// Terminal palette in GPUI colors.
@@ -79,6 +135,7 @@ pub struct UiTheme {
 impl UiTheme {
     pub fn new(theme: Arc<Theme>) -> Self {
         let u = &theme.ui;
+        let is_dark = theme.appearance == Appearance::Dark;
         let colors = ThemeColors {
             background: hsla(u.background),
             surface: hsla(u.surface),
@@ -112,6 +169,13 @@ impl UiTheme {
             diff_added: hsla(u.diff_added),
             diff_modified: hsla(u.diff_modified),
             diff_deleted: hsla(u.diff_deleted),
+            canvas: hsla(u.canvas),
+            pill: hsla(u.pill),
+            border_strong: hsla(u.border_strong),
+            selection_inactive: hsla(u.selection_inactive),
+            paused_line: hsla(u.paused_line),
+            shadow: shadow_color(is_dark),
+            accent_hover: accent_hover(hsla(u.accent), is_dark),
         };
         let t = &theme.terminal;
         let terminal = TerminalColors {
@@ -122,7 +186,7 @@ impl UiTheme {
         };
         Self {
             name: theme.name.clone(),
-            is_dark: theme.appearance == Appearance::Dark,
+            is_dark,
             colors,
             terminal,
             source: theme,
@@ -174,4 +238,48 @@ pub fn theme(cx: &App) -> &UiTheme {
 pub fn set_theme(theme: Arc<Theme>, cx: &mut App) {
     cx.set_global(ActiveTheme(Rc::new(UiTheme::new(theme))));
     cx.refresh_windows();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ui_theme(name: &str) -> UiTheme {
+        let registry = arcode_config::ThemeRegistry::builtin();
+        UiTheme::new(Arc::new(registry.get(name).unwrap().clone()))
+    }
+
+    /// `color` as 8-bit RGB.
+    fn rgb(color: Hsla) -> [i32; 3] {
+        let c = Rgba::from(color);
+        [c.r, c.g, c.b].map(|v| (v * 255.).round() as i32)
+    }
+
+    fn near(a: [i32; 3], b: [i32; 3]) -> bool {
+        a.iter().zip(b).all(|(x, y)| (x - y).abs() <= 3)
+    }
+
+    #[test]
+    fn new_keys_and_aliases() {
+        let ember = ui_theme("Arcode Ember");
+        let c = &ember.colors;
+        assert!(ember.is_dark);
+        assert_eq!(c.panel(), c.background);
+        assert_eq!(c.panel_raised(), c.surface_raised);
+        assert_eq!(rgb(c.canvas), [0x0b, 0x0a, 0x09]);
+        assert_eq!(rgb(c.pill), [0x3a, 0x32, 0x2a]);
+        assert!((c.shadow.a - 0.45).abs() < 0.01);
+        let chalk = ui_theme("Arcode Chalk");
+        assert!((chalk.colors.shadow.a - 0.16).abs() < 0.01);
+    }
+
+    #[test]
+    fn primary_hover_matches_the_design() {
+        // DESIGN.md 6.13: Primary hover #f6b468 (Ember) / #74470f (Chalk).
+        let ember = ui_theme("Arcode Ember").colors.accent_hover;
+        assert!(near(rgb(ember), [0xf6, 0xb4, 0x68]), "{:?}", rgb(ember));
+        let chalk = ui_theme("Arcode Chalk").colors.accent_hover;
+        assert!(near(rgb(chalk), [0x74, 0x47, 0x0f]), "{:?}", rgb(chalk));
+        assert_eq!(ui_theme("Arcode Chalk").colors.accent_hover.a, 1.);
+    }
 }

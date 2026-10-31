@@ -101,6 +101,22 @@ impl Color {
         )
     }
 
+    /// Linear blend of `a` and `b` per channel (alpha too): `t = 1.0` gives
+    /// `a`, `t = 0.0` gives `b`. `t` is clamped to `0.0..=1.0`.
+    pub fn mix(a: Color, b: Color, t: f32) -> Color {
+        let t = t.clamp(0.0, 1.0);
+        let blend = |x: u8, y: u8| {
+            let value = f32::from(x) * t + f32::from(y) * (1.0 - t);
+            value.round().clamp(0.0, 255.0) as u8
+        };
+        Color::rgba(
+            blend(a.r, b.r),
+            blend(a.g, b.g),
+            blend(a.b, b.b),
+            blend(a.a, b.a),
+        )
+    }
+
     /// WCAG relative luminance (alpha ignored).
     pub fn relative_luminance(self) -> f32 {
         let linear = |c: u8| {
@@ -231,5 +247,21 @@ mod tests {
         let half = Color::rgba(255, 255, 255, 128).over(Color::BLACK);
         assert_eq!(half, Color::rgb(128, 128, 128));
         assert_eq!(Color::TRANSPARENT.over(Color::WHITE), Color::WHITE);
+    }
+
+    #[test]
+    fn mix_blends_channels() {
+        assert_eq!(Color::mix(Color::WHITE, Color::BLACK, 1.0), Color::WHITE);
+        assert_eq!(Color::mix(Color::WHITE, Color::BLACK, 0.0), Color::BLACK);
+        assert_eq!(
+            Color::mix(Color::WHITE, Color::BLACK, 0.5),
+            Color::rgb(128, 128, 128)
+        );
+        assert_eq!(Color::mix(Color::WHITE, Color::BLACK, 7.0), Color::WHITE);
+        // 14 % warning over a dark background: the Ember paused band hue.
+        let warm = Color::mix(Color::rgb(200, 100, 0), Color::rgb(0, 0, 0), 0.14);
+        assert_eq!(warm, Color::rgb(28, 14, 0));
+        let alpha = Color::mix(Color::TRANSPARENT, Color::WHITE, 0.5);
+        assert_eq!(alpha.a, 128);
     }
 }

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use toml::{Table, Value};
 
-use super::{Appearance, Color, SyntaxStyle, TerminalColors, Theme, ThemeError, UiColors};
+use super::{Appearance, Color, SyntaxStyle, TerminalColors, Theme, ThemeError, UiColors, derive};
 use crate::lenient::one_line;
 
 const TOP_LEVEL_KEYS: [&str; 6] = ["name", "appearance", "extends", "ui", "syntax", "terminal"];
@@ -32,10 +32,19 @@ pub(super) fn theme_from_table(
     let appearance = appearance(table, base, &mut warnings)?;
 
     let ui_map = read_colors(table.get("ui"), "ui", UiColors::FIELDS, &mut warnings);
+    let resolved = |key: &str| {
+        ui_map
+            .get(key)
+            .copied()
+            .or_else(|| base.and_then(|b| b.ui.get(key)))
+    };
+    // A key the table sets wins; a newer key the table omits is derived
+    // from the table's older keys when it sets those; else it is inherited.
     let ui = UiColors::from_lookup(|key| {
         ui_map
             .get(key)
             .copied()
+            .or_else(|| derive::derive(key, |k| ui_map.contains_key(k), resolved))
             .or_else(|| base.and_then(|b| b.ui.get(key)))
     })
     .map_err(|key| ThemeError(format!("missing ui color `{key}`")))?;

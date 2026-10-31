@@ -1,0 +1,14 @@
+<!-- Arcode logo: the arc of a thrown spark (the spark is ember.svg). -->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2.6"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M4 20.5C4.8 11 9 5 13.5 5c3.6 0 5.4 3 5.9 6.2" />
+</svg>
