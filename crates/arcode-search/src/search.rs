@@ -174,12 +174,15 @@ impl Budget {
 
     /// Reserve up to `n` matches; returns how many were granted.
     fn take(&self, n: usize) -> usize {
-        let prev = self
-            .remaining
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |r| {
-                Some(r.saturating_sub(n))
-            })
-            .unwrap_or(0);
+        let mut prev = self.remaining.load(Ordering::Relaxed);
+        while let Err(now) = self.remaining.compare_exchange_weak(
+            prev,
+            prev.saturating_sub(n),
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            prev = now;
+        }
         let granted = prev.min(n);
         if granted < n {
             self.exhausted.store(true, Ordering::Relaxed);

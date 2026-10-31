@@ -50,7 +50,7 @@ fn once() -> Option<ConsentAnswer> {
 #[gpui::test]
 fn a_request_waits_for_an_open_app_prompt(cx: &mut TestAppContext) {
     let (ws, cx) = open(cx);
-    cx.update(|_, cx| crate::prompt::init(cx));
+    cx.update(|_, cx| crate::prompt::init_themed(cx));
     let app = ws.update_in(cx, |_, window, cx| {
         window.prompt(
             PromptLevel::Info,
@@ -81,7 +81,7 @@ fn a_request_waits_for_an_open_app_prompt(cx: &mut TestAppContext) {
 #[gpui::test]
 fn after_a_replaced_dialog_the_next_request_follows_the_app_prompt(cx: &mut TestAppContext) {
     let (ws, cx) = open(cx);
-    cx.update(|_, cx| crate::prompt::init(cx));
+    cx.update(|_, cx| crate::prompt::init_themed(cx));
     let focus = ws.read_with(cx, |ws, _| ws.focus_handle.clone());
     let (first, first_answer) = ask();
     let (second, second_answer) = ask();

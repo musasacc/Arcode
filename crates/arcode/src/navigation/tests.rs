@@ -34,6 +34,19 @@ fn open(cx: &mut TestAppContext) -> (Entity<Workspace>, &mut VisualTestContext) 
     })
 }
 
+/// Go Back / Go Forward as bound on this platform (on macOS Alt+Left
+/// moves the cursor by a word; Ctrl+- and Ctrl+Shift+- navigate).
+const BACK: &str = if cfg!(target_os = "macos") {
+    "ctrl--"
+} else {
+    "alt-left"
+};
+const FORWARD: &str = if cfg!(target_os = "macos") {
+    "ctrl-_"
+} else {
+    "alt-right"
+};
+
 const MAIN: &str = "fn main() {\n    helper();\n}\n\nfn helper() {}\n\nstruct Point;\n";
 
 fn project() -> (tempfile::TempDir, PathBuf) {
@@ -75,7 +88,7 @@ fn document_symbols_fall_back_to_the_outline(cx: &mut TestAppContext) {
     let (_dir, root) = project();
     let (ws, cx) = open(cx);
     open_project(&ws, &root, "src/main.rs", cx);
-    cx.simulate_keystrokes("ctrl-shift-o");
+    cx.simulate_keystrokes("secondary-shift-o");
     cx.run_until_parked();
     let picker = ws
         .read_with(cx, |ws, _| ws.nav.picker().cloned())
@@ -93,10 +106,10 @@ fn document_symbols_fall_back_to_the_outline(cx: &mut TestAppContext) {
     assert!(ws.read_with(cx, |ws, _| ws.nav.picker().is_none()));
     assert_eq!(active(&ws, cx), ("main.rs".into(), Point::new(6, 7)));
     // The jump is in the history.
-    cx.simulate_keystrokes("alt-left");
+    cx.simulate_keystrokes(BACK);
     cx.run_until_parked();
     assert_eq!(active(&ws, cx).1, Point::new(0, 0));
-    cx.simulate_keystrokes("alt-right");
+    cx.simulate_keystrokes(FORWARD);
     cx.run_until_parked();
     assert_eq!(active(&ws, cx).1, Point::new(6, 7));
 }
@@ -128,14 +141,14 @@ fn back_and_forward_follow_file_switches(cx: &mut TestAppContext) {
     ws.update_in(cx, |ws, window, cx| ws.open_file(&lib, window, cx));
     cx.run_until_parked();
     assert_eq!(active(&ws, cx).0, "lib.rs");
-    cx.simulate_keystrokes("alt-left");
+    cx.simulate_keystrokes(BACK);
     cx.run_until_parked();
     assert_eq!(active(&ws, cx), ("main.rs".into(), Point::new(4, 2)));
-    cx.simulate_keystrokes("alt-right");
+    cx.simulate_keystrokes(FORWARD);
     cx.run_until_parked();
     assert_eq!(active(&ws, cx).0, "lib.rs");
     // Going back again does not record the switch as a new jump.
-    cx.simulate_keystrokes("alt-left");
+    cx.simulate_keystrokes(BACK);
     cx.run_until_parked();
     assert_eq!(active(&ws, cx).0, "main.rs");
     assert!(ws.read_with(cx, |ws, _| ws.nav.history().can_go_forward()));
@@ -186,7 +199,7 @@ fn workspace_symbols_without_a_server_list_open_outlines(cx: &mut TestAppContext
     let (_dir, root) = project();
     let (ws, cx) = open(cx);
     open_project(&ws, &root, "src/main.rs", cx);
-    cx.simulate_keystrokes("ctrl-t");
+    cx.simulate_keystrokes("secondary-t");
     cx.run_until_parked();
     let picker = ws
         .read_with(cx, |ws, _| ws.nav.picker().cloned())

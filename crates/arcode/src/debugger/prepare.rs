@@ -92,7 +92,7 @@ pub fn prepare(
                 }
                 AdapterChoice::Custom(spec) => {
                     spec.resolve_executable().map_err(|e| e.to_string())?;
-                    (spec.clone(), None)
+                    ((**spec).clone(), None)
                 }
             };
             if let Some(command) = &entry.build {

@@ -85,11 +85,11 @@ fn enter_in_the_replace_field_stays_in_the_view(cx: &mut TestAppContext) {
     });
     assert!(focused, "focus stays in the replace field");
 
-    cx.simulate_keystrokes("ctrl-alt-enter");
+    cx.simulate_keystrokes("secondary-alt-enter");
     cx.run_until_parked();
     assert!(
         cx.has_pending_prompt(),
-        "Ctrl+Alt+Enter asks to replace all"
+        "Ctrl+Alt+Enter (Cmd+Alt+Enter on macOS) asks to replace all"
     );
     cx.simulate_prompt_answer("Cancel");
     cx.run_until_parked();

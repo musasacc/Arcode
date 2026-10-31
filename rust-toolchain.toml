@@ -1,0 +1,9 @@
+# The Rust toolchain for Arcode and its plugins (plugins/ and the plugin
+# host's test programs build with it too). CI installs the channel named
+# here, so local builds and CI see the same compiler and lints; bump it
+# deliberately and fix the new lints in the same change.
+[toolchain]
+channel = "1.97.0"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-wasip2"]
+profile = "minimal"

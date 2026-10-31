@@ -210,10 +210,13 @@ fn status_updates_do_not_queue_unboundedly() {
 /// A project index whose every query costs `cost` of CPU (a big walk).
 struct SlowIndex {
     cost: Duration,
+    calls: std::sync::atomic::AtomicUsize,
 }
 
 impl ProjectIndex for SlowIndex {
     fn find_files(&self, _: &globset::GlobMatcher, _: usize) -> Vec<String> {
+        self.calls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let end = Instant::now() + self.cost;
         while Instant::now() < end {
             std::hint::spin_loop();
@@ -228,15 +231,22 @@ impl ProjectIndex for SlowIndex {
 /// looping over an expensive import (`find-files` on a big project,
 /// `apply-patches` on a 20k-node panel) burns budget x (import cost /
 /// 10 ms) of host CPU. Here a 200 ms command runs for seconds.
+///
+/// Checked by counting the imports the guest got to run: each takes at
+/// least 100 ms and is charged at least that, so the 200 ms budget is
+/// over after the third one, on any machine. Uncharged, the guest runs
+/// ~20 of them (one 10 ms slice each), i.e. seconds of host CPU.
 #[test]
 fn cpu_heavy_imports_are_charged_to_the_budget() {
     let _t = timing_lock();
     let tmp = tempfile::tempdir().unwrap();
     let app = App::start(None);
+    let index = Arc::new(SlowIndex {
+        cost: Duration::from_millis(100),
+        calls: Default::default(),
+    });
     let svc = Services {
-        index: Arc::new(SlowIndex {
-            cost: Duration::from_millis(100),
-        }),
+        index: index.clone(),
         permissions: arcode_plugin_host::consent::Permissions::new(
             arcode_plugin_host::grant_store::GrantStore::in_memory(true),
             Arc::new(ScriptedConsent::always(ConsentAnswer::Allow {
@@ -252,8 +262,9 @@ fn cpu_heavy_imports_are_charged_to_the_budget() {
     let r = command(&h, "run", json!({"op": "find-loop"}), true);
     let took = started.elapsed();
     assert!(r.is_err(), "{r:?}");
+    let calls = index.calls.load(std::sync::atomic::Ordering::Relaxed);
     assert!(
-        took < Duration::from_millis(600),
-        "a 200 ms command ran for {took:?} before it was stopped"
+        (1..=3).contains(&calls),
+        "a 200 ms command ran {calls} imports of 100 ms each ({took:?}) before it was stopped"
     );
 }
