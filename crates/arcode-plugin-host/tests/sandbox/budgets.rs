@@ -95,7 +95,10 @@ fn spin_traps_within_budget_while_another_instance_answers() {
             Err(CallError::Trapped("exceeded 300 ms CPU".into()))
         );
         assert!(elapsed >= ms(300), "trapped early: {elapsed:?}");
-        assert!(answers >= 5, "echo kept answering ({answers} calls)");
+        // Each round trip is an echo call plus a 20 ms sleep, which macOS
+        // stretches to ~100 ms under load: two answers during a 300 ms spin
+        // already show the other instance was never blocked.
+        assert!(answers >= 2, "echo kept answering ({answers} calls)");
         times.push(elapsed);
         if elapsed <= ms(400) {
             break;

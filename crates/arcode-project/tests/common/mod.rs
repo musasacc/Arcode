@@ -44,12 +44,15 @@ impl Project {
     /// interpreter; returns the interpreter path.
     pub fn venv(&self, rel: &str) -> PathBuf {
         self.write(&format!("{rel}/pyvenv.cfg"), "home = /usr/bin\n");
-        let interpreter = if cfg!(windows) {
-            "Scripts/python.exe"
+        let (dir, exe) = if cfg!(windows) {
+            ("Scripts", "python.exe")
         } else {
-            "bin/python"
+            ("bin", "python")
         };
-        self.write(&format!("{rel}/{interpreter}"), "")
+        self.write(&format!("{rel}/{dir}/{exe}"), "");
+        // Built from components so it compares equal as text to the
+        // native path the app produces (`\` on Windows).
+        self.root().join(rel).join(dir).join(exe)
     }
 }
 
