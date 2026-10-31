@@ -70,12 +70,14 @@ export AR_wasm32_wasip2="${AR_wasm32_wasip2:-$(first_of llvm-ar-18 llvm-ar)}"
 export CFLAGS_wasm32_wasip2="${CFLAGS_wasm32_wasip2:--nostdlibinc -isystem $WASI_INCLUDE}"
 export LIBSQLITE3_FLAGS="${LIBSQLITE3_FLAGS:--DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_OMIT_SHARED_CACHE}"
 
+# `${packages[@]+...}` below: bash 3.2 (macOS) treats an empty array as
+# unbound under `set -u`.
 packages=()
 for p in "$@"; do packages+=(-p "$p"); done
 
 CARGO_TARGET_DIR="$target_dir" cargo build \
     --manifest-path "$plugins/Cargo.toml" \
-    --target wasm32-wasip2 --release --locked "${packages[@]}"
+    --target wasm32-wasip2 --release --locked ${packages[@]+"${packages[@]}"}
 
 mkdir -p "$out"
 for manifest in "$plugins"/*/plugin.toml; do

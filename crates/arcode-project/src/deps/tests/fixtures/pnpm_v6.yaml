@@ -1,0 +1,17 @@
+lockfileVersion: '6.0'
+
+dependencies:
+  express:
+    specifier: ^4.18.2
+    version: 4.18.2
+
+devDependencies:
+  jest:
+    specifier: ^29.7.0
+    version: 29.7.0(@types/node@20.11.5)
+
+packages:
+
+  /express@4.18.2:
+    resolution: {integrity: sha512-5/PsL6iGPdfQ/lKM1UuielYgv3BUoJfz1aUwU9vHZ+J7gyvwdQXFEBIEIaxeGf0GIcreATNyBExtalisDbuMqQ==}
+    engines: {node: '>= 0.10.0'}

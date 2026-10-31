@@ -26,8 +26,21 @@ mod lsp_tests;
 mod new_project;
 mod overlays;
 mod packages;
+#[cfg(test)]
+mod packages_tests;
+mod packages_ui;
 mod palette;
 mod panes;
+#[cfg(feature = "plugins")]
+mod plugins;
+#[cfg(feature = "plugins")]
+mod plugins_cmd;
+#[cfg(feature = "plugins")]
+mod plugins_open;
+#[cfg(feature = "plugins")]
+mod plugins_req;
+#[cfg(feature = "plugins")]
+mod plugins_ui;
 mod prefs;
 #[cfg(test)]
 mod prefs_fix_tests;
@@ -153,8 +166,13 @@ pub struct Workspace {
     new_project: Option<Entity<crate::new_project::NewProjectDialog>>,
     /// Languages page, status bar pickers and the package banner.
     langs: crate::languages::LangParts,
+    /// The Packages view and its store.
+    pkgs: packages_ui::PackagesParts,
     /// Settings page, theme and font pickers, first run, tour, animations.
     prefs: crate::prefs::PrefsParts,
+    /// WASM plugins: manager, panels, lenses, status entries.
+    #[cfg(feature = "plugins")]
+    plugins: crate::plugins::Plugins,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -207,8 +225,10 @@ impl Workspace {
         let (debug, debug_subs) = debug::DebugParts::new(&bottom_panel, window, cx);
         subscriptions.extend(debug_subs);
         let (langs, lang_subs) = Self::new_lang_parts(cx);
+        let (pkgs, pkg_subs) = packages_ui::PackagesParts::new(window, cx);
+        subscriptions.extend(pkg_subs);
         subscriptions.extend(lang_subs);
-        Self {
+        let workspace = Self {
             focus_handle: cx.focus_handle(),
             project: None,
             project_files: Arc::default(),
@@ -245,9 +265,15 @@ impl Workspace {
             new_project: None,
             langs,
             prefs: Default::default(),
+            pkgs,
+            #[cfg(feature = "plugins")]
+            plugins: crate::plugins::Plugins::new(cx),
             _subscriptions: subscriptions,
         }
-        .with_first_run(window, cx)
+        .with_first_run(window, cx);
+        #[cfg(feature = "plugins")]
+        let workspace = workspace.with_plugins(window, cx);
+        workspace
     }
 
     /// Shows the first-run dialog in the first window when Arcode started
@@ -339,6 +365,8 @@ impl Workspace {
             this.update(cx, |ws, cx| {
                 ws.files_loading = false;
                 ws.project_files = files.clone();
+                #[cfg(feature = "plugins")]
+                ws.plugins.client.index().set_files(files.clone());
                 if let Some(finder) = &ws.finder {
                     finder.update(cx, |f, cx| f.set_files(files, cx));
                 }
@@ -350,6 +378,11 @@ impl Workspace {
     /// Opens `path` in the active pane, or activates it where it is open.
     pub fn open_file(&mut self, path: &Path, window: &mut Window, cx: &mut Context<Self>) {
         let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        // Files a plugin opens (e.g. SQLite databases) get its view.
+        #[cfg(feature = "plugins")]
+        if self.open_with_plugin(&path, window, cx) {
+            return;
+        }
         if self.activate_open_file(&path, window, cx) {
             return;
         }

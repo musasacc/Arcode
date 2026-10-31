@@ -68,6 +68,8 @@ pub struct StatusBar {
     vim: Option<arcode_editor::VimStatus>,
     /// Indentation, encoding and line ending of the active editor.
     doc: Option<crate::languages::status_items::DocStatus>,
+    /// Plugin status items and task chips (see `plugins::status`).
+    plugin_view: Option<gpui::AnyView>,
 }
 
 impl StatusBar {
@@ -82,6 +84,7 @@ impl StatusBar {
             lsp_view: None,
             vim: None,
             doc: None,
+            plugin_view: None,
         };
         bar.sync_sampler(cx);
         bar._settings_sub =
@@ -199,6 +202,12 @@ impl StatusBar {
     /// text.
     pub fn set_lsp_view(&mut self, view: gpui::AnyView, cx: &mut Context<Self>) {
         self.lsp_view = Some(view);
+        cx.notify();
+    }
+
+    /// Shows `view` (plugin status items and task chips) after the counts.
+    pub fn set_plugin_view(&mut self, view: gpui::AnyView, cx: &mut Context<Self>) {
+        self.plugin_view = Some(view);
         cx.notify();
     }
 
@@ -334,7 +343,8 @@ impl Render for StatusBar {
                         },
                     ))
                     .child(info.warnings.to_string()),
-                );
+                )
+                .when_some(self.plugin_view.clone(), |el, view| el.child(view));
         let right = div()
             .flex()
             .items_center()

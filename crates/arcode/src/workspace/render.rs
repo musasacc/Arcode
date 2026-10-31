@@ -56,6 +56,11 @@ impl Workspace {
             (Activity::Todo, _) => self.features.todo_side.clone().into_any_element(),
             (Activity::Debug, _) => self.debug.sidebar.clone().into_any_element(),
             (Activity::Plugins, _) => self.langs.view.clone().into_any_element(),
+            (Activity::Packages, _) => self.pkgs.view.clone().into_any_element(),
+            #[cfg(feature = "plugins")]
+            (Activity::Extension, _) => self.render_plugin_sidebar(cx),
+            #[cfg(not(feature = "plugins"))]
+            (Activity::Extension, _) => div().into_any_element(),
         };
         div()
             .relative()
@@ -152,6 +157,20 @@ impl Render for Workspace {
             div().flex_1().min_h_0().child(welcome::render(self, cx))
         } else {
             let activity = self.activity;
+            #[cfg(feature = "plugins")]
+            let extras = {
+                let this = cx.entity().downgrade();
+                activity_bar::render_extras(
+                    self.plugin_activities(),
+                    std::rc::Rc::new(move |ix, window: &mut Window, cx: &mut gpui::App| {
+                        this.update(cx, |ws, cx| ws.plugin_sidebar_clicked(ix, window, cx))
+                            .ok();
+                    }),
+                    cx,
+                )
+            };
+            #[cfg(not(feature = "plugins"))]
+            let extras = Vec::new();
             let bar = activity_bar::render(
                 activity,
                 self.sidebar_visible,
@@ -162,6 +181,7 @@ impl Render for Workspace {
                             .ok();
                     })
                 },
+                extras,
                 cx,
             );
             let bar = div()
@@ -257,12 +277,17 @@ impl Render for Workspace {
         let root = self.register_debug_actions(root, cx);
         let root = self.register_language_actions(root, cx);
         let root = self.register_prefs_actions(root, cx);
+        let root = self.register_packages_actions(root, cx);
+        #[cfg(feature = "plugins")]
+        let root = self.register_plugin_actions(root, cx);
         let root = self.render_overlays(root, cx);
         let root = self.render_run_overlays(root, cx);
         let root = self.render_new_project_overlay(root, cx);
         let root = self.render_palette_overlay(root, cx);
         let root = self.render_nav_overlay(root, cx);
         let root = self.render_prefs_overlays(root, cx);
+        #[cfg(feature = "plugins")]
+        let root = self.render_plugin_overlay(root, cx);
         self.render_tour_overlay(root, window, cx)
     }
 }

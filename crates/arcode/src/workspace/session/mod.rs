@@ -35,6 +35,9 @@ pub(crate) fn activity_key(activity: Activity) -> &'static str {
         Activity::Debug => "debug",
         Activity::Plugins => "plugins",
         Activity::Todo => "todo",
+        Activity::Packages => "packages",
+        // Plugin sidebars are not restored; the Explorer is shown instead.
+        Activity::Extension => "files",
     }
 }
 

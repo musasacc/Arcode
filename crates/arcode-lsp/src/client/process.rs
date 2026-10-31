@@ -10,6 +10,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, BufReader};
 use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 use tokio::sync::oneshot;
 
+use super::group::{GroupGuard, own_group};
 use super::shared::Shared;
 use crate::error::{LspError, Result};
 
@@ -45,6 +46,8 @@ impl ServerSpec {
 /// Pipes of a freshly spawned server.
 pub(crate) struct Spawned {
     pub(crate) child: Child,
+    /// Kills what the server started; see [`super::group`].
+    pub(crate) group: GroupGuard,
     pub(crate) stdin: ChildStdin,
     pub(crate) stdout: ChildStdout,
     pub(crate) stderr: Option<ChildStderr>,
@@ -69,6 +72,7 @@ pub(crate) fn spawn(spec: &ServerSpec, root: &Path) -> Result<Spawned> {
     if root.is_dir() {
         cmd.current_dir(root);
     }
+    own_group(&mut cmd);
     #[cfg(windows)]
     {
         // CREATE_NO_WINDOW: do not flash a console window for the server.
@@ -84,12 +88,14 @@ pub(crate) fn spawn(spec: &ServerSpec, root: &Path) -> Result<Spawned> {
             LspError::Io(format!("failed to start {}: {e}", spec.command))
         }
     })?;
+    let group = GroupGuard::new(child.id());
     let stdin = child.stdin.take();
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     match (stdin, stdout) {
         (Some(stdin), Some(stdout)) => Ok(Spawned {
             child,
+            group,
             stdin,
             stdout,
             stderr,
@@ -149,7 +155,15 @@ where
 }
 
 /// Waits for the child to exit, or kills it when `kill` fires or is dropped.
-pub(crate) async fn supervise(shared: Arc<Shared>, mut child: Child, kill: oneshot::Receiver<()>) {
+/// Whatever the server started dies with `group` when this returns or is
+/// dropped.
+pub(crate) async fn supervise(
+    shared: Arc<Shared>,
+    mut child: Child,
+    group: GroupGuard,
+    kill: oneshot::Receiver<()>,
+) {
+    let _group = group;
     let status = tokio::select! {
         status = child.wait() => status,
         _ = kill => {

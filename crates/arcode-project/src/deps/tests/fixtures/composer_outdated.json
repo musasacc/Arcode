@@ -1,0 +1,21 @@
+{
+    "installed": [
+        {
+            "name": "laravel/framework",
+            "direct-dependency": true,
+            "homepage": "https://laravel.com",
+            "source": "https://github.com/laravel/framework/tree/v10.41.0",
+            "version": "v10.41.0",
+            "latest": "v10.48.4",
+            "latest-status": "semver-safe-update",
+            "description": "The Laravel Framework.",
+            "abandoned": false
+        },
+        {
+            "name": "guzzlehttp/guzzle",
+            "version": "7.8.1",
+            "latest": "7.8.1",
+            "latest-status": "up-to-date"
+        }
+    ]
+}

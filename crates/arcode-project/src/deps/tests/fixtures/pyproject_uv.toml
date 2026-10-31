@@ -1,0 +1,27 @@
+[project]
+name = "data-tool"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.26",
+    "Pydantic[email]~=2.5",
+    "rich",
+    "mylib @ git+https://github.com/example/mylib.git@v1.2",
+]
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.8"]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4",
+    {include-group = "lint"},
+]
+lint = ["ruff==0.1.14"]
+
+[tool.uv]
+dev-dependencies = ["mypy>=1.8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

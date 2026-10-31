@@ -11,7 +11,7 @@ use super::{Pane, PaneEvent};
 #[derive(Clone)]
 pub struct PageTab {
     /// Identifies the page (e.g. `"settings"`).
-    pub key: &'static str,
+    pub key: SharedString,
     /// The tab text.
     pub title: SharedString,
     /// The tab icon.
@@ -45,7 +45,7 @@ impl Pane {
 
     /// Opens `page` (or activates the page with its key) and focuses it.
     pub fn add_page(&mut self, page: PageTab, window: &mut Window, cx: &mut Context<Self>) {
-        let ix = match self.page_position(page.key) {
+        let ix = match self.page_position(&page.key) {
             Some(ix) => ix,
             None => {
                 self.pages.push(page);
@@ -53,6 +53,16 @@ impl Pane {
             }
         };
         self.activate_page(ix, window, cx);
+    }
+
+    /// Retitles the page with `key` (e.g. a plugin panel's `set-title`).
+    pub fn set_page_title(&mut self, key: &str, title: SharedString, cx: &mut Context<Self>) {
+        if let Some(page) = self.pages.iter_mut().find(|p| p.key == key)
+            && page.title != title
+        {
+            page.title = title;
+            cx.notify();
+        }
     }
 
     /// Activates the page at `ix`.

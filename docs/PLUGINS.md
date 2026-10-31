@@ -1584,3 +1584,116 @@ database that the plugin generates itself with writes on, then pages
   guide). Packaging: `ARCODE_WASM_PLUGINS=<prefix>/share/arcode/plugins
   scripts/build-plugins.sh`; wiring that into the release workflow belongs
   to the app's packaging.
+
+## Appendix B (continued): Step 9, app integration (runtime wiring)
+
+> **Added during implementation** of `crates/arcode/src/plugins/` and
+> `crates/arcode/src/workspace/plugins*.rs` (behind the `plugins` cargo
+> feature, on by default). Same rule as above: the design text is
+> unchanged; this lists what the app does differently or decides where the
+> design was silent. The consent dialog with capability summaries and the
+> Plugins view (list, enable, grants, network log) are a separate step.
+
+**Loading and cost:**
+- Each workspace (window) owns one `PluginManager`, created **250 ms after
+  the window opens** (or earlier when something needs it: opening a file,
+  a plugin command). Creation reads `plugin.toml` files only; the engine
+  starts on the first activation, exactly as in §2. Measured on a debug
+  build, same tree built with and without the feature (`ready in`, and
+  RSS 8 s after start with a project open and no plugin activated):
+  `ready in` 110-191 ms with, 109-133 ms without (noise of the software
+  renderer; the first frame does no plugin work); threads 23 both; RSS
+  +7 MB, of which **+1.2 MB anonymous** (the manager: manifests, globs,
+  registry) and +6.4 MB *clean, file-backed* pages of the larger binary
+  (wasmtime, cranelift, ureq and rustls are linked in). Idle with the
+  HTTP client active: its thread and the epoch ticker use no CPU. The
+  HTTP transport (TLS config, root certificates) is built on the first
+  request (`bridge::LazyHttp`).
+- Discovery: bundled roots are `<exe>/../share/arcode/plugins`, then (debug
+  builds) this checkout's `target/wasm-plugins`; installed plugins in
+  `<data>/plugins`; dev folders from `ARCODE_PLUGIN_DEV` (path list) and
+  "Plugins: Load Unpacked…" (session only). `<config>` and `<data>` are
+  Arcode's own folders (`ARCODE_CONFIG_DIR`/`ARCODE_DATA_DIR`), so a test
+  run with those set leaves nothing in the user's folders; compiled
+  components then go to `<data>/cache/plugins`.
+- `runtime.builtin_languages` is set from `arcode_syntax::all_languages()`.
+
+**Editor bridge:**
+- Snapshots are published for every open editor after each edit (rope
+  clone), and for the active editor before every command or lens call, so
+  selections are current without work on each cursor move.
+- A document's language for plugins is the editor's language, unless that
+  is plain text and a plugin contributes a language for the file's
+  extension (`.http` → `http`).
+- Writes (`apply-edits`, `open-file`, `open-scratch`) are requests to the
+  workspace task; the plugin thread waits at most 1 s (a timeout answers
+  `denied`). `apply-edits` is one undo step; `open-scratch` opens an
+  untitled, writable tab.
+- `workspace.find-files` uses the finder's file list once it is loaded,
+  and walks the project (`WalkIndex`) before that.
+
+**Contributions:**
+- Palette: every command is a `plugins::RunPluginCommand { id }` action
+  listed under its manifest title (titles without `Category:` are listed
+  under "Plugins"); palette runs pass `null` args. `when = "language ==
+  x"` hides the command unless the active document has that language
+  (the palette reads a global, `commands::CommandContext`, because it is
+  built while the workspace is being updated). A contributed `key` is
+  bound in the `Editor` context (an invalid one is ignored); pressed
+  outside the command's `when` it does nothing (the action propagates).
+- Lenses: one editor decoration set `"plugins"`, above-line rows; lenses
+  on one line share a row. Asked for when an editor of a lens language
+  becomes visible and 300 ms after the last edit; answers for an older
+  buffer version are dropped. A click runs the command as a gesture about
+  that document.
+- Openers: `Workspace::open_file` asks the registry first; a match opens
+  the plugin view as a tab named after the file (opening it again focuses
+  that tab). Only project files are offered to openers.
+- Panels: `editor` panels (and `bottom` ones, until the bottom panel has
+  plugin tabs) open as tabs of the active pane; `editor-beside` ones in the
+  pane to the right (split off if needed) while the editor keeps focus;
+  `sidebar` ones get an activity-bar entry after the built-in ones
+  (`Activity::Extension`). Manifest icon names map onto the host icon set
+  (`commands::icon_for`), unknown names show the plugin icon.
+- Closing a tab drops the view; its release sends `view-closed` only if
+  the instance still has that panel open, so closing never starts a
+  stopped plugin.
+
+**Panel rendering (`plugins/panel/`):**
+- Every widget kind is mapped. `text` without `wrap` is clipped at the
+  panel edge, not ellipsized (GPUI measures ellipsized text at its
+  min-content width inside flex columns). Horizontal stacks wrap. Plugin
+  text is selectable only through right-click → copy (`text`, `badge`,
+  `key-values`, table cells).
+- `input`: single-line and multi-line `TextField`s; a multi-line input
+  with a `language` is a highlighted `Editor`. Enter submits a
+  single-line input with `submit-on-enter`, Ctrl/Cmd+Enter a multi-line
+  one. An input counts as edited while its text differs from the
+  plugin's last `value`.
+- `table`: `uniform_list` over `rows::RowCache`; a row-number column; a
+  sortable header click sends `sort` (toggling direction); double-click
+  or Enter sends `row-activate`; arrows, Page Up/Down and Home/End move
+  the selection (so a 100k-row table is crossed in one key press). A
+  failed page shows an error line and is not refetched until the table
+  changes. A reset (new generation) scrolls back to the top.
+- `json` is pretty-printed on the background executor and shown in a
+  read-only editor (no folding yet); invalid or oversized JSON is shown as
+  received with a note. `code` is a read-only editor.
+- After a crash the panel shows "<Plugin> stopped: <reason>", with
+  [Restart] once the plugin is disabled for the session.
+
+**Status, tasks, notices:**
+- Status items and task chips live in the status bar after the problem
+  counts; clicking a chip or pressing Esc anywhere in the window cancels
+  the newest running task (Esc is consumed only then). Tasks also have
+  "Plugins: Cancel Task".
+- `notify`, crashes, disables and "needs approval" become toasts and lines
+  of "Plugins: Show Log", which also shows every plugin's log (reopen to
+  refresh).
+- Consent (interim): a host prompt (the themed in-window dialog) built
+  from the host-derived request, with Allow Once / This Project / Always /
+  Deny for hosts and a read / read-and-write choice for workspace access.
+  `ARCODE_PLUGIN_CONSENT` (`allow-once`, `allow-project`, `allow-always`,
+  optional `+write`, or `deny`) answers every prompt without showing it,
+  for automated runs; answers are written to the plugin log.
+- Quick picks use the status-bar list picker overlay.

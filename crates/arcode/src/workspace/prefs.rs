@@ -84,7 +84,7 @@ impl Workspace {
             }
         };
         let tab = PageTab {
-            key: PAGE_KEY,
+            key: PAGE_KEY.into(),
             title: "Settings".into(),
             icon: IconName::Settings,
             view: page.clone().into(),

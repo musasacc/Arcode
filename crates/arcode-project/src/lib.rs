@@ -9,6 +9,9 @@
 //!   [`needs_install`] tell "Packages not installed" from "Reinstall";
 //!   [`missing_packages`] lists a project's manifests whose dependencies
 //!   are missing (cheap, offline checks) for the editor banner.
+//! - [`deps`] lists every manifest of a project with its package manager
+//!   and declared dependencies (offline, from manifests and lockfiles) and
+//!   builds the manager commands of the Packages view.
 //! - [`detect_run_commands`] / [`default_run_command`] list a project's run,
 //!   test and build commands (Cargo, package.json, Go, Python, just, make).
 //! - [`command_for_runnable`] builds the command for a main function, test or
@@ -31,6 +34,7 @@
 mod cargo;
 mod command;
 mod debug_target;
+pub mod deps;
 pub mod files;
 mod fsutil;
 mod gofile;

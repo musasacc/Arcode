@@ -1,0 +1,2 @@
+rails (newest 7.1.3.2, installed 7.1.2, requested ~> 7.1.2)
+puma (newest 6.4.2, installed 6.4.0)

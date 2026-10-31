@@ -15,8 +15,11 @@ use crate::actions::{NewTerminal, shortcut_label};
 
 #[path = "terminal_named.rs"]
 mod named;
+#[path = "terminal_program.rs"]
+mod program;
 
 pub use named::OnStarted;
+pub use program::OnExit;
 
 /// Longest terminal title shown in a tab.
 const MAX_TITLE_CHARS: usize = 24;

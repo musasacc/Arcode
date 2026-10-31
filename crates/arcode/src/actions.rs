@@ -234,6 +234,7 @@ pub fn commands() -> Vec<(&'static str, Box<dyn gpui::Action>)> {
     list.extend(crate::debugger::actions::commands());
     list.extend(crate::languages::actions::commands());
     list.extend(crate::prefs::commands());
+    list.extend(crate::packages::commands());
     list
 }
 
@@ -342,6 +343,7 @@ pub fn bind_keys(cx: &mut App) {
     crate::text_prompt::bind_keys(cx);
     crate::languages::actions::bind_keys(cx);
     crate::prefs::bind_keys(cx);
+    crate::packages::bind_keys(cx);
 }
 
 /// Navigation bindings. They live in the editor (and empty pane) contexts

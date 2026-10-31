@@ -58,6 +58,7 @@ impl Workspace {
             .store
             .update(cx, |git, cx| git.set_project_root(root.clone(), cx));
         self.features.set_root(root.clone(), cx);
+        self.set_packages_root(root.clone(), cx);
         self.set_debug_project(root, cx);
         self.branch_picker = None;
         self.palette = None;
@@ -123,6 +124,7 @@ impl Workspace {
                 .store
                 .update(cx, |git, cx| git.set_project_root(None, cx));
             ws.features.set_root(None, cx);
+            ws.set_packages_root(None, cx);
             ws.set_debug_project(None, cx);
             ws.branch_picker = None;
             ws.langs.banner = Default::default();

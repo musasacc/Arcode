@@ -1,0 +1,25 @@
+[package]
+name = "app-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+anyhow = "1"
+rand08 = { package = "rand", version = "0.8" }
+tokio = { version = "1.35", features = ["full"], optional = true }
+local-util = { path = "../util" }
+fancy = { git = "https://github.com/example/fancy", branch = "main" }
+
+[dependencies.regex]
+version = "1.10"
+default-features = false
+
+[dev-dependencies]
+tempfile = "3.8"
+
+[build-dependencies]
+cc = "1.0"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser"] }

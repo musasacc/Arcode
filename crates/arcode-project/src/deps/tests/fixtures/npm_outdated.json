@@ -1,0 +1,24 @@
+{
+  "react": {
+    "current": "18.2.0",
+    "wanted": "18.2.0",
+    "latest": "18.3.1",
+    "dependent": "web-app",
+    "location": "/p/node_modules/react"
+  },
+  "lodash": [
+    {
+      "current": "3.10.1",
+      "wanted": "3.10.1",
+      "latest": "4.17.21",
+      "dependent": "my-lib",
+      "location": "/p/packages/my-lib/node_modules/lodash"
+    }
+  ],
+  "not-installed": {
+    "wanted": "1.0.0",
+    "latest": "1.2.0",
+    "dependent": "web-app",
+    "location": ""
+  }
+}

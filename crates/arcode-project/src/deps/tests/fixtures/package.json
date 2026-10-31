@@ -1,0 +1,27 @@
+{
+  "name": "web-app",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "dev": "vite"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "@tanstack/react-query": "~5.17.0",
+    "lodash": "4.17.21",
+    "my-lib": "workspace:*",
+    "string-width-cjs": "npm:string-width@^4.2.0",
+    "left-pad": "github:stevemao/left-pad"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vite": "^5.0.0"
+  },
+  "peerDependencies": {
+    "react-dom": ">=18"
+  },
+  "optionalDependencies": {
+    "fsevents": "^2.3.3"
+  }
+}

@@ -150,6 +150,7 @@ impl Workspace {
             .debugger
             .update(cx, |d, cx| d.paths_changed(paths, overflow, cx));
         self.packages_paths_changed(paths, overflow, cx);
+        self.packages_files_changed(paths, overflow, cx);
         self.reload_changed_editors(paths, overflow, cx);
     }
 

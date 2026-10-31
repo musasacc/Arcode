@@ -5,6 +5,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# A newer push to the same branch or pull request cancels the older run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -14,16 +19,23 @@ jobs:
   build:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    # macOS runners are not always available to this account; a macOS job
+    # that fails or never starts is reported but does not fail the run.
+    continue-on-error: ${{ matrix.optional }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             wasi_sdk: x86_64-linux
+            optional: false
           - os: macos-latest
             wasi_sdk: arm64-macos
+            optional: true
           - os: windows-latest
             wasi_sdk: x86_64-windows
+            optional: false
     defaults:
       run:
         shell: bash
@@ -33,13 +45,15 @@ jobs:
         with:
           components: clippy, rustfmt
           targets: wasm32-wasip2
+      # GPUI tests run on GPUI's headless test platform, so no display
+      # (Xvfb) is needed.
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
             libvulkan-dev libx11-xcb-dev libxcb1-dev libfontconfig-dev libfreetype-dev \
-            libssl-dev libzstd-dev mesa-vulkan-drivers xvfb
+            libssl-dev libzstd-dev
       - name: Install WASI SDK (clang + wasi-libc for plugins with C code)
         run: |
           name="wasi-sdk-${WASI_SDK_VERSION}.0-${{ matrix.wasi_sdk }}"
@@ -57,17 +71,35 @@ jobs:
           echo "WASI_INCLUDE=$sdk/share/wasi-sysroot/include/wasm32-wasip2" >> "$GITHUB_ENV"
           echo "CC_wasm32_wasip2=$sdk/bin/clang$exe" >> "$GITHUB_ENV"
           echo "AR_wasm32_wasip2=$sdk/bin/llvm-ar$exe" >> "$GITHUB_ENV"
+      # Saves the cache even when a later step fails; by default a failed
+      # run saves nothing and the next one builds everything again.
       - uses: Swatinem/rust-cache@v2
-      - name: Format
-        if: runner.os == 'Linux'
-        run: cargo fmt --all -- --check
+        with:
+          cache-on-failure: true
       - name: Build
+        id: build
         run: cargo build --workspace --locked
       - name: Build plugins and plugin test fixtures
         run: |
           scripts/build-test-plugins.sh
           scripts/build-plugins.sh
       - name: Test
+        id: test
         run: cargo test --workspace --locked
+      # Tests must not leave processes behind (the runner used to end with
+      # hundreds of orphaned `sleep`s from fake language servers).
+      - name: Check for processes leaked by tests
+        if: runner.os != 'Windows' && !cancelled() && steps.test.outcome != 'skipped'
+        run: |
+          sleep 2
+          if pgrep -l -x sleep; then
+            echo "::error::tests left the sleep processes above running"
+            exit 1
+          fi
+      # Lints and formatting are reported even when tests fail.
       - name: Clippy
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Format
+        if: runner.os == 'Linux' && !cancelled()
+        run: cargo fmt --all -- --check
