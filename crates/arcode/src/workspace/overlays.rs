@@ -294,7 +294,14 @@ mod tests {
     fn code_spans_stay_in_one_chunk() {
         assert_eq!(
             toast_chunks("server taplo (command: `taplo lsp stdio`). Install it"),
-            vec!["server", "taplo", "(command:", "`taplo lsp stdio`).", "Install", "it"]
+            vec![
+                "server",
+                "taplo",
+                "(command:",
+                "`taplo lsp stdio`).",
+                "Install",
+                "it"
+            ]
         );
         assert_eq!(toast_chunks("  a   b "), vec!["a", "b"]);
         assert!(toast_chunks("").is_empty());

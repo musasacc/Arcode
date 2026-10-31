@@ -204,17 +204,18 @@ impl TerminalPanel {
         fresh: bool,
         cx: &mut Context<Self>,
     ) {
+        let started = Instant::now();
         let pid = terminal.read(cx).terminal().child_pid();
         let watched = program || (can_check_busy() && pid.is_some());
         let watch = match pid {
             Some(pid) if watched && !program => {
-                Some(self.watch_shell(pid, never_busy_grace(fresh), cx))
+                Some(self.watch_shell(pid, started, never_busy_grace(fresh), cx))
             }
             _ => None,
         };
         self.last_run = Some(LastRun {
             command: SharedString::from(command.to_string()),
-            started: Instant::now(),
+            started,
             duration: None,
             ended: false,
             exit: None,
@@ -241,32 +242,53 @@ impl TerminalPanel {
         }
     }
 
-    /// Polls whether the shell `pid` still runs a command in the
-    /// foreground; ends the run when it went back to the prompt (or stayed
-    /// idle for `grace`). Asks for a redraw while it runs only when the
-    /// readout on screen is out of date (see [`LastRun::stale`]).
-    fn watch_shell(&self, pid: u32, grace: Duration, cx: &mut Context<Self>) -> Task<()> {
-        cx.spawn(async move |this, cx| {
-            let started = Instant::now();
+    /// Watches the shell `pid` for the end of a run started at `started`:
+    /// the run ends when the shell went back to the prompt (or stayed idle
+    /// for `grace`). The shell is looked at on a background thread from
+    /// the start, so a short command is seen even while the window is busy
+    /// drawing the new terminal; the window only checks for the end and
+    /// asks for a redraw when the readout on screen is out of date (see
+    /// [`LastRun::stale`]).
+    fn watch_shell(
+        &self,
+        pid: u32,
+        started: Instant,
+        grace: Duration,
+        cx: &mut Context<Self>,
+    ) -> Task<()> {
+        let (end_tx, end_rx) = async_channel::bounded::<Option<Duration>>(1);
+        let executor = cx.background_executor().clone();
+        let probe = cx.background_spawn(async move {
             let mut seen_busy = false;
+            // The first look is at once: a short command may be over
+            // before the next one.
+            loop {
+                let busy = arcode_project::procs::is_running_command(pid);
+                seen_busy |= busy;
+                let elapsed = started.elapsed();
+                if !busy && (seen_busy || elapsed >= grace) {
+                    // How long it ran, when it was seen running at all.
+                    end_tx.send(seen_busy.then_some(elapsed)).await.ok();
+                    break;
+                }
+                executor.timer(poll_interval(elapsed)).await;
+            }
+        });
+        cx.spawn(async move |this, cx| {
+            let _probe = probe;
             loop {
                 cx.background_executor()
                     .timer(poll_interval(started.elapsed()))
                     .await;
-                let busy = cx
-                    .background_spawn(async move { arcode_project::procs::is_running_command(pid) })
-                    .await;
-                let elapsed = started.elapsed();
-                seen_busy |= busy;
-                let done = !busy && (seen_busy || elapsed >= grace);
+                let end = end_rx.try_recv().ok();
                 let keep_going = this
                     .update(cx, |panel, cx| {
                         let Some(run) = panel.last_run.as_mut().filter(|r| !r.ended) else {
                             return false;
                         };
-                        if done {
+                        if let Some(duration) = end {
                             run.ended = true;
-                            run.duration = seen_busy.then_some(elapsed);
+                            run.duration = duration;
                             cx.notify();
                             return false;
                         }
