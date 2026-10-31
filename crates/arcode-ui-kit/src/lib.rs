@@ -5,6 +5,7 @@
 mod assets;
 mod color_key;
 mod components;
+mod effects;
 mod font_fallback;
 mod icon;
 mod settings;
@@ -13,6 +14,7 @@ mod theme;
 pub use assets::{Assets, BUNDLED_MONO_FONT, load_fonts};
 pub use color_key::ColorKey;
 pub use components::*;
+pub use effects::{Elevated, debounce, font_choices, looks_monospace, low_end};
 pub use font_fallback::{apply_glyph_fallbacks, glyph_advance, keep_font_runs_distinct};
 pub use icon::{Icon, IconName, icon};
 pub use settings::{Settings, animation_duration, set_settings, settings};

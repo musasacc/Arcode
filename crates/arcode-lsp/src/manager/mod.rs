@@ -1,7 +1,10 @@
 //! [`LspManager`]: the UI-facing registry of language servers.
 
 mod actor;
+mod answer;
+mod changes;
 mod config;
+mod lifecycle;
 mod requests;
 mod text;
 
@@ -15,12 +18,12 @@ use tokio::runtime::{Handle, Runtime};
 use tokio::sync::oneshot;
 
 use actor::{Command, MakeOpenText, ServerSlot};
+pub use answer::Answer;
 pub use config::{ServerConfig, find_root};
 use text::LazyText;
 
 use crate::client::LspClient;
 use crate::event::{EventReceiver, EventSink, PositionEncoding};
-use crate::sync::TextChange;
 use crate::uri::path_to_uri;
 
 /// Default limit for [`LspManager::shutdown_all`].
@@ -28,19 +31,31 @@ const SHUTDOWN_ALL_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct OpenDoc {
     uri: Uri,
+    language_id: String,
+    /// Latest version, for a server (re)started while the document is open.
+    version: i32,
     /// Latest full text, for `didSave` with `includeText`.
     text: Arc<LazyText>,
+    /// Builds the latest text for a `didOpen`.
+    open_text: Arc<MakeOpenText>,
+    /// Its servers, in priority order.
     servers: Vec<Arc<ServerSlot>>,
 }
 
 #[derive(Default)]
 struct State {
+    configs: HashMap<String, ServerConfig>,
+    /// Language id -> server names in priority order.
+    languages: HashMap<String, Vec<String>>,
     workspace_root: Option<PathBuf>,
     servers: HashMap<(String, PathBuf), Arc<ServerSlot>>,
     documents: HashMap<PathBuf, OpenDoc>,
     /// Files outside the workspace that join its server when opened; see
     /// [`LspManager::attach_to_workspace`].
     attached: HashSet<PathBuf>,
+    /// Instances being restarted: the replacement starts once the old one
+    /// acknowledged its shutdown, so their events never interleave.
+    stopping: HashMap<(String, PathBuf), oneshot::Receiver<()>>,
 }
 
 /// Owns a small tokio runtime and every running language server.
@@ -53,8 +68,6 @@ struct State {
 /// threshold to 1 MiB so the transient copies of large documents are
 /// returned to the OS (see `memory.rs`).
 pub struct LspManager {
-    configs: HashMap<String, ServerConfig>,
-    languages: HashMap<String, Vec<String>>,
     events: EventSink,
     handle: Handle,
     state: Mutex<State>,
@@ -63,8 +76,9 @@ pub struct LspManager {
 
 impl std::fmt::Debug for LspManager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let names: Vec<String> = self.lock().configs.keys().cloned().collect();
         f.debug_struct("LspManager")
-            .field("servers", &self.configs.keys().collect::<Vec<_>>())
+            .field("servers", &names)
             .finish_non_exhaustive()
     }
 }
@@ -95,12 +109,15 @@ impl LspManager {
             .enable_all()
             .build()?;
         let (events, receiver) = EventSink::channel();
-        let manager = LspManager {
+        let state = State {
             configs: servers.into_iter().map(|c| (c.name.clone(), c)).collect(),
-            languages,
+            languages: config::dedupe_languages(languages),
+            ..State::default()
+        };
+        let manager = LspManager {
             events,
             handle: runtime.handle().clone(),
-            state: Mutex::new(State::default()),
+            state: Mutex::new(state),
             runtime: Some(runtime),
         };
         Ok((manager, receiver))
@@ -163,7 +180,6 @@ impl LspManager {
     ) {
         let path = absolute(path);
         let uri = path_to_uri(&path);
-        let names = self.languages.get(language_id).cloned().unwrap_or_default();
         let mut state = self.lock();
         if let Some(old) = state.documents.remove(&path) {
             old.servers.iter().for_each(|s| {
@@ -172,128 +188,73 @@ impl LspManager {
                 })
             });
         }
-        let mut servers = Vec::new();
+        let doc = OpenDoc {
+            uri,
+            language_id: language_id.to_string(),
+            version,
+            text,
+            open_text: make,
+            servers: Vec::new(),
+        };
+        state.documents.insert(path.clone(), doc);
+        self.attach_servers(&mut state, &path);
+    }
+
+    /// Makes `path`'s servers match its language's configured list:
+    /// starts (once per root) and opens the document on servers it lacks,
+    /// closes it on servers no longer listed, keeping priority order.
+    fn attach_servers(&self, state: &mut State, path: &Path) {
+        let Some(doc) = state.documents.get(path) else {
+            return;
+        };
+        let (uri, language_id, version) = (doc.uri.clone(), doc.language_id.clone(), doc.version);
+        let (open_text, current) = (doc.open_text.clone(), doc.servers.clone());
+        let names = state
+            .languages
+            .get(&language_id)
+            .cloned()
+            .unwrap_or_default();
+        let mut servers: Vec<Arc<ServerSlot>> = Vec::new();
         for name in names {
-            let Some(config) = self.configs.get(&name) else {
+            if servers.iter().any(|s| s.name == name) {
+                continue; // listed twice: serve the document once
+            }
+            let Some(config) = state.configs.get(&name).cloned() else {
                 log::warn!("language {language_id} references unknown server {name}");
                 continue;
             };
-            let mut root = find_root(&path, &config.root_markers, state.workspace_root.as_deref());
-            if let Some(shared) = config::shared_root(&state, &name, &path, &root) {
+            let mut root = find_root(path, &config.root_markers, state.workspace_root.as_deref());
+            if let Some(shared) = config::shared_root(state, &name, path, &root) {
                 root = shared;
             }
+            if let Some(slot) = current.iter().find(|s| s.name == name && s.root == root) {
+                servers.push(slot.clone());
+                continue;
+            }
+            let key = (name, root.clone());
+            let after = state.stopping.remove(&key);
             let slot = state
                 .servers
-                .entry((name, root.clone()))
-                .or_insert_with(|| actor::spawn(&self.handle, config, root, self.events.clone()))
+                .entry(key)
+                .or_insert_with(|| {
+                    actor::spawn(&self.handle, &config, root, self.events.clone(), after)
+                })
                 .clone();
             slot.send(Command::Open {
                 uri: uri.clone(),
-                language_id: language_id.to_string(),
+                language_id: language_id.clone(),
                 version,
-                text: make.clone(),
+                text: open_text.clone(),
             });
             servers.push(slot);
         }
-        state.documents.insert(path, OpenDoc { uri, text, servers });
-    }
-
-    /// Reports edits. Ranges are UTF-16 (the LSP default); servers that
-    /// negotiated another encoding receive `full_text` instead.
-    ///
-    /// Prefer [`LspManager::change_document_lazy`] for large documents: it
-    /// only builds the full text if some server needs it.
-    pub fn change_document(
-        &self,
-        path: &Path,
-        version: i32,
-        changes: Vec<TextChange>,
-        full_text: impl Into<Arc<str>>,
-    ) {
-        self.change_document_encoded(path, version, changes, PositionEncoding::Utf16, full_text);
-    }
-
-    /// Reports edits whose ranges use `encoding`. Servers using that encoding
-    /// get incremental changes if they want them; others get `full_text`.
-    pub fn change_document_encoded(
-        &self,
-        path: &Path,
-        version: i32,
-        changes: Vec<TextChange>,
-        encoding: PositionEncoding,
-        full_text: impl Into<Arc<str>>,
-    ) {
-        let text = LazyText::ready(full_text.into());
-        self.send_change(path, version, changes, encoding, text);
-    }
-
-    /// Like [`LspManager::change_document_encoded`], but `full_text` is only
-    /// called (at most once, on a runtime thread, possibly later) if a server
-    /// needs the whole document: full sync, a different position encoding,
-    /// an empty `changes` list, or a later `didSave` with text. Servers that
-    /// sync incrementally never trigger it, so typing costs no O(n) copy.
-    ///
-    /// `full_text` must capture a snapshot of the text at `version` (e.g. a
-    /// cloned rope), not a reference to the live buffer.
-    pub fn change_document_lazy(
-        &self,
-        path: &Path,
-        version: i32,
-        changes: Vec<TextChange>,
-        encoding: PositionEncoding,
-        full_text: impl FnOnce() -> String + Send + 'static,
-    ) {
-        let text = LazyText::deferred(full_text);
-        self.send_change(path, version, changes, encoding, text);
-    }
-
-    fn send_change(
-        &self,
-        path: &Path,
-        version: i32,
-        changes: Vec<TextChange>,
-        encoding: PositionEncoding,
-        full_text: Arc<LazyText>,
-    ) {
-        let mut state = self.lock();
-        let Some(doc) = state.documents.get_mut(&absolute(path)) else {
-            return;
-        };
-        doc.text = full_text.clone();
-        for slot in &doc.servers {
-            slot.send(Command::Change {
-                uri: doc.uri.clone(),
-                version,
-                changes: changes.clone(),
-                encoding,
-                full_text: full_text.clone(),
-            });
+        for old in &current {
+            if !servers.iter().any(|s| Arc::ptr_eq(s, old)) {
+                old.send(Command::Close { uri: uri.clone() });
+            }
         }
-    }
-
-    /// Sends `didSave` (with the latest text if a server asked for it).
-    pub fn save_document(&self, path: &Path) {
-        let state = self.lock();
-        let Some(doc) = state.documents.get(&absolute(path)) else {
-            return;
-        };
-        for slot in &doc.servers {
-            slot.send(Command::Save {
-                uri: doc.uri.clone(),
-                text: doc.text.clone(),
-            });
-        }
-    }
-
-    /// Sends `didClose` and forgets the document.
-    pub fn close_document(&self, path: &Path) {
-        let Some(doc) = self.lock().documents.remove(&absolute(path)) else {
-            return;
-        };
-        for slot in &doc.servers {
-            slot.send(Command::Close {
-                uri: doc.uri.clone(),
-            });
+        if let Some(doc) = state.documents.get_mut(path) {
+            doc.servers = servers;
         }
     }
 

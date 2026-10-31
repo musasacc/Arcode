@@ -132,10 +132,10 @@ fn run_check(
 }
 
 /// The check for a prerequisite named in [`Component::requires`]
-/// (`npm`, `node`, `python`, `pipx`, `go`, `rustup`, `cargo`).
+/// (`npm`, `node`, `python`, `pipx`, `go`, `rustup`, `cargo`, `gem`).
 pub fn requirement_check(name: &str, os: Os) -> Option<CheckCommand> {
     let (program, list): (&str, &[&str]) = match name {
-        "npm" | "node" | "rustup" | "cargo" | "pipx" => (name, &["--version"]),
+        "npm" | "node" | "rustup" | "cargo" | "pipx" | "gem" => (name, &["--version"]),
         "python" => (os.python(), &["--version"]),
         "go" => ("go", &["version"]),
         _ => return None,

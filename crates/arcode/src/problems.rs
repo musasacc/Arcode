@@ -99,6 +99,9 @@ pub fn build_rows(store: &DiagnosticStore, root: Option<&Path>) -> Vec<ProblemRo
     rows
 }
 
+/// Base pause before a low-end rebuild (tripled by `debounce`).
+const REBUILD_DEBOUNCE_MS: u64 = 150;
+
 /// The Problems list view.
 pub struct ProblemsPanel {
     bridge: Entity<LspBridge>,
@@ -108,6 +111,8 @@ pub struct ProblemsPanel {
     selected: Option<usize>,
     scroll: UniformListScrollHandle,
     focus_handle: FocusHandle,
+    /// A rebuild waiting for the low-end debounce.
+    pending: Option<gpui::Task<()>>,
     _observe: Subscription,
 }
 
@@ -122,7 +127,7 @@ impl Focusable for ProblemsPanel {
 impl ProblemsPanel {
     /// Creates the panel; it follows `bridge`'s diagnostics.
     pub fn new(bridge: Entity<LspBridge>, cx: &mut Context<Self>) -> Self {
-        let observe = cx.observe(&bridge, |panel, _, cx| panel.rebuild(cx));
+        let observe = cx.observe(&bridge, |panel, _, cx| panel.schedule_rebuild(cx));
         let mut panel = Self {
             bridge,
             root: None,
@@ -131,10 +136,32 @@ impl ProblemsPanel {
             selected: None,
             scroll: UniformListScrollHandle::new(),
             focus_handle: cx.focus_handle(),
+            pending: None,
             _observe: observe,
         };
         panel.rebuild(cx);
         panel
+    }
+
+    /// Rebuilds at once, or after a pause in low-end mode (several
+    /// diagnostics updates then cost one rebuild).
+    fn schedule_rebuild(&mut self, cx: &mut Context<Self>) {
+        if !arcode_ui_kit::low_end(cx) {
+            self.rebuild(cx);
+            return;
+        }
+        if self.pending.is_some() {
+            return;
+        }
+        let delay = arcode_ui_kit::debounce(REBUILD_DEBOUNCE_MS, cx);
+        self.pending = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(delay).await;
+            this.update(cx, |panel, cx| {
+                panel.pending = None;
+                panel.rebuild(cx);
+            })
+            .ok();
+        }));
     }
 
     /// Sets the folder file paths are shown relative to.

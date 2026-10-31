@@ -1,5 +1,5 @@
 use super::*;
-use crate::candidate::CandidateSource;
+use crate::candidate::{CandidateSource, InsertAction};
 
 fn lsp(label: &str) -> CompletionCandidate {
     CompletionCandidate::new(
@@ -173,6 +173,25 @@ fn items_of_one_server_with_the_same_label_are_all_kept() {
     assert_eq!(idx, [0, 1]);
     let empty: Vec<usize> = rank("", &cands, 10).iter().map(|r| r.index).collect();
     assert_eq!(empty, [0, 1]);
+}
+
+#[test]
+fn servers_duplicate_by_label_and_edit_not_kind() {
+    // rust-analyzer and a second server both offer `HashMap`: one row,
+    // even though they disagree on the kind.
+    let ra = lsp("HashMap");
+    let mut other = lsp("HashMap");
+    other.kind = CandidateKind::Text;
+    other.source = CandidateSource::Lsp {
+        server: "typos".into(),
+    };
+    let cands = vec![ra.clone(), other.clone()];
+    assert_eq!(rank("Hash", &cands, 10).len(), 1);
+    assert_eq!(rank("", &cands, 10).len(), 1);
+    // Same label, different edit: both stay.
+    other.insert = InsertAction::Snippet("HashMap::new()$0".into());
+    let cands = vec![ra, other];
+    assert_eq!(rank("Hash", &cands, 10).len(), 2);
 }
 
 #[test]

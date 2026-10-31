@@ -22,7 +22,7 @@ fn fake_config() -> ServerConfig {
             ("ARCODE_FAKE_ENCODING".into(), "utf-16".into()),
         ],
         root_markers: vec!["project.marker".into()],
-        initialization_options: None,
+        ..Default::default()
     }
 }
 

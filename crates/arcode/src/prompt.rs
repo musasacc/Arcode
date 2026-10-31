@@ -1,6 +1,7 @@
 //! A themed in-window dialog used for prompts on platforms without native
 //! dialogs (Linux). Enter picks the first button, Escape the cancel one.
 
+use arcode_ui_kit::Elevated;
 use arcode_ui_kit::{IconName, icon, theme};
 use gpui::{
     App, Context, EventEmitter, FocusHandle, Focusable, KeyDownEvent, PromptButton, PromptHandle,
@@ -110,7 +111,7 @@ impl Render for PromptDialog {
             .border_color(c.border)
             .bg(c.surface_raised)
             .text_color(c.text)
-            .shadow_md()
+            .elevated(cx)
             .child(
                 div()
                     .flex()

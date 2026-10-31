@@ -94,19 +94,28 @@ pub fn goto_origin(
 /// Reference results as picker items, sorted by file then position. The
 /// label is filled in by the preview loader.
 pub fn reference_items(locations: Vec<Location>, encoding: PositionEncoding) -> Vec<NavItem> {
-    let mut items: Vec<NavItem> = locations
+    merged_reference_items(vec![(locations, encoding)])
+}
+
+/// The references several servers found, in path and position order, a
+/// place two servers both reported listed once.
+pub fn merged_reference_items(answers: Vec<(Vec<Location>, PositionEncoding)>) -> Vec<NavItem> {
+    let mut items: Vec<NavItem> = answers
         .iter()
-        .filter_map(|l| location_target(l, encoding))
+        .flat_map(|(locations, encoding)| {
+            locations
+                .iter()
+                .filter_map(|l| location_target(l, *encoding))
+        })
         .map(|t| NavItem::new(String::new(), t))
         .collect();
-    items.sort_by(|a, b| {
-        let key = |i: &NavItem| match &i.target.pos {
-            NavPos::Lsp { range, .. } => (range.start.line, range.start.character),
-            NavPos::Points(r) => (r.start.line as u32, r.start.column as u32),
-        };
-        (&a.target.path, key(a)).cmp(&(&b.target.path, key(b)))
-    });
-    items.dedup_by(|a, b| a.target == b.target);
+    let key = |i: &NavItem| match &i.target.pos {
+        NavPos::Lsp { range, .. } => (range.start.line, range.start.character),
+        NavPos::Points(r) => (r.start.line as u32, r.start.column as u32),
+    };
+    items.sort_by(|a, b| (&a.target.path, key(a)).cmp(&(&b.target.path, key(b))));
+    // Same file and start: one place, whatever encoding each server used.
+    items.dedup_by(|a, b| a.target.path == b.target.path && key(a) == key(b));
     items
 }
 

@@ -6,6 +6,7 @@ use gpui::{TestAppContext, VisualTestContext};
 
 use super::*;
 use crate::actions::{SplitRight, ToggleFinder};
+use crate::app_state;
 
 pub(super) fn init(cx: &mut TestAppContext) {
     cx.update(|cx| {

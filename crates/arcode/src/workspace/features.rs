@@ -146,6 +146,10 @@ impl Workspace {
         self.features
             .todo
             .update(cx, |t, cx| t.paths_changed(paths, overflow, cx));
+        self.debug
+            .debugger
+            .update(cx, |d, cx| d.paths_changed(paths, overflow, cx));
+        self.packages_paths_changed(paths, overflow, cx);
     }
 
     /// The one-line selection of the active editor (to seed searches).

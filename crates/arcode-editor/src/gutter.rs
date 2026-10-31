@@ -102,7 +102,11 @@ pub(crate) fn paint_gutter(
     let lh = layout.line_height;
     let g = &layout.gutter;
     let severities = line_severities(&editor.diagnostics, visible.clone());
-    let bulb = editor.lang.actions.bulb.filter(|(l, _)| visible.contains(l));
+    let bulb = editor
+        .lang
+        .actions
+        .bulb
+        .filter(|(l, _)| visible.contains(l));
     if let Some((line, quick)) = bulb {
         let s = px(13.).min(layout.line_height);
         let bounds = bulb_bounds(layout, line, s);
@@ -184,7 +188,10 @@ pub(crate) fn bulb_bounds(layout: &LayoutSnapshot, line: usize, s: Pixels) -> Bo
     let left = layout.bounds.left() + layout.gutter.marker_left;
     let top = layout.line_top(line);
     Bounds::new(
-        point(left + (MARKER_WIDTH - s) * 0.5, top + (layout.line_height - s) * 0.5),
+        point(
+            left + (MARKER_WIDTH - s) * 0.5,
+            top + (layout.line_height - s) * 0.5,
+        ),
         size(s, s),
     )
 }

@@ -69,6 +69,7 @@ impl Editor {
     }
 
     fn open_rename_field(&mut self, at: Point, target: RenameTarget, cx: &mut Context<Self>) {
+        self.hide_hover();
         let field = RenameField::new(&target.placeholder);
         let view = cx.new(|_| RenameView { field });
         self.lang.rename.field = Some(view.clone());
@@ -142,8 +143,10 @@ impl Editor {
         cx.spawn(async move |this, cx| {
             if let Err(err) = task.await {
                 log::warn!("rename failed: {err}");
-                this.update(cx, |e, cx| e.show_notice(format!("Rename failed: {err}"), cx))
-                    .ok();
+                this.update(cx, |e, cx| {
+                    e.show_notice(format!("Rename failed: {err}"), cx)
+                })
+                .ok();
             }
         })
         .detach();

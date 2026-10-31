@@ -13,6 +13,16 @@ use gpui::Context;
 use super::workspace_edit::{FileOp, plan};
 use super::{LspBridge, LspBridgeEvent};
 
+/// Who asked for a workspace edit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditSource {
+    /// A code action or rename the editor applies; the editor reports a
+    /// failure itself.
+    Editor,
+    /// A server's own `workspace/applyEdit`.
+    Server,
+}
+
 /// A planned workspace edit.
 #[derive(Debug)]
 pub struct EditRequest {
@@ -24,6 +34,8 @@ pub struct EditRequest {
     pub label: Option<String>,
     /// Where the outcome goes.
     pub reply: EditReply,
+    /// Who asked (decides who reports a failure).
+    pub source: EditSource,
 }
 
 /// A shared [`EditRequest`] (events must be `Clone` and comparable).
@@ -60,6 +72,7 @@ impl LspBridge {
         encoding: PositionEncoding,
         label: Option<String>,
         reply: EditReply,
+        source: EditSource,
         cx: &mut Context<Self>,
     ) {
         let ops = match plan(edit) {
@@ -79,6 +92,7 @@ impl LspBridge {
             encoding,
             label,
             reply,
+            source,
         };
         cx.emit(LspBridgeEvent::ApplyEdit(EditHandle(Arc::new(request))));
     }

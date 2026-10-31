@@ -190,23 +190,50 @@ impl Editor {
             self.edit_with(cx, |b, s, _| ops::paste(b, s, &text));
             return;
         }
-        // Lines copied without a selection go above the cursor's line.
+        // Lines copied without a selection go above the cursor's line;
+        // with one copied line per cursor, each cursor gets its own.
+        let lines: Vec<String> = text
+            .strip_suffix('\n')
+            .unwrap_or(&text)
+            .split('\n')
+            .map(|l| format!("{l}\n"))
+            .collect();
         self.edit_with(cx, |b, s, _| {
-            let len = text.chars().count();
+            let per_cursor = s.len() > 1 && lines.len() == s.len();
             let mut sels: Vec<Selection> = Vec::new();
             let mut raw = Vec::new();
             let mut shift = 0;
-            for sel in s.iter() {
+            // First cursor of the line the last insert went to.
+            let mut group = 0;
+            for (i, sel) in s.iter().enumerate() {
                 let at = b.line_start(b.char_to_line(sel.head));
-                if raw
-                    .last()
-                    .is_some_and(|(r, _): &(Range<usize>, String)| r.start == at)
-                {
-                    sels.push(Selection::cursor(sel.head + shift));
-                    continue;
+                let last = raw
+                    .last_mut()
+                    .filter(|(r, _): &&mut (Range<usize>, String)| r.start == at);
+                match (last, per_cursor) {
+                    (Some(_), false) => {}
+                    (Some((_, joined)), true) => {
+                        // Several cursors on one line: their lines go
+                        // together above it, and every cursor of the line
+                        // moves down past all of them.
+                        let n = lines[i].chars().count();
+                        joined.push_str(&lines[i]);
+                        shift += n;
+                        sels[group..]
+                            .iter_mut()
+                            .for_each(|c| *c = Selection::cursor(c.head + n));
+                    }
+                    (None, _) => {
+                        let piece = if per_cursor {
+                            lines[i].clone()
+                        } else {
+                            text.clone()
+                        };
+                        shift += piece.chars().count();
+                        raw.push((at..at, piece));
+                        group = sels.len();
+                    }
                 }
-                raw.push((at..at, text.clone()));
-                shift += len;
                 sels.push(Selection::cursor(sel.head + shift));
             }
             let after = SelectionSet::from_vec(sels, s.primary_index()).unwrap_or_default();

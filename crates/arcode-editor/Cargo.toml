@@ -13,6 +13,7 @@ arcode-syntax.workspace = true
 arcode-config.workspace = true
 arcode-ui-kit.workspace = true
 arcode-completion.workspace = true
+arcode-vim.workspace = true
 log.workspace = true
 anyhow.workspace = true
 

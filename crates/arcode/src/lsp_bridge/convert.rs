@@ -35,6 +35,7 @@ pub fn server_configs(config: &Config) -> (Vec<ServerConfig>, HashMap<String, Ve
                         .initialization_options
                         .as_ref()
                         .and_then(|v| serde_json::to_value(v).ok()),
+                    features: features(&s.features),
                 });
         }
     }
@@ -136,15 +137,16 @@ impl Default for ServerState {
 
 /// Status bar text, e.g. `rust-analyzer: indexing 40%`.
 pub fn status_text(server: &str, state: &ServerState) -> String {
+    format!("{server}: {}", state_text(state))
+}
+
+/// The state part of [`status_text`], e.g. `indexing 40%` or `ready`.
+pub fn state_text(state: &ServerState) -> String {
     match &state.status {
-        ServerStatus::Starting => format!("{server}: starting…"),
-        ServerStatus::Stopped => format!("{server}: stopped"),
-        ServerStatus::Failed(reason) if reason.contains("not found on PATH") => {
-            format!("{server}: not installed")
-        }
-        ServerStatus::Failed(reason) => {
-            format!("{server}: failed: {}", truncate(first_line(reason), 40))
-        }
+        ServerStatus::Starting => "starting…".into(),
+        ServerStatus::Stopped => "stopped".into(),
+        ServerStatus::Failed(reason) if is_not_installed(reason) => "not installed".into(),
+        ServerStatus::Failed(reason) => format!("failed: {}", truncate(first_line(reason), 40)),
         ServerStatus::Running | ServerStatus::Busy(_) => {
             if let Some((_, p)) = state.progress.last() {
                 let title = p
@@ -154,15 +156,38 @@ pub fn status_text(server: &str, state: &ServerState) -> String {
                     .unwrap_or("working");
                 let title = lowercase_first(title);
                 match p.percentage {
-                    Some(pct) => format!("{server}: {title} {pct}%"),
-                    None => format!("{server}: {title}…"),
+                    Some(pct) => format!("{title} {pct}%"),
+                    None => format!("{title}…"),
                 }
             } else if let ServerStatus::Busy(what) = &state.status {
-                format!("{server}: {}", lowercase_first(what))
+                lowercase_first(what)
             } else {
-                format!("{server}: ready")
+                "ready".into()
             }
         }
+    }
+}
+
+/// Whether a failure reason means the server's executable was not found.
+pub fn is_not_installed(reason: &str) -> bool {
+    reason.contains("not found on PATH")
+}
+
+/// The LSP client's feature switches for a configured server.
+pub fn features(f: &arcode_config::LspFeatures) -> arcode_lsp::Features {
+    arcode_lsp::Features {
+        diagnostics: f.diagnostics,
+        completion: f.completion,
+        hover: f.hover,
+        signature_help: f.signature_help,
+        definition: f.definition,
+        references: f.references,
+        symbols: f.symbols,
+        highlights: f.highlights,
+        rename: f.rename,
+        formatting: f.formatting,
+        code_actions: f.code_actions,
+        inlay_hints: f.inlay_hints,
     }
 }
 
@@ -215,6 +240,21 @@ mod tests {
         );
         let unique: std::collections::HashSet<_> = servers.iter().map(|s| &s.name).collect();
         assert_eq!(unique.len(), servers.len());
+        assert_eq!(ra.features, arcode_lsp::Features::default());
+    }
+
+    #[test]
+    fn several_servers_per_language_with_features() {
+        let (config, warnings) = Config::from_toml_str(
+            "[language.rust]\nservers = [\"rust-analyzer\", \"typos\"]\n\
+             [lsp.typos]\ncommand = \"typos-lsp\"\nfeatures = { hover = false }\n",
+        );
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let (servers, languages) = server_configs(&config);
+        assert_eq!(languages["rust"], ["rust-analyzer", "typos"]);
+        let typos = servers.iter().find(|s| s.name == "typos").expect("typos");
+        assert_eq!(typos.command, "typos-lsp");
+        assert!(!typos.features.hover && typos.features.diagnostics);
     }
 
     #[test]

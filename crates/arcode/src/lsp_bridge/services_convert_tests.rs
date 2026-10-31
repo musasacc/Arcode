@@ -112,9 +112,17 @@ fn prepare_rename_answers_become_targets() {
     let buffer = Buffer::new("fn count() {}\n");
     let word = || Some((Point::new(0, 3)..Point::new(0, 8), "count".to_string()));
     let utf16 = PositionEncoding::Utf16;
-    let t = rename_target(&buffer, PrepareRenameResponse::Range(range(0, 3, 0, 8)), utf16, word)
-        .unwrap();
-    assert_eq!((t.range.start, t.placeholder.as_str()), (Point::new(0, 3), "count"));
+    let t = rename_target(
+        &buffer,
+        PrepareRenameResponse::Range(range(0, 3, 0, 8)),
+        utf16,
+        word,
+    )
+    .unwrap();
+    assert_eq!(
+        (t.range.start, t.placeholder.as_str()),
+        (Point::new(0, 3), "count")
+    );
     let t = rename_target(
         &buffer,
         PrepareRenameResponse::RangeWithPlaceholder {
@@ -139,10 +147,17 @@ fn prepare_rename_answers_become_targets() {
 }
 
 #[test]
+#[allow(clippy::mutable_key_type)] // `WorkspaceEdit::changes` is keyed by `Uri`.
 fn plain_changes_are_ordered_by_path() {
     let mut changes = HashMap::new();
-    changes.insert(uri("/p/b.rs"), vec![TextEdit::new(range(0, 0, 0, 1), "x".into())]);
-    changes.insert(uri("/p/a.rs"), vec![TextEdit::new(range(1, 0, 1, 0), "y".into())]);
+    changes.insert(
+        uri("/p/b.rs"),
+        vec![TextEdit::new(range(0, 0, 0, 1), "x".into())],
+    );
+    changes.insert(
+        uri("/p/a.rs"),
+        vec![TextEdit::new(range(1, 0, 1, 0), "y".into())],
+    );
     let ops = plan(WorkspaceEdit {
         changes: Some(changes),
         ..Default::default()
@@ -196,7 +211,14 @@ fn document_changes_keep_order_and_resource_operations() {
     })
     .unwrap();
     assert_eq!(ops.len(), 4);
-    assert!(matches!(&ops[0], FileOp::Create { ignore_if_exists: true, overwrite: false, .. }));
+    assert!(matches!(
+        &ops[0],
+        FileOp::Create {
+            ignore_if_exists: true,
+            overwrite: false,
+            ..
+        }
+    ));
     match &ops[1] {
         FileOp::Edit { version, edits, .. } => {
             assert_eq!(*version, Some(4));
@@ -205,7 +227,13 @@ fn document_changes_keep_order_and_resource_operations() {
         other => panic!("{other:?}"),
     }
     assert!(matches!(&ops[2], FileOp::Rename { to, .. } if *to == path("/p/moved.rs")));
-    assert!(matches!(&ops[3], FileOp::Delete { recursive: false, .. }));
+    assert!(matches!(
+        &ops[3],
+        FileOp::Delete {
+            recursive: false,
+            ..
+        }
+    ));
 }
 
 #[test]

@@ -19,6 +19,7 @@ impl Render for Editor {
         self.hover_check_focus(window, cx);
         self.lang_check_focus(window, cx);
         self.inlay_sync(cx);
+        self.vim_sync(cx);
         div()
             .id("editor")
             .key_context(KEY_CONTEXT)
@@ -63,6 +64,8 @@ impl Render for Editor {
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::select_next_occurrence))
+            .on_action(cx.listener(Self::select_all_occurrences))
+            .on_action(cx.listener(Self::undo_cursor))
             .on_action(cx.listener(Self::add_cursor_above))
             .on_action(cx.listener(Self::add_cursor_below))
             .on_action(cx.listener(Self::cancel))

@@ -197,3 +197,18 @@ fn recent_commands_are_ordered_capped_and_saved() {
     let loaded = AppState::load_from(&path).unwrap();
     assert_eq!(loaded.recent_commands, ["arcode::ToggleFinder"]);
 }
+
+#[test]
+fn hidden_package_banners_are_saved_per_project() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.toml");
+    let mut state = AppState::default();
+    assert!(!state.package_banner_hidden(Path::new("/p/web")));
+    state.hide_package_banner(Path::new("/p/web"));
+    state.hide_package_banner(Path::new("/p/web"));
+    assert_eq!(state.hidden_package_banners.len(), 1);
+    state.save_to(&path).unwrap();
+    let back = AppState::load_from(&path).unwrap();
+    assert!(back.package_banner_hidden(Path::new("/p/web")));
+    assert!(!back.package_banner_hidden(Path::new("/p/other")));
+}

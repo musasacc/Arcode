@@ -238,6 +238,7 @@ impl Editor {
         self.layout = Some(snapshot.clone());
         self.hover_after_layout(previous_scroll);
         self.inlay_after_layout(cx);
+        self.vim_after_layout(cx);
         log::trace!(
             "layout of {} lines took {:?}",
             snapshot.lines.len(),

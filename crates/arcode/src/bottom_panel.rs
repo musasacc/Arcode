@@ -1,7 +1,7 @@
 //! The bottom panel: tabs for Terminal, Problems, Todo and Debug.
 //!
-//! Terminal, Problems and Todo have real content ([`TerminalPanel`],
-//! [`ProblemsPanel`], [`TodoView`]); Debug is a placeholder.
+//! Terminal, Problems, Todo and Debug show [`TerminalPanel`],
+//! [`ProblemsPanel`], [`TodoView`] and [`DebugPanel`].
 
 use std::path::PathBuf;
 
@@ -12,6 +12,7 @@ use gpui::{
 };
 
 use crate::actions::{ToggleBottomPanel, shortcut_label};
+use crate::debugger::panel::DebugPanel;
 use crate::lsp_bridge::LspBridge;
 use crate::problems::ProblemsPanel;
 use crate::terminal_panel::{self, TerminalPanel};
@@ -80,6 +81,8 @@ pub struct BottomPanel {
     problems: Entity<ProblemsPanel>,
     /// The TODO list and its store (set by the workspace).
     todo: Option<(Entity<TodoStore>, Entity<TodoView>, Subscription)>,
+    /// The Debug tab (set by the workspace).
+    debug: Option<Entity<DebugPanel>>,
     _subscriptions: [Subscription; 2],
 }
 
@@ -107,6 +110,7 @@ impl BottomPanel {
             terminals,
             problems,
             todo: None,
+            debug: None,
             _subscriptions: subscriptions,
         }
     }
@@ -132,6 +136,34 @@ impl BottomPanel {
         let sub = cx.observe(&store, |_, _, cx| cx.notify());
         self.todo = Some((store, view, sub));
         cx.notify();
+    }
+
+    /// Shows `panel` in the Debug tab.
+    pub fn set_debug(&mut self, panel: Entity<DebugPanel>, cx: &mut Context<Self>) {
+        self.debug = Some(panel);
+        cx.notify();
+    }
+
+    /// The Debug tab content, once set.
+    pub fn debug(&self) -> Option<&Entity<DebugPanel>> {
+        self.debug.as_ref()
+    }
+
+    /// Shows the Terminal tab and runs `command` in the terminal named
+    /// `title` (a new one in `cwd` unless an idle one has that name).
+    pub fn run_named(
+        &mut self,
+        title: &str,
+        command: &str,
+        cwd: Option<PathBuf>,
+        on_started: Option<crate::terminal_panel::OnStarted>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_active_tab(BottomTab::Terminal, cx);
+        self.terminals.update(cx, |t, cx| {
+            t.run_in_named(title, command, cwd, on_started, window, cx)
+        });
     }
 
     /// Sets the project root: terminals start there and problem paths are
@@ -173,6 +205,16 @@ impl BottomPanel {
         });
     }
 
+    /// Shows the Terminal tab with a new terminal started in `dir` and
+    /// focuses it.
+    pub fn new_terminal_in(&mut self, dir: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_active_tab(BottomTab::Terminal, cx);
+        self.terminals.update(cx, |t, cx| {
+            t.new_terminal_in(Some(dir), window, cx);
+            t.focus(window, cx);
+        });
+    }
+
     /// Focuses the active tab's content; the Terminal tab starts a
     /// terminal if none is running.
     pub fn focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -183,7 +225,10 @@ impl BottomPanel {
                 Some((_, view, _)) => window.focus(&view.focus_handle(cx)),
                 None => window.focus(&self.focus_handle),
             },
-            BottomTab::Debug => window.focus(&self.focus_handle),
+            BottomTab::Debug => match &self.debug {
+                Some(debug) => debug.read(cx).focus_repl(window, cx),
+                None => window.focus(&self.focus_handle),
+            },
         }
     }
 
@@ -282,7 +327,16 @@ impl BottomPanel {
                 }
                 None => "TODO and FIXME comments will be listed here.".into(),
             },
-            BottomTab::Debug => "The debug console will appear here.".into(),
+            BottomTab::Debug => match &self.debug {
+                Some(debug) => {
+                    return div()
+                        .flex_1()
+                        .min_h_0()
+                        .child(debug.clone())
+                        .into_any_element();
+                }
+                None => "The debug console will appear here.".into(),
+            },
         };
         div()
             .flex_1()

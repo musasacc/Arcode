@@ -13,15 +13,22 @@ pub mod edits;
 mod events;
 pub mod highlights;
 pub mod hover;
+pub mod log_tab;
 pub mod nav_convert;
 #[cfg(test)]
 mod nav_convert_tests;
 pub mod navigation;
+pub mod servers;
+#[cfg(test)]
+mod servers_tests;
 pub mod services;
 pub mod services_convert;
+pub mod status_view;
 pub mod workspace_edit;
 
-use std::collections::HashMap;
+pub use log_tab::init;
+
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -29,10 +36,11 @@ use std::time::Duration;
 
 use arcode_editor::{Editor, EditorEvent};
 use arcode_lsp::lsp_types::Position;
-use arcode_lsp::{DiagnosticCounts, DiagnosticStore, EventReceiver, LspManager, PositionEncoding};
+use arcode_lsp::{DiagnosticCounts, DiagnosticStore, LspManager, PositionEncoding};
 use arcode_ui_kit::settings;
 use gpui::{
-    App, Context, Entity, EntityId, EventEmitter, SharedString, Subscription, Task, WeakEntity,
+    App, AppContext as _, Context, Entity, EntityId, EventEmitter, SharedString, Subscription,
+    Task, WeakEntity,
 };
 
 use convert::ServerState;
@@ -72,11 +80,21 @@ pub struct LspBridge {
     root: Option<PathBuf>,
     store: DiagnosticStore,
     servers: HashMap<String, ServerState>,
+    /// Recent output and status changes per server.
+    logs: HashMap<String, servers::ServerLog>,
+    /// Lines were logged since the log tabs were last told.
+    logs_dirty: bool,
+    log_feed: Entity<servers::LogFeed>,
+    /// Servers whose missing executable was already reported.
+    hinted: HashSet<String>,
+    /// Language id of the active editor (for the status bar).
+    active_language: Option<String>,
     docs: HashMap<EntityId, Doc>,
     /// Debounced occurrence-highlight requests per editor.
     highlight_tasks: HashMap<EntityId, Task<()>>,
     _events: Option<Task<()>>,
     _quit: Subscription,
+    _settings: Subscription,
 }
 
 impl EventEmitter<LspBridgeEvent> for LspBridge {}
@@ -92,16 +110,25 @@ impl LspBridge {
         });
         cx.on_release(|bridge: &mut Self, _| bridge.stop_servers())
             .detach();
+        let settings = cx.observe_global::<arcode_ui_kit::Settings>(|bridge: &mut Self, cx| {
+            bridge.settings_changed(cx)
+        });
         Self {
             enabled: true,
             manager: None,
             root: None,
             store: DiagnosticStore::new(),
             servers: HashMap::new(),
+            logs: HashMap::new(),
+            logs_dirty: false,
+            log_feed: cx.new(|_| servers::LogFeed),
+            hinted: HashSet::new(),
+            active_language: None,
             docs: HashMap::new(),
             highlight_tasks: HashMap::new(),
             _events: None,
             _quit: quit,
+            _settings: settings,
         }
     }
 
@@ -130,6 +157,9 @@ impl LspBridge {
         self.root = root;
         self.store = DiagnosticStore::new();
         self.servers.clear();
+        self.logs.clear();
+        self.logs_dirty = true;
+        self.flush_logs(cx);
         cx.emit(LspBridgeEvent::DiagnosticsChanged);
         cx.emit(LspBridgeEvent::StatusChanged);
         cx.notify();
@@ -239,6 +269,22 @@ impl LspBridge {
         self.register_editor(editor, cx);
     }
 
+    /// The editor's language changed (language picker, file association):
+    /// like [`Self::editor_path_changed`], and the diagnostics the old
+    /// language's servers published for the file are dropped (the new
+    /// servers publish their own after `didOpen`).
+    pub fn editor_language_changed(&mut self, editor: &Entity<Editor>, cx: &mut Context<Self>) {
+        let path = editor.read(cx).path().map(Path::to_path_buf);
+        if let Some(path) = path
+            && !self.store.for_path(&path).is_empty()
+        {
+            self.store.clear_path(&path);
+            cx.emit(LspBridgeEvent::DiagnosticsChanged);
+            cx.notify();
+        }
+        self.editor_path_changed(editor, cx);
+    }
+
     /// Asks the editors served by `server` (every editor when `None`) for
     /// their inlay hints again.
     pub(crate) fn refresh_inlay_hints(&self, server: Option<&str>, cx: &mut App) {
@@ -290,18 +336,12 @@ impl LspBridge {
         };
         match event {
             EditorEvent::Edited { edits, version } => {
-                let encoding = manager
-                    .running_servers(&doc.path)
-                    .first()
-                    .and_then(|server| manager.position_encoding(&doc.path, server))
-                    .unwrap_or_default();
-                let changes = convert::text_changes(edits, encoding);
+                // Each server gets incremental changes in its own encoding.
                 let rope = editor.read(cx).buffer().text().clone();
-                manager.change_document_lazy(
+                manager.change_document_multi(
                     &doc.path,
                     lsp_version(*version),
-                    changes,
-                    encoding,
+                    |encoding| convert::text_changes(edits, encoding),
                     move || rope.to_string(),
                 );
             }
@@ -309,7 +349,9 @@ impl LspBridge {
             EditorEvent::SelectionsChanged => self.schedule_highlights(editor, cx),
             EditorEvent::DirtyChanged(_)
             | EditorEvent::GutterClicked { .. }
-            | EditorEvent::CodeLensClicked { .. } => {}
+            | EditorEvent::GutterContextClicked { .. }
+            | EditorEvent::CodeLensClicked { .. }
+            | EditorEvent::VimStatusChanged => {}
         }
     }
 
@@ -335,55 +377,9 @@ impl LspBridge {
         self._events = Some(Self::poll_events(events, cx));
         Some(manager)
     }
-
-    fn poll_events(events: EventReceiver, cx: &mut Context<Self>) -> Task<()> {
-        cx.spawn(async move |this, cx| {
-            while let Ok(first) = events.recv().await {
-                let mut batch = vec![first];
-                while batch.len() < EVENT_BATCH {
-                    match events.try_recv() {
-                        Ok(event) => batch.push(event),
-                        Err(_) => break,
-                    }
-                }
-                let alive = this.update(cx, |bridge, cx| {
-                    for event in batch {
-                        bridge.handle_event(event, cx);
-                    }
-                });
-                if alive.is_err() {
-                    break;
-                }
-            }
-        })
-    }
-
-    /// Sends the merged diagnostics for `path` to its open editors.
-    pub(super) fn push_diagnostics(&self, path: &Path, cx: &mut App) {
-        let editors: Vec<Entity<Editor>> = self
-            .docs
-            .values()
-            .filter(|d| d.path == path)
-            .filter_map(|d| d.editor.upgrade())
-            .collect();
-        for editor in editors {
-            let diagnostics: Vec<_> = {
-                let e = editor.read(cx);
-                self.store
-                    .for_path(path)
-                    .into_iter()
-                    .map(|(server, d)| {
-                        let encoding = self.encoding(path, server);
-                        convert::editor_diagnostic(e.buffer(), server, d, encoding)
-                    })
-                    .collect()
-            };
-            editor.update(cx, |e, cx| e.set_diagnostics(diagnostics, cx));
-        }
-    }
 }
 
 /// LSP document versions are `i32`.
-fn lsp_version(version: u64) -> i32 {
+pub(crate) fn lsp_version(version: u64) -> i32 {
     i32::try_from(version).unwrap_or(i32::MAX)
 }

@@ -111,6 +111,7 @@ impl LspClient {
             root.clone(),
             events,
             spec.initialization_options.clone(),
+            spec.features,
         );
         shared.emit_status(ServerStatus::Starting);
         let spawned = match process::spawn(&spec, &root) {
@@ -147,7 +148,13 @@ impl LspClient {
         R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin + Send + 'static,
     {
-        let (shared, rx) = Shared::new(name.into(), root, events, initialization_options);
+        let (shared, rx) = Shared::new(
+            name.into(),
+            root,
+            events,
+            initialization_options,
+            crate::Features::default(),
+        );
         shared.emit_status(ServerStatus::Starting);
         tokio::spawn(dispatch::read_loop(shared.clone(), BufReader::new(reader)));
         tokio::spawn(dispatch::write_loop(shared.clone(), rx, writer));
@@ -185,11 +192,14 @@ impl LspClient {
         };
         let encoding = PositionEncoding::from_kind(result.capabilities.position_encoding.as_ref());
         let sync = DocumentSync::from_capabilities(&result.capabilities);
+        let mut capabilities = result.capabilities;
+        // Features turned off for this server look like it lacks them.
+        shared.features.mask(&mut capabilities);
         shared.set_encoding(encoding);
         let client = LspClient {
             lifetime,
             negotiated: Arc::new(Negotiated {
-                capabilities: result.capabilities,
+                capabilities,
                 encoding,
                 server_info: result.server_info,
                 sync,

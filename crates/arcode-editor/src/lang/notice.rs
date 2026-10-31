@@ -49,6 +49,7 @@ impl Editor {
     /// click, cursor move or edit.
     pub fn show_notice(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
         let text = text.into();
+        self.hide_hover();
         let anchor = self.offset_to_point(self.selections.primary().head);
         let view = cx.new(|_| Notice { text });
         let popover = EditorPopover::new(anchor, view.into()).on_key(|editor, _, _, cx| {

@@ -81,6 +81,12 @@ actions!(
         SelectAll,
         /// Selects the word or adds the next occurrence.
         SelectNextOccurrence,
+        /// Selects every occurrence of the selection (or of the word at
+        /// the cursor).
+        SelectAllOccurrences,
+        /// Goes back to the cursors and selections before the last cursor
+        /// change.
+        UndoCursor,
         /// Adds a cursor on the line above.
         AddCursorAbove,
         /// Adds a cursor on the line below.
@@ -127,6 +133,8 @@ actions!(
         ToggleInlayHints,
         /// Opens the editor's context menu at the cursor.
         ShowContextMenu,
+        /// Turns Vim mode on or off in every editor (for this session).
+        ToggleVimMode,
     ]
 );
 
@@ -168,6 +176,10 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-v", Paste, ctx),
         KeyBinding::new("secondary-a", SelectAll, ctx),
         KeyBinding::new("secondary-d", SelectNextOccurrence, ctx),
+        KeyBinding::new("secondary-shift-l", SelectAllOccurrences, ctx),
+        KeyBinding::new("secondary-u", UndoCursor, ctx),
+        KeyBinding::new("secondary-alt-up", AddCursorAbove, ctx),
+        KeyBinding::new("secondary-alt-down", AddCursorBelow, ctx),
         KeyBinding::new("alt-shift-up", AddCursorAbove, ctx),
         KeyBinding::new("alt-shift-down", AddCursorBelow, ctx),
         KeyBinding::new("escape", Cancel, ctx),

@@ -37,6 +37,8 @@ impl Workspace {
     /// overlay or nowhere).
     pub fn open_palette(&mut self, query: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.project_menu_open = false;
+        // One overlay at a time; a theme or font preview is undone.
+        self.close_prefs_picker(true, window, cx);
         if self.finder.take().is_some() {
             self.active_pane().read(cx).focus(window, cx);
         }

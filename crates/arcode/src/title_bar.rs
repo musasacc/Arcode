@@ -7,6 +7,7 @@ use arcode_ui_kit::{
 use gpui::{AnyView, Context, IntoElement, SharedString, Window, div, prelude::*, px};
 
 use crate::actions::{OpenSettings, RunProject, ToggleFinder, shortcut_label};
+use crate::prefs::tour::TourTarget;
 use crate::workspace::Workspace;
 
 /// Height of the title bar.
@@ -24,11 +25,13 @@ pub fn render(
         .map(|p| p.name.clone().into())
         .unwrap_or_else(|| "No Project".into());
     let branch = ws.branch_label(cx);
-    let run_command = project.and_then(|p| p.run_command());
+    let run_command = ws.run_command_line();
     let menu_open = ws.project_menu_open();
+    let anchors = ws.tour_anchors().clone();
 
     let dropdown = div()
         .id("project-dropdown")
+        .relative()
         .flex()
         .items_center()
         .gap_1p5()
@@ -52,6 +55,7 @@ pub fn render(
                 .size(px(12.))
                 .color(c.text_muted),
         )
+        .child(anchors.recorder(TourTarget::ProjectDropdown))
         .on_click(cx.listener(|ws, _, _, cx| ws.toggle_project_menu(cx)));
 
     let left = div()
@@ -87,6 +91,7 @@ pub fn render(
 
     let search = div()
         .id("search-box")
+        .relative()
         .flex()
         .items_center()
         .gap_2()
@@ -110,11 +115,12 @@ pub fn render(
                 .child("> commands"),
         )
         .child(kbd(shortcut_label("secondary-p")))
+        .child(anchors.recorder(TourTarget::SearchBox))
         .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleFinder), cx));
 
     let run_tooltip = match run_command {
-        Some(cmd) => format!("Run `{cmd}` (F5)"),
-        None => "No run command detected".to_string(),
+        Some(cmd) => format!("Run `{cmd}` ({})", shortcut_label("secondary-f5")),
+        None => "No run command detected; pick one from the menu".to_string(),
     };
     let right = div()
         .flex()
@@ -126,17 +132,44 @@ pub fn render(
         .gap_1()
         .when(project.is_some(), |el| {
             el.child(
-                button("run", "Run")
-                    .icon(IconName::Play)
-                    .style(ButtonStyle::Ghost)
-                    .tooltip(run_tooltip)
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(RunProject), cx)),
+                div()
+                    .relative()
+                    .flex()
+                    .items_center()
+                    .child(anchors.recorder(TourTarget::RunButton))
+                    .child(
+                        button("run", "Run")
+                            .icon(IconName::Play)
+                            .style(ButtonStyle::Ghost)
+                            .tooltip(run_tooltip)
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(RunProject), cx)
+                            }),
+                    )
+                    .child(
+                        icon_button("run-menu", IconName::ChevronDown)
+                            .size(px(22.))
+                            .tooltip("Pick a run command or edit it")
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(
+                                    Box::new(crate::debugger::actions::PickRunCommand),
+                                    cx,
+                                )
+                            }),
+                    ),
             )
         })
         .child(
-            icon_button("settings", IconName::Settings)
-                .tooltip(format!("Settings ({})", shortcut_label("secondary-,")))
-                .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenSettings), cx)),
+            div()
+                .relative()
+                .child(
+                    icon_button("settings", IconName::Settings)
+                        .tooltip(format!("Settings ({})", shortcut_label("secondary-,")))
+                        .on_click(|_, window, cx| {
+                            window.dispatch_action(Box::new(OpenSettings), cx)
+                        }),
+                )
+                .child(anchors.recorder(TourTarget::SettingsButton)),
         );
 
     div()

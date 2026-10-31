@@ -171,7 +171,11 @@ impl Render for RenameView {
         let (a, b) = (self.field.byte(sel.start), self.field.byte(sel.end));
         let caret = || div().w(px(1.5)).h(code_size * 1.3).bg(colors.cursor);
         let caret_first = self.field.cursor == sel.start && !sel.is_empty();
-        let segment = |s: &str| div().whitespace_nowrap().child(SharedString::from(s.to_string()));
+        let segment = |s: &str| {
+            div()
+                .whitespace_nowrap()
+                .child(SharedString::from(s.to_string()))
+        };
         let line = div()
             .flex()
             .flex_row()
@@ -256,7 +260,11 @@ mod tests {
         press(&mut f, "shift-left");
         press(&mut f, "shift-left");
         assert_eq!(f.selection(), 3..5);
-        let secondary = if cfg!(target_os = "macos") { "cmd" } else { "ctrl" };
+        let secondary = if cfg!(target_os = "macos") {
+            "cmd"
+        } else {
+            "ctrl"
+        };
         assert_eq!(
             press(&mut f, &format!("{secondary}-c")),
             FieldKey::Copy("ße".into())

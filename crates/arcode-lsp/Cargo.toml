@@ -31,3 +31,11 @@ harness = false
 [[test]]
 name = "manager_routing"
 harness = false
+
+[[test]]
+name = "manager_multi"
+harness = false
+
+[[test]]
+name = "review_multi_lsp"
+harness = false

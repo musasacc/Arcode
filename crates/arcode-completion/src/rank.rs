@@ -199,28 +199,49 @@ fn rank_empty(candidates: &[CompletionCandidate], limit: usize) -> Vec<RankedCan
         .collect()
 }
 
-/// The (label, kind) pairs ranked so far, with the server of the first
-/// (`None` for a local source).
+/// What was ranked so far, to drop duplicates: a local candidate (buffer
+/// word, path, snippet) duplicates an earlier candidate with the same label
+/// and kind; a server item duplicates an earlier local candidate with the
+/// same label and kind, or an item of *another* server with the same label
+/// and inserted text (servers disagree on kinds). Items of one server are
+/// never duplicates of each other (they can differ only in what they
+/// import).
 #[derive(Default)]
 struct Seen<'a> {
-    first: HashMap<(&'a str, CandidateKind), Option<&'a str>>,
+    /// (label, kind) -> whether the first was local.
+    by_kind: HashMap<(&'a str, CandidateKind), bool>,
+    /// (label, inserted text) -> server of the first server item.
+    by_edit: HashMap<(&'a str, &'a str), &'a str>,
 }
 
 impl<'a> Seen<'a> {
-    /// Whether `cand` (ranked after every candidate seen so far) is kept:
-    /// it is new, or another item of the server whose item came first.
+    /// Whether `cand` (ranked after every candidate seen so far) is kept.
     fn keep(&mut self, cand: &'a CompletionCandidate) -> bool {
-        let server = match &cand.source {
-            CandidateSource::Lsp { server } => Some(server.as_str()),
-            _ => None,
+        let key = (cand.label.as_str(), cand.kind);
+        let CandidateSource::Lsp { server } = &cand.source else {
+            return match self.by_kind.entry(key) {
+                Slot::Vacant(slot) => {
+                    slot.insert(true);
+                    true
+                }
+                Slot::Occupied(_) => false,
+            };
         };
-        match self.first.entry((cand.label.as_str(), cand.kind)) {
-            Slot::Vacant(slot) => {
-                slot.insert(server);
-                true
-            }
-            Slot::Occupied(first) => server.is_some() && *first.get() == server,
+        if self.by_kind.get(&key) == Some(&true) {
+            return false;
         }
+        match self
+            .by_edit
+            .entry((cand.label.as_str(), cand.insert.text()))
+        {
+            Slot::Occupied(first) if *first.get() != server.as_str() => return false,
+            Slot::Occupied(_) => {}
+            Slot::Vacant(slot) => {
+                slot.insert(server.as_str());
+            }
+        }
+        self.by_kind.entry(key).or_insert(false);
+        true
     }
 }
 

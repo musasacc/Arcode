@@ -127,7 +127,12 @@ pub fn init(cx: &mut App) {
         }
     }
     for (label, action) in crate::actions::editor_commands() {
-        register(cx, label, action);
+        // Vim mode is toggled app-wide (`arcode_editor::init`).
+        if action.name() == arcode_editor::ToggleVimMode.name() {
+            register_global(cx, label, action);
+        } else {
+            register(cx, label, action);
+        }
     }
 }
 

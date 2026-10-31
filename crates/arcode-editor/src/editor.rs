@@ -8,59 +8,18 @@ use arcode_buffer::{Buffer, Edit, Point, SelectionSet, ops::OpsConfig};
 use arcode_completion::SnippetSession;
 use arcode_syntax::{HighlightSpan, InputEditData, Language, Syntax};
 use gpui::{
-    App, Context, EventEmitter, FocusHandle, Focusable, Modifiers, Pixels, SharedString, Task,
-    Window,
+    App, Context, EventEmitter, FocusHandle, Focusable, Pixels, SharedString, Task, Window,
 };
 
 use crate::api::ScrollAnchor;
 use crate::completion::CompletionState;
 use crate::diagnostics::{EditorDiagnostic, adjust_for_edit};
-use crate::ext::{ExtState, GutterLane};
+pub use crate::event::EditorEvent;
+use crate::ext::ExtState;
 use crate::hover::{HoverState, HoverTracker};
 use crate::layout::LayoutSnapshot;
 use crate::mouse::DragState;
 use crate::style::{EditorStyle, ops_config};
-
-/// Events emitted by an [`Editor`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EditorEvent {
-    /// The buffer changed. `edits` are in application order (apply them
-    /// sequentially); `version` is the buffer version afterwards.
-    Edited {
-        /// The applied edits.
-        edits: Vec<Edit>,
-        /// Buffer version after the edits.
-        version: u64,
-    },
-    /// The buffer was written to disk.
-    Saved,
-    /// Cursors or selections moved.
-    SelectionsChanged,
-    /// The dirty flag flipped.
-    DirtyChanged(bool),
-    /// A gutter lane was clicked: on a mark (`tag` is its
-    /// [`GutterDecoration::tag`](crate::GutterDecoration::tag)) or on an
-    /// empty slot of a lane that is clickable when empty (`tag` is `None`).
-    GutterClicked {
-        /// Zero-based buffer line.
-        line: usize,
-        /// The lane.
-        lane: GutterLane,
-        /// Tag of the clicked mark, if any.
-        tag: Option<u64>,
-        /// Modifiers held during the click.
-        modifiers: Modifiers,
-    },
-    /// A code lens item was clicked.
-    CodeLensClicked {
-        /// The set the lens belongs to.
-        set: SharedString,
-        /// Zero-based buffer line of the lens.
-        line: usize,
-        /// The [`LensItem::id`](crate::LensItem::id).
-        id: u64,
-    },
-}
 
 /// How a pending scroll request positions the primary cursor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,6 +80,16 @@ pub struct Editor {
     pub(crate) completion: CompletionState,
     /// Inlay hints, code actions, rename and formatting.
     pub(crate) lang: crate::lang::LangState,
+    /// Between [`Editor::begin_edit_group`] and [`Editor::end_edit_group`]:
+    /// the selections the last grouped edit left (`None` before the first).
+    pub(crate) edit_group: Option<Option<SelectionSet>>,
+    /// Earlier selections for [`crate::UndoCursor`].
+    pub(crate) cursor_history: crate::commands::multi_cursor::CursorHistory,
+    /// Vim mode state, while Vim mode is on.
+    pub(crate) vim: Option<Box<crate::vim::VimState>>,
+    /// Indentation chosen for this file (status bar picker or detected
+    /// from its content), overriding the language settings.
+    pub(crate) indent_override: Option<crate::doc_settings::IndentOverride>,
 }
 
 impl EventEmitter<EditorEvent> for Editor {}
@@ -170,6 +139,10 @@ impl Editor {
             snippet: None,
             completion: CompletionState::default(),
             lang: Default::default(),
+            edit_group: None,
+            cursor_history: Default::default(),
+            vim: None,
+            indent_override: None,
         };
         crate::completion::register_editor(cx.entity().downgrade(), cx);
         editor.init_syntax(cx);
@@ -276,8 +249,12 @@ impl Editor {
     }
 
     /// Position of the primary cursor.
+    /// In Vim's Visual modes this is the char Vim's cursor is on.
     pub fn cursor_position(&self) -> Point {
-        self.buffer.char_to_point(self.selections.primary().head)
+        let head = self
+            .vim_primary_head()
+            .unwrap_or(self.selections.primary().head);
+        self.buffer.char_to_point(head)
     }
 
     /// The current selections.
@@ -315,12 +292,21 @@ impl Editor {
 
     /// The editor's current style from settings.
     pub(crate) fn style(&self, cx: &App) -> EditorStyle {
-        EditorStyle::from_settings(self.language.id, cx)
+        let mut style = EditorStyle::from_settings(self.language.id, cx);
+        if let Some(indent) = self.indent_override {
+            style.tab_size = indent.tab_width;
+        }
+        style
     }
 
     /// Editing-command settings for this buffer's language.
     pub(crate) fn ops_config(&self, cx: &App) -> OpsConfig {
-        ops_config(self.language.id, cx)
+        let mut cfg = ops_config(self.language.id, cx);
+        if let Some(indent) = self.indent_override {
+            cfg.indent = indent.unit;
+            cfg.tab_width = indent.tab_width;
+        }
+        cfg
     }
 
     /// Bookkeeping after the selections moved without an edit.
@@ -331,6 +317,8 @@ impl Editor {
         self.completion_sync(cx);
         self.signature_refresh(cx);
         self.lang_after_cursor_move(cx);
+        self.vim_after_selections(cx);
+        self.cursor_history.record(&self.selections);
         self.autoscroll.get_or_insert(Autoscroll::Fit);
         self.reset_blink(cx);
         cx.emit(EditorEvent::SelectionsChanged);
@@ -372,6 +360,8 @@ impl Editor {
             adjust_for_edit(&mut self.diagnostics, e);
             self.ext.adjust_for_edit(e);
         }
+        self.vim_after_edits(&edits);
+        self.cursor_history.reset(&self.selections);
         self.words_after_edits(&edits);
         self.completion_sync(cx);
         self.signature_refresh(cx);
@@ -386,7 +376,7 @@ impl Editor {
         cx.notify();
     }
 
-    fn check_dirty(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn check_dirty(&mut self, cx: &mut Context<Self>) {
         let dirty = self.buffer.is_dirty();
         if dirty != self.was_dirty {
             self.was_dirty = dirty;

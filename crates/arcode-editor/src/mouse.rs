@@ -31,6 +31,9 @@ pub(crate) enum DragState {
     },
     /// Dragging the scrollbar thumb, grabbed `grab` below its top.
     Scrollbar { grab: Pixels },
+    /// A box selection (Alt+Shift+drag or the middle button) from
+    /// `(line, x from the text origin)`.
+    Column { anchor: (usize, Pixels) },
 }
 
 impl Editor {
@@ -77,6 +80,12 @@ impl Editor {
             self.context_click(event, &layout, window, cx);
             return;
         }
+        let column = event.button == MouseButton::Middle
+            || (event.button == MouseButton::Left && event.modifiers.alt && event.modifiers.shift);
+        if column && layout.text_bounds.contains(&event.position) {
+            self.column_drag_start(&layout, event.position, cx);
+            return;
+        }
         if event.button != MouseButton::Left {
             return;
         }
@@ -117,6 +126,16 @@ impl Editor {
             });
         } else {
             let sel = Selection::new(unit.start, unit.end);
+            let removed = (event.modifiers.alt && mode == DragMode::Char)
+                .then(|| crate::commands::multi_cursor::without_selection_at(&self.selections, pos))
+                .flatten();
+            if let Some(rest) = removed {
+                // Alt+click on a cursor removes it.
+                self.selections = rest;
+                self.drag = None;
+                self.selections_changed(cx);
+                return;
+            }
             if event.modifiers.alt {
                 self.selections.add(sel);
             } else {
@@ -141,6 +160,9 @@ impl Editor {
         match self.drag.clone() {
             Some(DragState::Scrollbar { grab }) => {
                 self.drag_scrollbar(&layout, event.position.y, grab, cx);
+            }
+            Some(DragState::Column { anchor }) if event.pressed_button.is_some() => {
+                self.column_drag_move(&layout, anchor, event.position, cx);
             }
             Some(DragState::Text { mode, origin })
                 if event.pressed_button == Some(MouseButton::Left) =>

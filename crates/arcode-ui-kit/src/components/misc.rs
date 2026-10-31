@@ -3,7 +3,7 @@ use gpui::{
     Window, div, prelude::*, px,
 };
 
-use crate::theme;
+use crate::{Elevated, theme};
 
 /// A small floating label shown on hover.
 pub struct Tooltip {
@@ -30,7 +30,7 @@ impl Render for Tooltip {
             .bg(c.surface_raised)
             .text_color(c.text)
             .text_xs()
-            .shadow_md()
+            .elevated(cx)
             .child(self.text.clone())
     }
 }

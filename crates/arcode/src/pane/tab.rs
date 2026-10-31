@@ -1,10 +1,11 @@
 //! One tab of the pane's tab strip.
 
 use arcode_editor::Editor;
-use arcode_ui_kit::{IconName, Tooltip, icon, theme, truncated};
+use arcode_ui_kit::{IconName, Tooltip, icon, kbd, theme, truncated};
 use gpui::{AnyView, Context, Entity, MouseButton, SharedString, div, prelude::*, px};
 
 use super::Pane;
+use crate::actions::shortcut_label;
 use crate::file_icons::file_icon;
 
 impl Pane {
@@ -28,7 +29,7 @@ impl Pane {
                 .map(|p| p.display().to_string().into())
                 .unwrap_or_else(|| title.clone()),
         };
-        let active = index == self.active;
+        let active = index == self.active && self.active_page.is_none();
         let (icon_name, icon_color) = if custom.is_some() {
             (IconName::GitCompare, c.accent_alt)
         } else {
@@ -113,5 +114,32 @@ impl Pane {
                 cx.listener(move |pane, _, window, cx| pane.close(index, window, cx)),
             )
             .on_click(cx.listener(move |pane, _, window, cx| pane.activate(index, window, cx)))
+    }
+
+    pub(super) fn render_empty(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let c = theme(cx).colors.clone();
+        let hint = |label: &'static str, keys: &str| {
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_6()
+                .w(px(240.))
+                .child(label)
+                .child(kbd(shortcut_label(keys)))
+        };
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap_2()
+            .text_sm()
+            .text_color(c.text_muted)
+            .child(hint("Find file", "secondary-p"))
+            .child(hint("Split editor", "secondary-\\"))
+            .child(hint("Toggle sidebar", "secondary-b"))
+            .child(hint("Toggle panel", "secondary-j"))
     }
 }

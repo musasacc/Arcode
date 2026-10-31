@@ -310,3 +310,51 @@ fn requirements_are_checked_once_each() {
     let got = check_requirements(&py, Os::Windows, &stub);
     assert_eq!(got[2], ("python".to_string(), ToolState::Missing));
 }
+
+#[test]
+fn server_commands_map_to_the_component_that_installs_them() {
+    let python = pack_by_id("python").unwrap();
+    assert_eq!(
+        python
+            .component_providing("pyright-langserver")
+            .map(|c| c.name.as_str()),
+        Some("pyright")
+    );
+    let web = pack_by_id("web").unwrap();
+    for server in [
+        "vscode-json-language-server",
+        "/usr/bin/vscode-css-language-server",
+    ] {
+        assert_eq!(
+            web.component_providing(server).map(|c| c.name.as_str()),
+            Some("vscode-langservers-extracted"),
+            "{server}"
+        );
+    }
+    let rust = pack_by_id("rust").unwrap();
+    assert_eq!(
+        rust.component_providing("rust-analyzer.exe")
+            .map(|c| c.name.as_str()),
+        Some("rust-analyzer")
+    );
+    assert!(rust.component_providing("gopls").is_none());
+    assert!(rust.run_commands.contains(&"cargo run".to_string()));
+}
+
+#[test]
+fn packs_cover_the_newer_languages() {
+    for (language, pack) in [
+        ("shellscript", "shell"),
+        ("yaml", "yaml"),
+        ("markdown", "markdown"),
+        ("java", "java"),
+        ("lua", "lua"),
+        ("ruby", "ruby"),
+        ("php", "php"),
+    ] {
+        assert_eq!(
+            pack_for_language(language).map(|p| p.id),
+            Some(pack.to_string())
+        );
+    }
+}

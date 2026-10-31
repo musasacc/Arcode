@@ -2,6 +2,7 @@
 //! hunk and Stage / Unstage / Revert buttons.
 
 use arcode_git::{ChangeKind, GutterHunk};
+use arcode_ui_kit::Elevated;
 use arcode_ui_kit::{ButtonStyle, IconName, button, icon_button, settings, theme};
 use gpui::{
     Context, EntityId, IntoElement, MouseButton, Render, WeakEntity, Window, div, prelude::*, px,
@@ -130,7 +131,7 @@ impl Render for HunkPopover {
             .border_1()
             .border_color(c.border)
             .bg(c.surface_raised)
-            .shadow_md()
+            .elevated(cx)
             .text_sm()
             .text_color(c.text)
             .child(

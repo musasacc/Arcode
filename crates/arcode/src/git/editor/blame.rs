@@ -15,7 +15,9 @@ use super::{BLAME_COLUMN_SET, BLAME_SET, GitEditors};
 use crate::git::blame_text::{column_text_with, inline_text, now, unicode_cells};
 
 /// Quiet time after an edit before the blame column is recomputed.
-const COLUMN_DEBOUNCE: Duration = Duration::from_millis(600);
+/// Quiet time before the blame column is recomputed (longer in low-end
+/// mode).
+const COLUMN_DEBOUNCE_MS: u64 = 600;
 /// Files with more lines than this get no blame column.
 const MAX_COLUMN_LINES: usize = 50_000;
 
@@ -122,9 +124,10 @@ impl GitEditors {
         if state.repo.is_none() || editor.read(cx).line_count() > MAX_COLUMN_LINES {
             return;
         }
+        let delay = arcode_ui_kit::debounce(COLUMN_DEBOUNCE_MS, cx);
         state.column_task = Some(cx.spawn(async move |this, cx| {
             if debounce {
-                cx.background_executor().timer(COLUMN_DEBOUNCE).await;
+                cx.background_executor().timer(delay).await;
             }
             let Some(lines) = load_blame(&this, id, &editor, cx).await else {
                 return;

@@ -1,6 +1,7 @@
 //! The file finder (Ctrl+P): a modal with a query field and the project's
 //! files ranked fuzzily. Ranking runs on a background thread.
 
+use arcode_ui_kit::Elevated;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -284,7 +285,7 @@ impl Render for Finder {
             .border_1()
             .border_color(c.border)
             .bg(c.surface_raised)
-            .shadow_md()
+            .elevated(cx)
             .child(input_row)
             .child(body)
     }

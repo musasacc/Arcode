@@ -139,6 +139,10 @@ impl Editor {
     /// Opens the code action menu at the cursor (Ctrl+.): every action, or
     /// only refactorings.
     pub fn show_code_actions(&mut self, refactor_only: bool, cx: &mut Context<Self>) {
+        if self.read_only {
+            self.show_notice("The file is read-only", cx);
+            return;
+        }
         if self.lang.provider.is_none() {
             self.show_notice("No code actions available", cx);
             return;

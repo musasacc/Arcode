@@ -147,6 +147,9 @@ fn syntax_error_yields_defaults_and_warning() {
     assert_eq!(config, Config::default());
     assert_eq!(warnings.len(), 1);
     assert!(!warnings[0].contains('\n'));
+    assert!(Config::is_syntax_warning(&warnings[0]));
+    let (_, warnings) = Config::from_toml_str("editor = 5\n");
+    assert!(!Config::is_syntax_warning(&warnings[0]));
 }
 
 #[test]
@@ -169,6 +172,9 @@ fn theme_choice_parsing() {
     assert_eq!(ThemeChoice::Named("X".into()).to_string(), "X");
     let (config, _) = Config::from_toml_str("[editor]\nkeymap = \"vim\"");
     assert_eq!(config.editor.keymap, Keymap::Vim);
+    assert!(!config.editor.vim_mode);
+    let (config, warnings) = Config::from_toml_str("[editor]\nvim_mode = true");
+    assert!(config.editor.vim_mode, "{warnings:?}");
 }
 
 #[test]

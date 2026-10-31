@@ -25,7 +25,7 @@ actions!(
         NewProject,
         /// Closes the current project.
         CloseProject,
-        /// Opens the configuration file in an editor tab.
+        /// Opens the Settings page.
         OpenSettings,
         /// Runs the project's detected run command in the terminal.
         RunProject,
@@ -35,6 +35,14 @@ actions!(
         FocusTerminal,
         /// Quits the application.
         Quit,
+        /// Opens a new, empty window.
+        NewWindow,
+        /// Prompts for a folder and opens it in a new window.
+        OpenFolderInNewWindow,
+        /// Closes the window (asking about unsaved changes).
+        CloseWindow,
+        /// Shows the active file in the file tree.
+        RevealActiveFile,
     ]
 );
 
@@ -111,17 +119,64 @@ actions!(
 
 /// Key context of the workspace root view.
 pub const WORKSPACE_CONTEXT: &str = "Workspace";
+
+/// Key context of the root view while a modal overlay (the first-run
+/// dialog, the tour) is up: no `Workspace` binding matches then.
+pub const MODAL_CONTEXT: &str = "WorkspaceModal";
+
 /// Key context of a pane (tab strip + editor).
 pub const PANE_CONTEXT: &str = "Pane";
 
 /// Human-readable names of the application commands, for a command
 /// palette and menus. Each entry builds the action to dispatch.
 pub fn commands() -> Vec<(&'static str, Box<dyn gpui::Action>)> {
-    vec![
+    let mut list: Vec<(&'static str, Box<dyn gpui::Action>)> = vec![
         ("File: Find File", Box::new(ToggleFinder)),
         ("File: Open Folder", Box::new(OpenFolder)),
         ("File: New Project", Box::new(NewProject)),
         ("File: Close Project", Box::new(CloseProject)),
+        ("File: New Window", Box::new(NewWindow)),
+        (
+            "File: Open Folder in New Window",
+            Box::new(OpenFolderInNewWindow),
+        ),
+        ("File: Close Window", Box::new(CloseWindow)),
+        (
+            "File: Reveal Active File in Explorer",
+            Box::new(RevealActiveFile),
+        ),
+        (
+            "Explorer: New File",
+            Box::new(crate::sidebar::file_tree::NewFile),
+        ),
+        (
+            "Explorer: New Folder",
+            Box::new(crate::sidebar::file_tree::NewFolder),
+        ),
+        (
+            "Explorer: Rename",
+            Box::new(crate::sidebar::file_tree::Rename),
+        ),
+        (
+            "Explorer: Delete",
+            Box::new(crate::sidebar::file_tree::Delete),
+        ),
+        (
+            "Explorer: Copy Path",
+            Box::new(crate::sidebar::file_tree::CopyPath),
+        ),
+        (
+            "Explorer: Copy Relative Path",
+            Box::new(crate::sidebar::file_tree::CopyRelativePath),
+        ),
+        (
+            "Explorer: Reveal in File Manager",
+            Box::new(crate::sidebar::file_tree::RevealInFileManager),
+        ),
+        (
+            "Explorer: Open in Terminal",
+            Box::new(crate::sidebar::file_tree::OpenInTerminal),
+        ),
         ("Preferences: Open Settings", Box::new(OpenSettings)),
         ("View: Toggle Panel", Box::new(ToggleBottomPanel)),
         ("View: Toggle Sidebar", Box::new(ToggleSidebar)),
@@ -175,7 +230,11 @@ pub fn commands() -> Vec<(&'static str, Box<dyn gpui::Action>)> {
         ("TODO: Show TODO Panel", Box::new(ShowTodoPanel)),
         ("TODO: Rescan Project", Box::new(RefreshTodos)),
         ("Application: Quit", Box::new(Quit)),
-    ]
+    ];
+    list.extend(crate::debugger::actions::commands());
+    list.extend(crate::languages::actions::commands());
+    list.extend(crate::prefs::commands());
+    list
 }
 
 /// Editor commands for the palette (they run in the focused editor).
@@ -192,6 +251,11 @@ pub fn editor_commands() -> Vec<(&'static str, Box<dyn gpui::Action>)> {
             "Editor: Select Next Occurrence",
             Box::new(e::SelectNextOccurrence),
         ),
+        (
+            "Editor: Select All Occurrences",
+            Box::new(e::SelectAllOccurrences),
+        ),
+        ("Editor: Cursor Undo", Box::new(e::UndoCursor)),
         ("Editor: Add Cursor Above", Box::new(e::AddCursorAbove)),
         ("Editor: Add Cursor Below", Box::new(e::AddCursorBelow)),
         (
@@ -204,6 +268,14 @@ pub fn editor_commands() -> Vec<(&'static str, Box<dyn gpui::Action>)> {
         ("Editor: Go to Start of File", Box::new(e::MoveDocStart)),
         ("Editor: Go to End of File", Box::new(e::MoveDocEnd)),
         ("File: Save", Box::new(e::Save)),
+        ("Editor: Code Actions", Box::new(e::ShowCodeActions)),
+        ("Editor: Refactor", Box::new(e::Refactor)),
+        ("Editor: Rename Symbol", Box::new(e::RenameSymbol)),
+        ("Editor: Format Document", Box::new(e::FormatDocument)),
+        ("Editor: Format Selection", Box::new(e::FormatSelection)),
+        ("Editor: Toggle Inlay Hints", Box::new(e::ToggleInlayHints)),
+        ("Editor: Toggle Vim Mode", Box::new(e::ToggleVimMode)),
+        ("Editor: Show Context Menu", Box::new(e::ShowContextMenu)),
     ]
 }
 
@@ -240,13 +312,16 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-b", ToggleSidebar, ws),
         KeyBinding::new("secondary-\\", SplitRight, ws),
         KeyBinding::new("secondary-o", OpenFolder, ws),
+        KeyBinding::new("secondary-shift-n", NewWindow, ws),
+        KeyBinding::new("secondary-shift-w", CloseWindow, ws),
+        KeyBinding::new("secondary-k secondary-r", RevealActiveFile, ws),
         KeyBinding::new("secondary-,", OpenSettings, ws),
         KeyBinding::new("secondary-shift-`", NewTerminal, ws),
         // Linux (and some layouts elsewhere) report shift-` as `~` without
         // the shift modifier.
         KeyBinding::new("secondary-~", NewTerminal, ws),
         KeyBinding::new("ctrl-`", FocusTerminal, ws),
-        KeyBinding::new("f5", RunProject, ws),
+        KeyBinding::new("secondary-f5", RunProject, ws),
         KeyBinding::new("secondary-shift-g", ShowSourceControl, ws),
         KeyBinding::new("secondary-alt-b", ToggleBlame, ws),
         KeyBinding::new("alt-]", NextConflict, ws),
@@ -261,6 +336,12 @@ pub fn bind_keys(cx: &mut App) {
     ]);
     bind_navigation_keys(cx);
     bind_search_keys(cx);
+    crate::debugger::actions::bind_keys(cx);
+    crate::debugger::bp_dialog::bind_keys(cx);
+    crate::debugger::panel::bind_keys(cx);
+    crate::text_prompt::bind_keys(cx);
+    crate::languages::actions::bind_keys(cx);
+    crate::prefs::bind_keys(cx);
 }
 
 /// Navigation bindings. They live in the editor (and empty pane) contexts

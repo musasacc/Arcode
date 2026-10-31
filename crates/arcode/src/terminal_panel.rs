@@ -1,6 +1,7 @@
 //! The Terminal tab: any number of integrated terminals, started lazily in
 //! the project root, with a small tab strip to switch, add and close them.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use arcode_terminal_view::{TerminalView, TerminalViewEvent};
@@ -11,6 +12,11 @@ use gpui::{
 };
 
 use crate::actions::{NewTerminal, shortcut_label};
+
+#[path = "terminal_named.rs"]
+mod named;
+
+pub use named::OnStarted;
 
 /// Longest terminal title shown in a tab.
 const MAX_TITLE_CHARS: usize = 24;
@@ -24,6 +30,8 @@ pub struct TerminalPanel {
     error: Option<SharedString>,
     focus_handle: FocusHandle,
     subscriptions: Vec<(EntityId, Subscription)>,
+    /// Fixed tab names (terminals started for a run command or a debuggee).
+    names: HashMap<EntityId, SharedString>,
 }
 
 impl Focusable for TerminalPanel {
@@ -42,6 +50,7 @@ impl TerminalPanel {
             error: None,
             focus_handle: cx.focus_handle(),
             subscriptions: Vec::new(),
+            names: HashMap::new(),
         }
     }
 
@@ -52,10 +61,23 @@ impl TerminalPanel {
             self.cwd = cwd;
             self.terminals.clear();
             self.subscriptions.clear();
+            self.names.clear();
             self.active = 0;
             self.error = None;
             cx.notify();
         }
+    }
+
+    /// Process ids of the shells still running (to ask before they are
+    /// closed while running a command).
+    pub fn shell_pids(&self, cx: &App) -> Vec<u32> {
+        self.terminals
+            .iter()
+            .filter_map(|t| {
+                let t = t.read(cx);
+                t.is_alive().then(|| t.terminal().child_pid()).flatten()
+            })
+            .collect()
     }
 
     /// The running terminals in tab order.
@@ -86,7 +108,22 @@ impl TerminalPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<Entity<TerminalView>> {
-        let terminal = match TerminalView::spawn(self.cwd.clone(), window, cx) {
+        self.new_terminal_in(self.cwd.clone(), window, cx)
+    }
+
+    /// Starts a new terminal in `cwd` (the project root when `None`) and
+    /// activates it.
+    pub fn new_terminal_in(
+        &mut self,
+        cwd: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Entity<TerminalView>> {
+        // Shells on Windows reject the `\\?\` form canonical paths have.
+        let cwd = cwd
+            .or_else(|| self.cwd.clone())
+            .map(|dir| arcode_project::files::external_path(&dir));
+        let terminal = match TerminalView::spawn(cwd, window, cx) {
             Ok(terminal) => terminal,
             Err(err) => {
                 log::error!("cannot start a terminal: {err:#}");
@@ -145,6 +182,7 @@ impl TerminalPanel {
         };
         self.terminals.remove(ix);
         self.subscriptions.retain(|(sid, _)| *sid != id);
+        self.names.remove(&id);
         if self.active > ix || self.active >= self.terminals.len() {
             self.active = self.active.saturating_sub(1);
         }
@@ -185,7 +223,11 @@ pub fn render_strip(panel: &Entity<TerminalPanel>, cx: &App) -> impl IntoElement
     let many = p.terminals.len() > 1;
     let tabs = p.terminals.iter().enumerate().map(|(ix, terminal)| {
         let active = ix == p.active;
-        let full_title = terminal.read(cx).title();
+        let full_title = p
+            .names
+            .get(&terminal.entity_id())
+            .cloned()
+            .unwrap_or_else(|| terminal.read(cx).title());
         let title = truncate(&short_title(&full_title), MAX_TITLE_CHARS);
         let select = panel.downgrade();
         let close = panel.downgrade();
@@ -202,7 +244,15 @@ pub fn render_strip(panel: &Entity<TerminalPanel>, cx: &App) -> impl IntoElement
             .text_color(if active { c.text } else { c.text_muted })
             .when(active && many, |el| el.bg(c.surface_raised))
             .hover(|s| s.bg(c.hover))
-            .child(icon(IconName::Terminal).size(px(12.)).color(c.text_muted))
+            .child(
+                icon(if p.names.contains_key(&terminal.entity_id()) {
+                    IconName::Play
+                } else {
+                    IconName::Terminal
+                })
+                .size(px(12.))
+                .color(c.text_muted),
+            )
             .child(title)
             .child(
                 icon_button(("close-terminal", ix), IconName::X)

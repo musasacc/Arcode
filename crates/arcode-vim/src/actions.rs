@@ -276,6 +276,7 @@ impl Vim {
             let res = if redo { ed.b.redo() } else { ed.b.undo() };
             let Some(res) = res else { break };
             self.on_external_edits(&res.edits);
+            self.edit_log.extend(res.edits.iter().cloned());
             pos = res
                 .edits
                 .iter()

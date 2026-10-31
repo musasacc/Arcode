@@ -72,7 +72,7 @@ impl PackageKind {
 }
 
 /// Manifest file names searched when walking up, in precedence order.
-const MANIFESTS: [&str; 8] = [
+pub(crate) const MANIFESTS: [&str; 8] = [
     "Cargo.toml",
     "package.json",
     "pyproject.toml",
@@ -224,7 +224,7 @@ fn pip_install(dir: &Path, boundary: Option<&Path>, rest: Vec<String>) -> Instal
     }
 }
 
-fn make(
+pub(crate) fn make(
     program: &str,
     args: Vec<String>,
     cwd: &Path,

@@ -76,6 +76,35 @@ pub struct RepoWatcher {
     _watcher: Arc<Mutex<RecommendedWatcher>>,
 }
 
+/// Folders and files that dependency installs create (`npm install`,
+/// `python -m venv`, `composer install`, Yarn PnP, ...). They are usually
+/// gitignored or always skipped, so nothing inside them is reported, but
+/// the item itself appearing or going away is (in a folder that is
+/// reported): the package banner follows it.
+pub const INSTALL_MARKERS: &[&str] = &[
+    "node_modules",
+    ".pnp.cjs",
+    ".pnp.js",
+    ".venv",
+    "venv",
+    "env",
+    "vendor",
+    ".bundle",
+];
+
+/// Whether `path` is an [`INSTALL_MARKERS`] item in a folder whose changes
+/// are reported (not one nested in `node_modules`, a `.git` or the like).
+pub fn is_install_marker(path: &Path, git_dirs: &[PathBuf]) -> bool {
+    let named = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| INSTALL_MARKERS.contains(&n));
+    named
+        && path
+            .parent()
+            .is_some_and(|parent| classify(parent, git_dirs) == Some(Change::Worktree))
+}
+
 /// Classifies `path`: `None` for changes nobody cares about (objects,
 /// logs, lock files, ignored build folders).
 pub fn classify(path: &Path, git_dirs: &[PathBuf]) -> Option<Change> {
@@ -145,6 +174,21 @@ impl RepoWatcher {
             }
             let mut kinds = Vec::new();
             for path in &event.paths {
+                if let Some(sink) = &paths
+                    && is_install_marker(path, &dirs)
+                    && !path.parent().is_some_and(|parent| {
+                        ignored
+                            .get_or_insert_with(|| IgnoreFilter::new(&ignore_root, &ignore_repos))
+                            .is_ignored(parent)
+                    })
+                {
+                    if let Ok(mut sink) = sink.lock() {
+                        sink.push(path);
+                    }
+                    if !kinds.contains(&Change::Worktree) {
+                        kinds.push(Change::Worktree);
+                    }
+                }
                 if let Some(kind) = classify(path, &dirs) {
                     if kind == Change::Worktree
                         && let Some(sink) = &paths
@@ -287,82 +331,5 @@ fn spawn_dir_adder(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn classifies_git_and_worktree_paths() {
-        let git = PathBuf::from("/p/.git");
-        let dirs = [git.clone()];
-        assert_eq!(classify(&git.join("index"), &dirs), Some(Change::Git));
-        assert_eq!(classify(&git.join("HEAD"), &dirs), Some(Change::Git));
-        assert_eq!(
-            classify(&git.join("refs/heads/main"), &dirs),
-            Some(Change::Git)
-        );
-        assert_eq!(classify(&git.join("index.lock"), &dirs), None);
-        assert_eq!(classify(&git.join("objects/ab/cd"), &dirs), None);
-        assert_eq!(
-            classify(Path::new("/p/src/main.rs"), &dirs),
-            Some(Change::Worktree)
-        );
-        assert_eq!(classify(Path::new("/p/target/debug/x"), &dirs), None);
-        assert_eq!(classify(Path::new("/p/sub/.git/index"), &dirs), None);
-        assert_eq!(
-            classify(Path::new("/p/sub/.git"), &dirs),
-            Some(Change::Repo)
-        );
-        assert_eq!(classify(&git, &dirs), None, "the known repository itself");
-    }
-
-    #[test]
-    fn path_sink_dedupes_and_caps() {
-        let mut sink = PathSink::default();
-        sink.push(Path::new("/p/b"));
-        sink.push(Path::new("/p/a"));
-        sink.push(Path::new("/p/b"));
-        assert_eq!(
-            sink.take(),
-            (vec![PathBuf::from("/p/a"), PathBuf::from("/p/b")], false)
-        );
-        for i in 0..=MAX_CHANGED_PATHS {
-            sink.push(&PathBuf::from(format!("/p/{i}")));
-        }
-        let (paths, overflow) = sink.take();
-        assert_eq!((paths.len(), overflow), (MAX_CHANGED_PATHS, true));
-        assert_eq!(sink.take(), (Vec::new(), false));
-    }
-
-    #[test]
-    fn queues_at_most_one_message_per_kind() {
-        let mut q = Queued::default();
-        assert!(q.should_send(Change::Worktree, true));
-        assert!(!q.should_send(Change::Worktree, false));
-        assert!(q.should_send(Change::Git, false));
-        assert!(!q.should_send(Change::Git, false));
-        // The receiver drained the channel: both kinds may be sent again.
-        assert!(q.should_send(Change::Git, true));
-        assert!(q.should_send(Change::Worktree, false));
-    }
-
-    #[test]
-    fn reports_changes_in_a_watched_tree() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(dir.path()).unwrap();
-        std::fs::create_dir(root.join("src")).unwrap();
-        let (tx, rx) = async_channel::bounded(16);
-        let Some(_watcher) = RepoWatcher::start(&root, &[], tx) else {
-            return;
-        };
-        // The folder watches are added on a background thread: keep writing
-        // until one of the writes is seen.
-        let got = (0..200).find_map(|i| {
-            if i % 10 == 0 {
-                std::fs::write(root.join("src/a.txt"), format!("x{i}")).unwrap();
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            rx.try_recv().ok()
-        });
-        assert_eq!(got, Some(Change::Worktree));
-    }
-}
+#[path = "watcher_tests.rs"]
+mod tests;

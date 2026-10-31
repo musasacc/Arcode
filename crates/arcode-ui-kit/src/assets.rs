@@ -13,8 +13,10 @@ macro_rules! embedded {
 }
 
 static FILES: &[(&str, &[u8])] = embedded![
+    "icons/arrow-down-to-dot.svg",
     "icons/arrow-down.svg",
     "icons/arrow-right.svg",
+    "icons/arrow-up-from-dot.svg",
     "icons/arrow-up.svg",
     "icons/bug.svg",
     "icons/case-sensitive.svg",
@@ -54,13 +56,16 @@ static FILES: &[(&str, &[u8])] = embedded![
     "icons/palette.svg",
     "icons/panel-bottom.svg",
     "icons/panel-left.svg",
+    "icons/pause.svg",
     "icons/play.svg",
     "icons/plus.svg",
     "icons/puzzle.svg",
+    "icons/redo-dot.svg",
     "icons/refresh-cw.svg",
     "icons/regex.svg",
     "icons/replace-all.svg",
     "icons/replace.svg",
+    "icons/rotate-ccw.svg",
     "icons/rows-2.svg",
     "icons/save.svg",
     "icons/search.svg",

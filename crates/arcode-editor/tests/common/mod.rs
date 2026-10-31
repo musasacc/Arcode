@@ -2,6 +2,8 @@
 
 #![allow(dead_code)]
 
+pub mod lang_fake;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;

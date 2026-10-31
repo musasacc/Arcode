@@ -292,35 +292,39 @@ impl Editor {
         on_pick: OnPick,
         cx: &mut Context<Self>,
     ) -> Entity<PopupMenu> {
+        self.hide_hover();
         let weak = cx.entity().downgrade();
         let view = cx.new(|_| PopupMenu::new(weak, key.into(), rows, on_pick.clone()));
         let menu = view.clone();
-        let popover =
-            EditorPopover::new(anchor, view.clone().into()).on_key(move |editor, ks, window, cx| {
-                match menu.update(cx, |m, cx| m.handle_key(ks, cx)) {
-                    MenuKey::Moved => true,
-                    MenuKey::Close => {
-                        editor.update(cx, |e, cx| e.hide_popover(key, cx));
-                        true
-                    }
-                    MenuKey::Pick(ix) => {
-                        editor.update(cx, |e, cx| e.hide_popover(key, cx));
-                        on_pick(editor, ix, window, cx);
-                        true
-                    }
-                    MenuKey::Other => {
-                        editor.update(cx, |e, cx| e.hide_popover(key, cx));
-                        false
-                    }
+        let popover = EditorPopover::new(anchor, view.clone().into()).on_key(
+            move |editor, ks, window, cx| match menu.update(cx, |m, cx| m.handle_key(ks, cx)) {
+                MenuKey::Moved => true,
+                MenuKey::Close => {
+                    editor.update(cx, |e, cx| e.hide_popover(key, cx));
+                    true
                 }
-            });
+                MenuKey::Pick(ix) => {
+                    editor.update(cx, |e, cx| e.hide_popover(key, cx));
+                    on_pick(editor, ix, window, cx);
+                    true
+                }
+                MenuKey::Other => {
+                    editor.update(cx, |e, cx| e.hide_popover(key, cx));
+                    false
+                }
+            },
+        );
         self.show_popover(key, popover, cx);
         view
     }
 
     /// The menu shown under popover `key`, if any.
     pub(crate) fn menu_view(&self, key: &str) -> Option<Entity<PopupMenu>> {
-        self.popover(key)?.content.clone().downcast::<PopupMenu>().ok()
+        self.popover(key)?
+            .content
+            .clone()
+            .downcast::<PopupMenu>()
+            .ok()
     }
 }
 
@@ -339,7 +343,12 @@ mod tests {
     }
 
     fn menu(rows: Vec<MenuRow>) -> PopupMenu {
-        PopupMenu::new(WeakEntity::new_invalid(), "m".into(), rows, Rc::new(|_, _, _, _| {}))
+        PopupMenu::new(
+            WeakEntity::new_invalid(),
+            "m".into(),
+            rows,
+            Rc::new(|_, _, _, _| {}),
+        )
     }
 
     #[test]

@@ -6,10 +6,16 @@
 //! `[lsp.*]` entries are merged under the user's entries field by field.
 
 mod completion;
+mod debug;
+pub mod edit;
+pub mod edit_value;
+mod files;
 mod git;
 mod language;
+mod presets;
 mod search;
 mod sections;
+mod workspace;
 
 use std::collections::BTreeMap;
 use std::io;
@@ -23,17 +29,26 @@ use crate::lenient::{Section, apply_table, one_line};
 use crate::paths;
 
 pub use completion::CompletionSettings;
+pub use debug::DebugSettings;
+pub use edit_value::{Guard, PRESET_MARK, SettingEdit, SettingValue, apply_edits};
+pub use files::FilesSettings;
 pub use git::GitSettings;
 pub use language::{
-    LanguageSettings, LspServerSettings, NamedServer, builtin_languages, builtin_servers,
+    LanguageSettings, LspFeatures, LspServerSettings, NamedServer, builtin_languages,
+    builtin_servers,
 };
+pub use presets::{FirstRunChoices, keymap_edits, low_end_edits};
 pub use search::{SearchSettings, TodoSettings};
 pub use sections::{
     DEFAULT_EDITOR_FONT, EditorSettings, Keymap, TerminalSettings, ThemeChoice, UiSettings,
 };
+pub use workspace::WorkspaceSettings;
 
 /// The commented template written for new users; see [`Config::default_toml`].
 const DEFAULT_TOML: &str = include_str!("../../assets/default-config.toml");
+
+/// Start of the warning for a file that is not valid TOML at all.
+const SYNTAX_WARNING: &str = "config is not valid TOML";
 
 /// The complete user configuration.
 ///
@@ -55,6 +70,12 @@ pub struct Config {
     pub search: SearchSettings,
     /// `[todo]`
     pub todo: TodoSettings,
+    /// `[workspace]`
+    pub workspace: WorkspaceSettings,
+    /// `[debug]`
+    pub debug: DebugSettings,
+    /// `[files]`
+    pub files: FilesSettings,
     /// `[language.<id>]`, keyed by language id (e.g. `rust`). Ids read from
     /// TOML are lowercased.
     #[serde(rename = "language")]
@@ -72,6 +93,9 @@ impl Default for Config {
             git: GitSettings::default(),
             search: SearchSettings::default(),
             todo: TodoSettings::default(),
+            workspace: WorkspaceSettings::default(),
+            debug: DebugSettings::default(),
+            files: FilesSettings::default(),
             languages: builtin_languages(),
             lsp: builtin_servers(),
         }
@@ -87,11 +111,20 @@ impl Config {
         match toml::from_str::<Table>(source) {
             Ok(table) => config.apply(&table, &mut warnings),
             Err(err) => warnings.push(format!(
-                "config is not valid TOML ({}); using defaults",
+                "{SYNTAX_WARNING} ({}); using defaults",
                 one_line(&err.to_string())
             )),
         }
         (config, warnings)
+    }
+
+    /// Whether `warning` (from [`Config::from_toml_str`], [`Config::load`]
+    /// or [`Config::load_from`]) says the file is not valid TOML, so none
+    /// of it was applied and every setting is a default. A live reload may
+    /// want to keep some current settings instead (e.g. running language
+    /// servers).
+    pub fn is_syntax_warning(warning: &str) -> bool {
+        warning.contains(SYNTAX_WARNING)
     }
 
     /// Loads `path`. A missing file yields the defaults without warnings;
@@ -162,6 +195,12 @@ impl Config {
             .or_else(|| find_key_ignore_case(&self.lsp, name).and_then(|key| self.lsp.get(&key)))
     }
 
+    /// Whether the language (its pack) is enabled: `[language.<id>].enabled`,
+    /// on unless turned off.
+    pub fn language_enabled(&self, language_id: &str) -> bool {
+        self.language(language_id).is_none_or(|l| l.enabled)
+    }
+
     /// Tab size for a language: `[language.<id>].tab_size` or `editor.tab_size`.
     pub fn effective_tab_size(&self, language_id: &str) -> usize {
         self.language(language_id)
@@ -221,6 +260,9 @@ impl Config {
                 "git" => apply_table(&mut self.git, value, "git", warnings),
                 "search" => apply_table(&mut self.search, value, "search", warnings),
                 "todo" => apply_table(&mut self.todo, value, "todo", warnings),
+                "workspace" => apply_table(&mut self.workspace, value, "workspace", warnings),
+                "debug" => apply_table(&mut self.debug, value, "debug", warnings),
+                "files" => apply_table(&mut self.files, value, "files", warnings),
                 "language" => self.apply_languages(value, warnings),
                 "lsp" => self.apply_servers(value, warnings),
                 other => warnings.push(format!("unknown section `{other}` (ignored)")),
@@ -232,6 +274,9 @@ impl Config {
         self.git.validate(warnings);
         self.search.validate(warnings);
         self.todo.validate(warnings);
+        self.workspace.validate(warnings);
+        self.files.validate(warnings);
+        presets::apply_low_end_defaults(self, table);
     }
 
     /// Merges `[language.<id>]` tables. Ids are case-insensitive and stored
@@ -245,6 +290,7 @@ impl Config {
             let settings = self.languages.entry(key).or_default();
             apply_table(settings, entry, &path, warnings);
             settings.validate(&path, warnings);
+            settings.apply_enabled();
         });
     }
 
@@ -317,13 +363,16 @@ fn for_each_entry(
 }
 
 /// Every key understood in each fixed section, for documentation checks.
-pub fn known_keys() -> [(&'static str, &'static [&'static str]); 7] {
+pub fn known_keys() -> [(&'static str, &'static [&'static str]); 10] {
     [
         ("editor", EditorSettings::KEYS),
         ("editor.completion", CompletionSettings::KEYS),
         ("ui", UiSettings::KEYS),
         ("terminal", TerminalSettings::KEYS),
         ("git", GitSettings::KEYS),
+        ("workspace", WorkspaceSettings::KEYS),
+        ("debug", DebugSettings::KEYS),
+        ("files", FilesSettings::KEYS),
         ("language.<id>", LanguageSettings::KEYS),
         ("lsp.<name>", LspServerSettings::KEYS),
     ]

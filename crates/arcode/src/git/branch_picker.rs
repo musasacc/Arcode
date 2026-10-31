@@ -3,6 +3,7 @@
 //! Control view. Uses the finder's key bindings (up/down/enter/escape).
 
 use arcode_git::{Branch, Repo};
+use arcode_ui_kit::Elevated;
 use arcode_ui_kit::{IconName, icon, kbd, theme};
 use gpui::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, SharedString,
@@ -199,7 +200,7 @@ impl Render for BranchPicker {
             .border_1()
             .border_color(c.border)
             .bg(c.surface_raised)
-            .shadow_md()
+            .elevated(cx)
             .text_sm()
             .child(
                 div()

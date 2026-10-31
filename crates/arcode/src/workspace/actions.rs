@@ -2,51 +2,33 @@
 
 use std::path::PathBuf;
 
-use gpui::{AppContext, Context, Focusable, PathPromptOptions, PromptLevel, Window};
+use gpui::{AppContext, Context, Focusable, PathPromptOptions, Window};
 
 use super::{FolderCallback, Resize, Workspace};
 use crate::actions::*;
-use crate::app_state;
 use crate::bottom_panel::BottomTab;
 use crate::finder::{Finder, FinderEvent};
 use crate::path_prompt::{PathPrompt, PathPromptEvent};
-use crate::project;
 
 impl Workspace {
-    /// Saves the window placement when the window closes, after asking
-    /// about unsaved changes.
+    /// Saves the session and window placement when the window closes,
+    /// after asking about unsaved changes and running terminal commands.
     pub(super) fn install_close_guard(window: &mut Window, cx: &mut Context<Self>) {
         let this = cx.entity().downgrade();
-        window.on_window_should_close(cx, move |window, cx| {
-            let dirty = this
-                .upgrade()
-                .map(|ws| {
-                    let ws = ws.read(cx);
-                    ws.editors(cx)
-                        .iter()
-                        .filter(|e| e.read(cx).is_dirty())
-                        .count()
-                })
-                .unwrap_or(0);
-            app_state::record_window(window, cx);
-            if dirty == 0 {
-                return true;
+        window.on_window_should_close(cx, move |window, cx| match this.upgrade() {
+            Some(ws) => super::close_guard::request_close(ws, window, cx),
+            None => true,
+        });
+    }
+
+    /// Closes this window like the window manager's close button would.
+    fn close_window(&mut self, _: &CloseWindow, window: &mut Window, cx: &mut Context<Self>) {
+        let this = cx.entity();
+        // Closing runs after this update, when the workspace can be read.
+        window.defer(cx, move |window, cx| {
+            if super::close_guard::request_close(this, window, cx) {
+                window.remove_window();
             }
-            let answer = window.prompt(
-                PromptLevel::Warning,
-                &format!("{dirty} file(s) have unsaved changes. Close anyway?"),
-                None,
-                &["Discard and Close", "Cancel"],
-                cx,
-            );
-            window
-                .spawn(cx, async move |cx| {
-                    if answer.await.ok() == Some(0) {
-                        cx.update(|window, _| window.remove_window()).ok();
-                    }
-                })
-                .detach();
-            false
         });
     }
 
@@ -66,6 +48,12 @@ impl Workspace {
                 cx.listener(|ws, _: &NewProject, window, cx| ws.prompt_new_project(window, cx)),
             )
             .on_action(cx.listener(|ws, _: &CloseProject, window, cx| ws.close_project(window, cx)))
+            .on_action(cx.listener(Self::close_window))
+            .on_action(cx.listener(|ws, _: &OpenFolderInNewWindow, window, cx| {
+                ws.prompt_folder("Open Folder in New Window", window, cx, |_, path, _, cx| {
+                    crate::windows::open_project_in_new_window(path, cx)
+                })
+            }))
             .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::run_project))
             .on_action(cx.listener(Self::focus_terminal))
@@ -86,6 +74,7 @@ impl Workspace {
         // Ctrl+P in the palette switches it to the file finder; the two
         // overlays never stack (the palette would hide the finder).
         self.close_palette(window, cx);
+        self.close_prefs_picker(true, window, cx);
         let Some(root) = self.project.as_ref().map(|p| p.root.clone()) else {
             self.show_toast("Open a folder to search its files", cx);
             return;
@@ -134,6 +123,8 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.bottom_panel_visible = !self.bottom_panel_visible;
+        let opening = self.bottom_panel_visible;
+        self.start_slide(super::anim::Slider::Panel, opening, cx);
         if self.bottom_panel_visible {
             self.bottom_panel
                 .update(cx, |panel, cx| panel.focus(window, cx));
@@ -149,6 +140,8 @@ impl Workspace {
 
     fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
         self.sidebar_visible = !self.sidebar_visible;
+        let opening = self.sidebar_visible;
+        self.start_slide(super::anim::Slider::Sidebar, opening, cx);
         cx.notify();
     }
 
@@ -158,16 +151,24 @@ impl Workspace {
         activity: crate::activity_bar::Activity,
         cx: &mut Context<Self>,
     ) {
+        let was_visible = self.sidebar_visible;
         if self.sidebar_visible && self.activity == activity {
             self.sidebar_visible = false;
         } else {
             self.activity = activity;
             self.sidebar_visible = true;
         }
+        if was_visible != self.sidebar_visible {
+            let opening = self.sidebar_visible;
+            self.start_slide(super::anim::Slider::Sidebar, opening, cx);
+        }
+        if self.sidebar_visible && activity == crate::activity_bar::Activity::Plugins {
+            self.langs.view.update(cx, |v, cx| v.shown(cx));
+        }
         cx.notify();
     }
 
-    fn prompt_folder(
+    pub(super) fn prompt_folder(
         &mut self,
         prompt: &'static str,
         window: &mut Window,
@@ -245,42 +246,16 @@ impl Workspace {
     }
 
     pub(crate) fn prompt_new_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.prompt_folder(
-            "Create Project Here",
-            window,
-            cx,
-            |ws, parent, window, cx| match project::create_project_dir(&parent) {
-                Ok(dir) => ws.open_project(dir, window, cx),
-                Err(err) => ws.show_toast(format!("Cannot create project: {err}"), cx),
-            },
-        );
+        self.project_menu_open = false;
+        self.show_new_project_dialog(window, cx);
     }
 
     fn open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(path) = arcode_config::paths::config_file() else {
-            self.show_toast("No configuration directory is available", cx);
-            return;
-        };
-        if let Err(err) = arcode_config::Config::write_default_if_missing(&path) {
-            self.show_toast(format!("Cannot create {}: {err}", path.display()), cx);
-            return;
-        }
-        self.open_file(&path, window, cx);
+        self.open_settings_page(window, cx);
     }
 
     fn run_project(&mut self, _: &RunProject, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(project) = &self.project else {
-            self.show_toast("Open a project to run it", cx);
-            return;
-        };
-        let Some(command) = project.run_command() else {
-            self.show_toast("No run command detected for this project", cx);
-            return;
-        };
-        self.bottom_panel_visible = true;
-        self.bottom_panel
-            .update(cx, |panel, cx| panel.run_command(command, window, cx));
-        cx.notify();
+        self.run_project_command(window, cx);
     }
 
     fn focus_terminal(&mut self, _: &FocusTerminal, window: &mut Window, cx: &mut Context<Self>) {

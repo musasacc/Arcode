@@ -4,6 +4,7 @@
 //! lists the commands available there and shows the bindings that apply
 //! there; the chosen command runs back on that focus.
 
+use arcode_ui_kit::Elevated;
 use std::ops::Range;
 
 use arcode_ui_kit::{IconName, icon, kbd, theme};
@@ -337,7 +338,7 @@ impl Render for CommandPalette {
             .border_1()
             .border_color(c.border)
             .bg(c.surface_raised)
-            .shadow_md()
+            .elevated(cx)
             .child(input_row)
             .child(body)
     }

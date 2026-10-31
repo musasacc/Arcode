@@ -27,6 +27,8 @@ pub struct ServerSpec {
     pub env: Vec<(String, String)>,
     /// Sent as `initializationOptions`; also answers `workspace/configuration`.
     pub initialization_options: Option<Value>,
+    /// Features the client uses from this server (all by default).
+    pub features: crate::Features,
 }
 
 impl ServerSpec {

@@ -59,7 +59,20 @@ pub(super) fn pack(
         name: name.to_string(),
         languages: args(languages),
         components,
+        run_commands: Vec::new(),
     }
+}
+
+/// Sets the run commands shown for a pack.
+pub(super) fn with_run(mut pack: LanguagePack, commands: &[&str]) -> LanguagePack {
+    pack.run_commands = args(commands);
+    pack
+}
+
+/// Adds executables a component installs besides its check program.
+pub(super) fn providing(mut component: Component, executables: &[&str]) -> Component {
+    component.provides.extend(args(executables));
+    component
 }
 
 pub(super) fn comp(
@@ -69,6 +82,17 @@ pub(super) fn comp(
     install: Vec<InstallStep>,
     requires: &[&str],
 ) -> Component {
+    let mut provides = vec![name.to_string()];
+    for check in &checks {
+        if !provides.contains(&check.program)
+            && !matches!(
+                check.program.as_str(),
+                "npm" | "cargo" | "xcrun" | "python" | "python3"
+            )
+        {
+            provides.push(check.program.clone());
+        }
+    }
     Component {
         kind,
         name: name.to_string(),
@@ -76,6 +100,7 @@ pub(super) fn comp(
         install,
         requires: args(requires),
         optional: false,
+        provides,
     }
 }
 
@@ -151,6 +176,17 @@ pub(super) fn rustup_component(component: &str) -> InstallStep {
         "rustup",
         &["component", "add", component],
     )
+}
+
+/// `npm ls -g` check for a globally installed npm package.
+pub(super) fn npm_ls_check(package: &str) -> CheckCommand {
+    check("npm", &["ls", "--global", "--depth=0", package])
+}
+
+/// `gem install <package>` (downloads from rubygems.org).
+pub(super) fn gem_install(package: &str) -> InstallStep {
+    let description = format!("Install {package} with gem (downloads from rubygems.org).");
+    run(&Os::ALL, &description, "gem", &["install", package])
 }
 
 pub(super) fn npm_global(packages: &[&str]) -> InstallStep {

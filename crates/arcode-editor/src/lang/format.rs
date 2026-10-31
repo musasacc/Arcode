@@ -18,7 +18,11 @@ use crate::Editor;
 /// Formatting of one editor.
 #[derive(Default)]
 pub(crate) struct FormatState {
+    /// A Format Document / Format Selection request.
     task: Option<Task<()>>,
+    /// A formatted save waiting for the formatter. Kept apart from `task`
+    /// so formatting by hand meanwhile never drops the pending save.
+    save_task: Option<Task<()>>,
     /// A formatted save is running; another save request waits for it.
     saving: bool,
 }
@@ -130,7 +134,10 @@ impl Editor {
                     .skip(prefix)
                     .take(text.chars().count() - prefix - suffix)
                     .collect();
-                Some((self.offset_to_point(start)..self.offset_to_point(end), middle))
+                Some((
+                    self.offset_to_point(start)..self.offset_to_point(end),
+                    middle,
+                ))
             })
             .collect()
     }
@@ -153,7 +160,7 @@ impl Editor {
         };
         let version = self.buffer.version();
         self.lang.format.saving = true;
-        self.lang.format.task = Some(cx.spawn(async move |this, cx| {
+        self.lang.format.save_task = Some(cx.spawn(async move |this, cx| {
             let timer = cx.background_executor().timer(timeout);
             let answer = with_timeout(request, timer).await;
             this.update(cx, |e, cx| {
@@ -178,9 +185,11 @@ impl Editor {
     }
 
     fn save_logged(&mut self, cx: &mut Context<Self>) {
-        if let Err(err) = self.save(cx) {
+        let result = self.save(cx).map_err(|err| {
             log::error!("failed to save {}: {err}", self.title());
-        }
+            err.to_string()
+        });
+        self.vim_saved(result, cx);
     }
 }
 

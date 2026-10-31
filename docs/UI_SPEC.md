@@ -13,7 +13,10 @@ Shared reference for the GPUI crates. Read `docs/ARCHITECTURE.md` first.
   `settings.editor.font_family` (bundled "JetBrains Mono") at
   `settings.editor.font_size`, line height `font_size * line_height`.
 - Animations 100-150 ms via `arcode_ui_kit::animation_duration(cx)`; when it
-  returns `None` (low-end mode or disabled) do not animate at all.
+  returns `None` (low-end mode or disabled) do not animate at all. The
+  sidebar and bottom panel slide, popups, dialogs and toasts fade in.
+- Popup shadows go through `arcode_ui_kit::Elevated` (`.elevated(cx)`), which
+  draws none in low-end mode.
 - Never schedule frames continuously. No cursor blink unless
   `settings.editor.cursor_blink` is on (then use a timer that toggles and
   notifies, paused when the window is not focused).
@@ -43,19 +46,90 @@ Shared reference for the GPUI crates. Read `docs/ARCHITECTURE.md` first.
 |t |           | Terminal | Problems | Todo | Debug                    [x] |
 |y |           |   panel content                                           |
 +--+-----------+-----------------------------------------------------------+
-| branch | Rust | rust-analyzer: ready | Ln 12, Col 4 | 2 errors | 41ms 180MB |  status bar (24px)
+| branch | 2 errors | Ln 12, Col 4 | Spaces: 4 | UTF-8 | LF | Rust | rust-analyzer: ready |  status bar (24px)
 +--------------------------------------------------------------------------+
 ```
 
-- Activity bar (44px): Files, Search, Git, Debug, Plugins, Todo. Only Files
-  is functional in Milestone 1; the others show a short "coming soon" view.
+- Activity bar (44px): Files, Search, Git, Debug, Plugins, Todo. The
+  Plugins view lists the language packs ("Languages"): per pack its
+  languages and extensions, snippets, each language server as installed
+  or not installed (with the install command as text and a copy button;
+  nothing is downloaded), an enable switch, and on click the comment
+  tokens, run commands and file associations.
+- Status bar, right side: cursor, indentation, encoding, line ending,
+  language, language servers. Clicking the indentation, line ending or
+  language opens a small filterable picker (Ctrl+K M also picks the
+  language; the language picker can add a `[files] associations` entry).
+- Package banner: when the project (or an opened file) has a manifest
+  whose dependencies are missing, a bar above the editor area says "This
+  project has packages that are not installed." with Install packages
+  (runs the shown command in a terminal tab), Dismiss and Don't ask again
+  for this project.
 - Sidebar: file tree only (resizable, default 240px). No projects here.
-- Bottom panel: tabs Terminal, Problems, Todo, Debug (Todo/Debug are
-  placeholders in M1). Toggle with Ctrl+J (Cmd+J on macOS).
+  The tree header has New File, New Folder, Refresh and Collapse buttons.
+  Right click (or Shift+F10 / the menu key) opens its context menu: Open,
+  New File…, New Folder… (names are typed inline in the tree), Rename…
+  (inline, F2), Delete (to the trash after a confirmation; a permanent
+  delete is offered, and confirmed again, only when there is no trash),
+  Copy Path (Ctrl+Alt+C), Copy Relative Path (Ctrl+Alt+Shift+C), Reveal
+  in File Manager (Finder / File Explorer), Open in Terminal. Arrows move,
+  Right / Left expand / collapse (or step into / out of a folder), Home /
+  End, Enter or Space opens. Rows can be dragged onto a folder to move
+  them. Changes made outside Arcode appear by themselves.
+- Bottom panel: tabs Terminal, Problems, Todo, Debug. Toggle with Ctrl+J
+  (Cmd+J on macOS). The Debug tab has the debug toolbar, the call stack,
+  variables and watches, and the debug console (see `docs/DEBUGGING.md`).
+- Run and debug: run buttons in the gutter next to mains and tests (Run /
+  Debug menu), the breakpoint lane left of them, the Run and Debug view
+  (launch configurations, breakpoints list) and the title bar Run button
+  with a dropdown of detected commands. Details in `docs/DEBUGGING.md`.
 - Welcome screen when no project is open: logo/name, "Open Folder",
-  "New Project…" (creates a folder), recent projects list (click to open,
-  x to remove), key hints.
-- Title bar project dropdown: recent projects, Open…, New…, Close Project.
+  "New Project…", recent projects list (click to open, a button to open
+  in a new window, x to remove), key hints.
+- Settings (gear in the title bar, Ctrl+, / Cmd+,): a "Settings" tab with
+  the sections Appearance (theme cards that preview on hover, follow
+  system / dark / light, dark and light themes, UI size, animations,
+  low-end mode, perf stats), Editor, Fonts (editor and UI font pickers over
+  the system fonts plus the bundled JetBrains Mono, size, line height,
+  ligatures, a preview with ligature, CJK and emoji samples), Terminal,
+  Languages (enable switches), Keymap (read-only, filterable) and Advanced
+  (workspace, search, debug and large-file options, Reload, Start Tour,
+  Welcome Setup). Every control edits `config.toml` in place, keeping its
+  comments; "Open config.toml" opens the file. "Preferences: Select Theme"
+  (Ctrl+K Ctrl+T) previews themes as the selection moves; Escape restores.
+  Themes from the config folder's `themes/*.toml` are listed too. In a
+  narrow (split) pane the section list shows only icons and controls wrap
+  below their labels.
+- First run (no `config.toml`): a modal welcome dialog with theme (live
+  preview), editor font, keymap (default or Vim) and performance mode
+  (normal or low-end); it writes `config.toml`, then offers the tour. Skip
+  always closes it, even when the file cannot be written. While the dialog
+  or the tour is up, workspace shortcuts do nothing. The tour ("Help:
+  Start Tour") dims the window around the project dropdown, the activity
+  bar, the search box, the Run button, the terminal panel, the status bar
+  and the settings gear in turn, with a callout and Back / Next / Skip
+  (arrows, Enter, Escape).
+- "New Project…" opens a dialog: name, location (Browse…), a template
+  (empty folder, Rust application / library, Node.js, Python venv, Go
+  module) and "Open in a new window". Create makes the folder; the
+  template's command (e.g. `cargo init`) runs in the new project's
+  terminal only then, never on its own.
+- Title bar project dropdown: the current project, projects open in other
+  windows (click brings that window forward), recent projects (click
+  switches this window, buttons to open in a new window or remove), Open
+  Folder…, Open Folder in New Window…, New Project…, New Window, Close
+  Project. Every window has its own project, language servers, terminals
+  and session.
+- Sessions: reopening a project restores its tabs per pane, the split
+  layout, the active tab, selections and scroll position per file, the
+  sidebar view and width, the bottom panel (shown, height, tab) and the
+  expanded folders (`workspace.restore_session`). Projects open at quit
+  are reopened at the next start, one window each, where their windows
+  were (`workspace.reopen_projects`). A file closed and opened again
+  goes back to its cursor and scroll position. Unsaved text is never
+  stored: switching or closing the project, closing a window or quitting
+  asks first when there are unsaved changes or a terminal is running a
+  command (those end the terminals).
   On Linux use client-side decorations if available, otherwise the system
   title bar plus our bar below it.
 
@@ -68,17 +142,40 @@ substring/fuzzy match), save (Ctrl+S), close tab (Ctrl+W), toggle panel
 terminal (Ctrl+`), split right (Ctrl+\), undo/redo, copy/cut/paste,
 select all, Ctrl+D (select next occurrence).
 
+Multiple cursors (in an editor): select all occurrences (Ctrl+Shift+L),
+add a cursor above / below (Ctrl+Alt+Up / Down, Cmd+Alt on macOS),
+Alt+click adds or removes a cursor, Alt+Shift+drag or a middle-button
+drag makes a box selection, cursor undo (Ctrl+U), Escape back to one
+cursor. Vim mode (`editor.vim_mode`, or "Editor: Toggle Vim Mode") shows
+its mode, pending keys and command line at the left of the status bar.
+
 Code navigation (in an editor): hover at the cursor (Ctrl+K Ctrl+I),
 go to definition (F12 or Ctrl+click), go to implementation (Ctrl+F12),
 find all references (Shift+F12), go to symbol in file (Ctrl+Shift+O),
 go to symbol in workspace (Ctrl+T), back / forward (Alt+Left /
 Alt+Right; macOS Ctrl+- / Ctrl+Shift+-).
 
+Code actions and refactoring (in an editor): code actions / quick fix
+(Ctrl+., Cmd+. on macOS, or click the light bulb in the gutter),
+Refactor... (Ctrl+Shift+R), rename symbol (F2), format document
+(Shift+Alt+F), format selection (Ctrl+K Ctrl+F), context menu (right
+click or Shift+F10). "Editor: Toggle Inlay Hints" in the palette.
+
+Windows and files: new window (Ctrl+Shift+N), close window
+(Ctrl+Shift+W), quit (Ctrl+Q), reveal the active file in the tree
+(Ctrl+K Ctrl+R), change the file's language (Ctrl+K M). Explorer commands ("Explorer: New File", ...) are in the
+palette; outside the tree they act on the active file.
+
 Git: Source Control view (Ctrl+Shift+G), commit from the message box
 (Ctrl+Enter), toggle the blame column (Ctrl+Alt+B), next / previous merge
 conflict (Alt+] / Alt+[). Clicking the branch in the title bar or status
 bar opens the branch picker. The command names are listed in
 `arcode::actions::commands()` for a command palette.
+
+Run and debug: run the project (Ctrl+F5), start debugging / continue
+(F5), pause (F6), step over / into / out (F10 / F11 / Shift+F11), restart
+(Ctrl+Shift+F5), stop (Shift+F5), toggle breakpoint (F9), Run and Debug
+view (Ctrl+Shift+D). Every "Debug: ..." command is in the palette.
 
 Search: find in the active file (Ctrl+F; replace Ctrl+H, Cmd+Alt+F on
 macOS; Enter / Shift+Enter or F3 / Shift+F3 for next / previous; Alt+C,

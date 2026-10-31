@@ -72,7 +72,7 @@ impl Vim {
         selections: &mut SelectionSet,
         ctx: &crate::types::VimContext,
     ) {
-        if !matches!(self.mode, Mode::Insert | Mode::Replace) || text.is_empty() {
+        if !matches!(self.mode, Mode::Insert | Mode::Replace) || text.is_empty() || self.read_only {
             return;
         }
         let key = Key::new(format!("{TEXT_KEY}{text}"));
