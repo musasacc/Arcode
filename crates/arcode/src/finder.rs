@@ -56,6 +56,9 @@ pub struct Finder {
     selected: usize,
     scroll: UniformListScrollHandle,
     match_task: Option<Task<()>>,
+    /// Enter was pressed while ranking for the latest query was still
+    /// running: open the top match once it is done.
+    confirm_pending: bool,
     _subscription: Subscription,
 }
 
@@ -89,6 +92,7 @@ impl Finder {
             selected: 0,
             scroll: UniformListScrollHandle::new(),
             match_task: None,
+            confirm_pending: false,
             _subscription: sub,
         };
         finder.update_matches(cx);
@@ -121,6 +125,10 @@ impl Finder {
                 finder.matches = matches;
                 finder.selected = 0;
                 finder.scroll.scroll_to_item(0, ScrollStrategy::Top);
+                finder.match_task = None;
+                if std::mem::take(&mut finder.confirm_pending) {
+                    finder.confirm_index(0, cx);
+                }
                 cx.notify();
             })
             .ok();
@@ -163,6 +171,11 @@ impl Finder {
     }
 
     fn confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
+        // The shown matches belong to an older query until ranking ends.
+        if self.match_task.is_some() {
+            self.confirm_pending = true;
+            return;
+        }
         self.confirm_index(self.selected, cx);
     }
 
@@ -288,5 +301,40 @@ impl Render for Finder {
             .elevated(cx)
             .child(input_row)
             .child(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use gpui::TestAppContext;
+
+    use super::*;
+
+    #[gpui::test]
+    fn enter_right_after_typing_opens_the_match_for_the_new_query(cx: &mut TestAppContext) {
+        crate::test_support::init(cx);
+        let files = Arc::new(vec![".gitignore".to_string(), "src/main.rs".to_string()]);
+        let (finder, cx) =
+            cx.add_window_view(move |_, cx| Finder::new(PathBuf::from("/p"), files, false, cx));
+        cx.run_until_parked();
+        let opened = Rc::new(RefCell::new(Vec::new()));
+        let sink = opened.clone();
+        cx.update(|_, cx| {
+            cx.subscribe(&finder, move |_, e: &FinderEvent, _| {
+                if let FinderEvent::Open(path) = e {
+                    sink.borrow_mut().push(path.clone());
+                }
+            })
+            .detach()
+        });
+        // Enter before ranking for "main" has finished.
+        finder.update(cx, |f, cx| f.set_query("main", cx));
+        finder.update_in(cx, |f, window, cx| f.confirm(&Confirm, window, cx));
+        assert!(opened.borrow().is_empty());
+        cx.run_until_parked();
+        assert_eq!(*opened.borrow(), [PathBuf::from("/p/src/main.rs")]);
     }
 }

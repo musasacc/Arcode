@@ -190,8 +190,11 @@ impl Element for Truncated {
         window: &mut Window,
         cx: &mut App,
     ) {
-        // Half a pixel of slack absorbs layout rounding.
-        let max = bounds.size.width + px(0.5);
+        // Layout rounds both edges to device pixels, which can make the
+        // bounds up to one device pixel narrower than the measured text:
+        // that much slack keeps a label that was given its full width from
+        // being cut (`topic` drawn as `to…`).
+        let max = bounds.size.width + px(1.0 / window.scale_factor().max(1.0)) + px(0.01);
         let text = truncate_to_width(&self.text, max, self.mode, |t| measure_text(t, window));
         let style = window.text_style();
         let font_size = style.font_size.to_pixels(window.rem_size());

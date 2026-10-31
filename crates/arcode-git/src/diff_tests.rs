@@ -233,3 +233,24 @@ fn mixed_line_endings_compare_equal() {
     assert_eq!(changes.len(), 1);
     assert_eq!(changes[0].new_lines, 2..3);
 }
+
+#[test]
+fn ambiguous_blocks_sit_as_low_as_git_puts_them() {
+    // An added duplicate line: git marks the second one.
+    assert_eq!(line_diff("a\n", "a\na\n"), vec![change(Added, 1..2, 1..1)]);
+    // A function inserted after a blank line, with its own blank line:
+    // the block is the function and the blank after it (lines 3-5).
+    let old = "fn a() {}\n\nfn c() {}\n";
+    let new = "fn a() {}\n\nfn b() {\n}\n\nfn c() {}\n";
+    assert_eq!(line_diff(old, new), vec![change(Added, 2..5, 2..2)]);
+    // A removed duplicate block also slides down.
+    assert_eq!(
+        line_diff("x\n\ny\n\nz\n", "x\n\nz\n"),
+        vec![change(Deleted, 2..2, 2..4)]
+    );
+    // It stops before touching the next change.
+    assert_eq!(
+        line_diff("a\nb\n", "a\na\nc\n"),
+        vec![change(Modified, 1..3, 1..2)]
+    );
+}

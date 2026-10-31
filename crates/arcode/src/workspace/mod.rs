@@ -36,6 +36,7 @@ mod prefs_pickers;
 mod prefs_tests;
 mod project_menu;
 mod projects;
+mod reload;
 mod render;
 #[cfg(test)]
 mod review_debug;
@@ -349,12 +350,8 @@ impl Workspace {
     /// Opens `path` in the active pane, or activates it where it is open.
     pub fn open_file(&mut self, path: &Path, window: &mut Window, cx: &mut Context<Self>) {
         let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        for (pane_ix, pane) in self.panes.clone().into_iter().enumerate() {
-            if let Some(ix) = pane.read(cx).position_of(&path, cx) {
-                self.active_pane = pane_ix;
-                pane.update(cx, |pane, cx| pane.activate(ix, window, cx));
-                return;
-            }
+        if self.activate_open_file(&path, window, cx) {
+            return;
         }
         let buffer = match Buffer::from_file(&path) {
             Ok(buffer) => buffer,

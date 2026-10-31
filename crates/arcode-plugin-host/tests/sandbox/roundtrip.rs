@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
+use arcode_plugin_host::bindings::Level;
 use arcode_plugin_host::bindings::editor::DocInfo;
 use arcode_plugin_host::bindings::ui::{Cell, Event, EventKind, Widget};
-use arcode_plugin_host::bindings::Level;
 use arcode_plugin_host::bridge::DocSnapshot;
 use arcode_plugin_host::consent::{ConsentAnswer, ScriptedConsent};
 use arcode_plugin_host::grants::GrantScope;

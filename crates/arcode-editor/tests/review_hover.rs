@@ -178,3 +178,27 @@ fn mouse_hover_hides_when_the_view_scrolls_away(cx: &mut TestAppContext) {
         "hover for line 0 is still shown after scrolling to the end"
     );
 }
+
+/// A mouse hover closes when the cursor moves (arrow keys, Vim motions),
+/// so it does not keep covering the code being worked on.
+#[gpui::test]
+fn mouse_hover_hides_when_the_cursor_moves(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, "helper();\nlet x = 1;\n");
+    install_hover(&editor, Duration::ZERO, cx);
+    editor.update(cx, |e, cx| {
+        e.select_ranges(vec![Point::new(1, 0)..Point::new(1, 0)], cx)
+    });
+    cx.run_until_parked();
+    let at = pos_of(&editor, Point::new(0, 2), cx);
+    cx.simulate_mouse_move(at, None, Modifiers::none());
+    cx.executor().advance_clock(Duration::from_millis(400));
+    cx.run_until_parked();
+    assert!(docs(&editor, cx).is_some(), "mouse hover shown");
+    cx.simulate_keystrokes("right");
+    cx.run_until_parked();
+    assert_eq!(
+        docs(&editor, cx),
+        None,
+        "hover still shown after the cursor moved"
+    );
+}

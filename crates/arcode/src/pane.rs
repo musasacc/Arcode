@@ -15,6 +15,7 @@ use crate::actions::{
 };
 use crate::find_bar::FindBar;
 
+mod detach;
 mod find;
 mod page;
 mod tab;
@@ -78,6 +79,8 @@ pub struct Pane {
     /// rather than an editor is shown.
     pages: Vec<PageTab>,
     active_page: Option<usize>,
+    /// Scrolls the tab bar to show the active tab.
+    tab_scroll: gpui::ScrollHandle,
     _focus_sub: Option<Subscription>,
 }
 
@@ -107,6 +110,7 @@ impl Pane {
             find_open: false,
             pages: Vec::new(),
             active_page: None,
+            tab_scroll: gpui::ScrollHandle::new(),
             _focus_sub: Some(sub),
         }
     }
@@ -198,6 +202,7 @@ impl Pane {
         };
         self.active = index;
         self.active_page = None;
+        self.tab_scroll.scroll_to_item(index);
         window.focus(&editor.focus_handle(cx));
         self.sync_find_target(cx);
         cx.emit(PaneEvent::ActiveItemChanged);
@@ -319,6 +324,7 @@ impl Render for Pane {
                     .min_w_0()
                     .h_full()
                     .overflow_x_scroll()
+                    .track_scroll(&self.tab_scroll)
                     .children(tabs),
             )
             .child(

@@ -34,7 +34,8 @@ impl LspManager {
         changed.sort();
         state.configs = configs;
         state.languages = super::config::dedupe_languages(languages);
-        let stopped = self.stop_instances(&mut state, |name| changed.iter().any(|c| c == name));
+        let stopped =
+            self.stop_instances(&mut state, |(name, _)| changed.iter().any(|c| c == name));
         self.reattach_all(&mut state);
         stopped
     }
@@ -44,9 +45,29 @@ impl LspManager {
     /// Returns false when no instance was running.
     pub fn restart_server(&self, server: &str) -> bool {
         let mut state = self.lock();
-        let stopped = self.stop_instances(&mut state, |name| name == server);
+        let stopped = self.stop_instances(&mut state, |(name, _)| name == server);
         self.reattach_all(&mut state);
         !stopped.is_empty()
+    }
+
+    /// Shuts down the instances no open document uses any more (the last
+    /// file of their language or project was closed). Returns the distinct
+    /// names stopped, sorted. Opening such a file later starts its server
+    /// again (after the old instance finished shutting down).
+    pub fn stop_idle_servers(&self) -> Vec<String> {
+        let mut state = self.lock();
+        let used: Vec<Arc<ServerSlot>> = state
+            .documents
+            .values()
+            .flat_map(|d| d.servers.iter().cloned())
+            .collect();
+        let idle: Vec<(String, PathBuf)> = state
+            .servers
+            .iter()
+            .filter(|(_, slot)| !used.iter().any(|u| Arc::ptr_eq(u, slot)))
+            .map(|(key, _)| key.clone())
+            .collect();
+        self.stop_instances(&mut state, |key| idle.contains(key))
     }
 
     /// Whether an instance of `server` is starting or running (not
@@ -72,14 +93,18 @@ impl LspManager {
             .unwrap_or_default()
     }
 
-    /// Shuts down the instances whose name passes `stop`, removes them from
+    /// Shuts down the instances whose `(name, root)` passes `stop`, removes them from
     /// every document and remembers their shutdown so a replacement waits
     /// for it. Returns the distinct names stopped, sorted.
-    fn stop_instances(&self, state: &mut State, stop: impl Fn(&str) -> bool) -> Vec<String> {
+    fn stop_instances(
+        &self,
+        state: &mut State,
+        stop: impl Fn(&(String, PathBuf)) -> bool,
+    ) -> Vec<String> {
         let keys: Vec<(String, PathBuf)> = state
             .servers
             .keys()
-            .filter(|(name, _)| stop(name))
+            .filter(|key| stop(key))
             .cloned()
             .collect();
         let mut names = Vec::new();

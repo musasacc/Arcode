@@ -6,13 +6,15 @@ use gpui::{App, Pixels, Window};
 use crate::Editor;
 
 impl Editor {
-    /// Keyboard hovers (shown or still asked for) close when the cursor
-    /// moves.
+    /// Hovers (shown or still asked for) close when the cursor moves: a
+    /// keyboard hover belongs to the old cursor position, and a mouse hover
+    /// would keep covering the code being navigated or selected (arrow
+    /// keys, Vim motions, a click elsewhere).
     pub(crate) fn hover_after_cursor_move(&mut self) {
-        if self.hover.as_ref().is_some_and(|h| h.keyboard) {
+        if self.hover.is_some() {
             self.hover = None;
             self.cancel_hover_request();
-        } else if self.hovering.pending_keyboard {
+        } else if self.hovering.pending.is_some() {
             self.cancel_hover_request();
         }
     }

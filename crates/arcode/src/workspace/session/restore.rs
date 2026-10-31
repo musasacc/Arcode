@@ -85,6 +85,10 @@ impl Workspace {
             .clamp(sidebar::MIN_WIDTH, sidebar::MAX_WIDTH));
         if let Some(activity) = activity_from_key(&layout.sidebar_view) {
             self.activity = activity;
+            if self.sidebar_visible && activity == crate::activity_bar::Activity::Plugins {
+                // The page checks which servers are installed when shown.
+                self.langs.view.update(cx, |v, cx| v.shown(cx));
+            }
         }
         let max_height =
             (f32::from(window.viewport_size().height) * 0.75).max(bottom_panel::MIN_HEIGHT);

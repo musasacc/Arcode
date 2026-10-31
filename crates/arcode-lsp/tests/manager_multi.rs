@@ -341,12 +341,51 @@ fn restart_server_reopens_documents() {
     manager.shutdown_all();
 }
 
+/// Closing the last document of an instance lets `stop_idle_servers`
+/// shut it down; a server still serving a document keeps running, and
+/// opening a file again starts a fresh instance.
+fn idle_servers_stop_after_their_last_document_closes() {
+    let (_dir, file) = project();
+    let other = file.with_file_name("other.fk");
+    let (manager, rx) = LspManager::new(
+        vec![config("alpha", "utf-16", "normal")],
+        languages(&["alpha"]),
+    );
+    let mut rx = Events {
+        rx,
+        seen: Vec::new(),
+    };
+    manager.open_document(&file, "fake", 1, "x".to_string());
+    manager.open_document(&other, "fake", 1, "y".to_string());
+    rx.wait_diag("alpha: opened v1");
+    rx.wait_diag("alpha: opened v1");
+    manager.close_document(&file);
+    assert!(manager.stop_idle_servers().is_empty());
+    assert!(manager.is_server_running("alpha"));
+    manager.close_document(&other);
+    assert_eq!(manager.stop_idle_servers(), vec!["alpha"]);
+    assert!(!manager.is_server_running("alpha"));
+    assert!(manager.server_instances().is_empty());
+    rx.wait_for("alpha stopped", |e| {
+        matches!(
+            e,
+            LspEvent::ServerStatus {
+                status: ServerStatus::Stopped,
+                ..
+            }
+        )
+    });
+    manager.open_document(&file, "fake", 2, "x".to_string());
+    rx.wait_diag("alpha: opened v2");
+    manager.shutdown_all();
+}
+
 fn main() {
     if std::env::var_os("ARCODE_FAKE_LSP").is_some() {
         fake_lsp::run();
         return;
     }
-    let tests: [(&str, fn()); 4] = [
+    let tests: [(&str, fn()); 5] = [
         (
             "single_answers_fall_back_down_the_list",
             single_answers_fall_back_down_the_list,
@@ -362,6 +401,10 @@ fn main() {
         (
             "restart_server_reopens_documents",
             restart_server_reopens_documents,
+        ),
+        (
+            "idle_servers_stop_after_their_last_document_closes",
+            idle_servers_stop_after_their_last_document_closes,
         ),
     ];
     let filters: Vec<String> = std::env::args()
