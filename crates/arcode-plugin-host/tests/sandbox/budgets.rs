@@ -83,6 +83,15 @@ fn spin_traps_within_budget_while_another_instance_answers() {
     // exceed that only when the machine is busy elsewhere (other test
     // binaries, builds): allow a few attempts for that, but every attempt
     // must trap on budget.
+    // Shared macOS runners (3 cores, the other sandbox tests running in
+    // parallel) were measured trapping 130-220 ms late in wall time while
+    // still trapping on budget, so the bound there is looser.
+    let slack = if cfg!(target_os = "macos") {
+        ms(250)
+    } else {
+        ms(100)
+    };
+    let limit = ms(300) + slack;
     let mut times = Vec::new();
     for _ in 0..3 {
         // Re-activate outside the timed window after the trap.
@@ -100,14 +109,14 @@ fn spin_traps_within_budget_while_another_instance_answers() {
         // already show the other instance was never blocked.
         assert!(answers >= 2, "echo kept answering ({answers} calls)");
         times.push(elapsed);
-        if elapsed <= ms(400) {
+        if elapsed <= limit {
             break;
         }
     }
     eprintln!("spin: wall time to trap {times:?}");
     assert!(
-        times.iter().any(|t| *t <= ms(400)),
-        "budget + 100 ms exceeded: {times:?}"
+        times.iter().any(|t| *t <= limit),
+        "budget + {slack:?} exceeded: {times:?}"
     );
     assert!(app.wait_for(|o| matches!(o, PluginOutput::Crashed { reason, disabled: false, .. } if reason == "exceeded 300 ms CPU")));
 }
