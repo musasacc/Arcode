@@ -8,9 +8,9 @@
 use std::ops::Range;
 
 use gpui::{
-    App, Bounds, ClipboardItem, Context, ElementInputHandler, Entity, EventEmitter, FocusHandle,
-    Focusable, KeyBinding, Pixels, ShapedLine, SharedString, TextRun, UnderlineStyle, Window,
-    actions, canvas, div, fill, point, prelude::*, px, size,
+    App, Bounds, ClipboardItem, ContentMask, Context, ElementInputHandler, Entity, EventEmitter,
+    FocusHandle, Focusable, KeyBinding, Pixels, ShapedLine, SharedString, TextRun, UnderlineStyle,
+    Window, actions, canvas, div, fill, point, prelude::*, px, size,
 };
 
 use arcode_ui_kit::theme;
@@ -325,38 +325,41 @@ impl TextField {
             .text_system()
             .shape_line(text, font_size, &runs, None);
         let line_height = bounds.size.height;
-        if !selection.is_empty() {
-            let x0 = line.x_for_index(selection.start);
-            let x1 = line.x_for_index(selection.end);
-            window.paint_quad(fill(
-                Bounds::new(
-                    point(bounds.left() + x0, bounds.top()),
-                    size(x1 - x0, line_height),
-                ),
-                c.selection,
-            ));
-        }
+        // Keep the caret in view: text wider than the field scrolls left
+        // while it is focused.
+        let shift = if focused {
+            (line.x_for_index(cursor) + px(2.) - bounds.size.width).max(px(0.))
+        } else {
+            px(0.)
+        };
+        let left = bounds.left() - shift;
         let text_top = bounds.top() + (line_height - window.line_height()) / 2.;
-        line.paint(
-            point(bounds.left(), text_top),
-            window.line_height(),
-            window,
-            cx,
-        )
-        .ok();
-        if focused {
-            let x = line.x_for_index(cursor);
-            window.paint_quad(fill(
-                Bounds::new(
-                    point(bounds.left() + x, text_top),
-                    size(px(1.5), window.line_height()),
-                ),
-                c.cursor,
-            ));
-        }
+        window.with_content_mask(Some(ContentMask { bounds }), |window| {
+            if !selection.is_empty() {
+                let x0 = line.x_for_index(selection.start);
+                let x1 = line.x_for_index(selection.end);
+                window.paint_quad(fill(
+                    Bounds::new(point(left + x0, bounds.top()), size(x1 - x0, line_height)),
+                    c.selection,
+                ));
+            }
+            line.paint(point(left, text_top), window.line_height(), window, cx)
+                .ok();
+            if focused {
+                let x = line.x_for_index(cursor);
+                window.paint_quad(fill(
+                    Bounds::new(
+                        point(left + x, text_top),
+                        size(px(1.5), window.line_height()),
+                    ),
+                    c.cursor,
+                ));
+            }
+        });
+        let bounds_shifted = Bounds::new(point(left, bounds.top()), bounds.size);
         window.handle_input(&focus, ElementInputHandler::new(bounds, this.clone()), cx);
         this.update(cx, |field, _| {
-            field.layout = Some((line, bounds));
+            field.layout = Some((line, bounds_shifted));
             field.layout_start = 0;
         });
     }

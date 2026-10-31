@@ -13,6 +13,7 @@ pub mod edits;
 mod events;
 pub mod highlights;
 pub mod hover;
+mod idle;
 pub mod log_tab;
 pub mod nav_convert;
 #[cfg(test)]
@@ -92,6 +93,8 @@ pub struct LspBridge {
     docs: HashMap<EntityId, Doc>,
     /// Debounced occurrence-highlight requests per editor.
     highlight_tasks: HashMap<EntityId, Task<()>>,
+    /// Pending check for servers no open file uses (see `idle.rs`).
+    idle_stop: Option<Task<()>>,
     _events: Option<Task<()>>,
     _quit: Subscription,
     _settings: Subscription,
@@ -126,6 +129,7 @@ impl LspBridge {
             active_language: None,
             docs: HashMap::new(),
             highlight_tasks: HashMap::new(),
+            idle_stop: None,
             _events: None,
             _quit: quit,
             _settings: settings,
@@ -249,7 +253,10 @@ impl LspBridge {
             bridge.on_editor_event(&editor, event, cx)
         });
         let id = editor.entity_id();
-        let release = cx.observe_release(editor, move |bridge, _, _| bridge.forget(id));
+        let release = cx.observe_release(editor, move |bridge, _, cx| {
+            bridge.forget(id);
+            bridge.schedule_idle_stop(cx);
+        });
         self.docs.insert(
             id,
             Doc {
@@ -267,6 +274,7 @@ impl LspBridge {
     pub fn editor_path_changed(&mut self, editor: &Entity<Editor>, cx: &mut Context<Self>) {
         self.forget(editor.entity_id());
         self.register_editor(editor, cx);
+        self.schedule_idle_stop(cx);
     }
 
     /// The editor's language changed (language picker, file association):

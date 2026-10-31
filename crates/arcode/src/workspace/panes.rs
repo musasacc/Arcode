@@ -1,5 +1,7 @@
 //! Pane management: subscriptions, splitting and closing.
 
+use std::path::Path;
+
 use gpui::{AppContext, Context, Entity, Subscription, Window};
 
 use super::Workspace;
@@ -55,6 +57,48 @@ impl Workspace {
         self.active_editor_changed(cx);
     }
 
+    /// Activates the tab of `path` if it is open. Opened in another pane
+    /// while the active pane is empty (a fresh split), the tab moves here:
+    /// the user asked to see the file in this pane.
+    pub(super) fn activate_open_file(
+        &mut self,
+        path: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let found = self
+            .panes
+            .iter()
+            .enumerate()
+            .find_map(|(pane_ix, pane)| Some((pane_ix, pane.read(cx).position_of(path, cx)?)));
+        let Some((pane_ix, ix)) = found else {
+            return false;
+        };
+        if pane_ix != self.active_pane && !self.active_pane().read(cx).has_tabs() {
+            self.move_tab_to_active(pane_ix, ix, window, cx);
+        } else {
+            self.active_pane = pane_ix;
+            self.panes[pane_ix].update(cx, |pane, cx| pane.activate(ix, window, cx));
+        }
+        true
+    }
+
+    /// Moves tab `ix` of pane `from` into the active pane.
+    fn move_tab_to_active(
+        &mut self,
+        from: usize,
+        ix: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((editor, label)) = self.panes[from].update(cx, |p, cx| p.detach(ix, window, cx))
+        else {
+            return;
+        };
+        let to = self.active_pane().clone();
+        to.update(cx, |p, cx| p.attach(editor, label, window, cx));
+    }
+
     /// Adds an empty pane to the right of the active one and focuses it.
     pub fn split_right(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let pane = cx.new(|cx| Pane::new(window, cx));
@@ -66,6 +110,22 @@ impl Workspace {
         self.update_closable(cx);
         pane.read(cx).focus(window, cx);
         self.active_editor_changed(cx);
+    }
+
+    /// Split Right (`secondary-\`): like [`Self::split_right`], and the active tab
+    /// moves into the new pane when its pane has others to keep showing,
+    /// so the split does not start empty.
+    pub(super) fn split_active_tab_right(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let source = self.active_pane;
+        let moved = {
+            let pane = self.active_pane().read(cx);
+            pane.active_index().filter(|_| pane.items().len() > 1)
+        };
+        self.split_right(window, cx);
+        if let Some(tab) = moved {
+            self.move_tab_to_active(source, tab, window, cx);
+            self.active_editor_changed(cx);
+        }
     }
 
     /// Closes the pane at `ix` (only when another pane remains).
@@ -92,3 +152,7 @@ impl Workspace {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "panes_tests.rs"]
+mod tests;

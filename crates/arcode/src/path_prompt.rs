@@ -71,7 +71,7 @@ impl PathPrompt {
 
     fn confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
         let text = self.input.read(cx).text().trim().to_string();
-        let path = expand_home(&text);
+        let path = expand_home(typed_path(&text));
         if path.is_dir() {
             cx.emit(PathPromptEvent::Confirmed(path));
         } else {
@@ -83,6 +83,21 @@ impl PathPrompt {
     fn dismiss(&mut self, _: &Dismiss, _: &mut Window, cx: &mut Context<Self>) {
         cx.emit(PathPromptEvent::Dismissed);
     }
+}
+
+/// The path the user meant when they typed an absolute path or `~` after
+/// the prefilled folder: `/home/me//tmp/x` is `/tmp/x`, `/home/me/~/x` is
+/// `~/x`. A leading `//` (a UNC path) is kept.
+pub fn typed_path(text: &str) -> &str {
+    let mut start = text
+        .match_indices("//")
+        .filter(|(i, _)| *i > 0)
+        .last()
+        .map_or(0, |(i, _)| i + 1);
+    if let Some(i) = text[start..].rfind("/~") {
+        start += i + 1;
+    }
+    &text[start..]
 }
 
 /// Expands a leading `~` to the home folder.
@@ -131,6 +146,10 @@ impl Render for PathPrompt {
                         div()
                             .flex_1()
                             .min_w_0()
+                            // The field fills the height: without a flex
+                            // row of the row's height it is zero tall.
+                            .h_full()
+                            .flex()
                             .overflow_hidden()
                             .child(self.input.clone()),
                     )
@@ -158,6 +177,15 @@ impl Render for PathPrompt {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typing_a_path_after_the_prefill_restarts_it() {
+        assert_eq!(typed_path("/home/me/"), "/home/me/");
+        assert_eq!(typed_path("/home/me//tmp/x"), "/tmp/x");
+        assert_eq!(typed_path("/home/me/~/x"), "~/x");
+        assert_eq!(typed_path("//server/share"), "//server/share");
+        assert_eq!(typed_path("~/a"), "~/a");
+    }
 
     #[test]
     fn expands_home() {

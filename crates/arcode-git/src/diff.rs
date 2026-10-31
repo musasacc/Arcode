@@ -42,9 +42,58 @@ pub struct LineChange {
 /// or lost its final newline (or switched line endings) is unchanged.
 /// A block where lines were both removed and inserted is reported as
 /// [`ChangeKind::Modified`] over the inserted lines.
+///
+/// A block of inserted or removed lines that could sit at several places
+/// (it starts with the line that follows it) is moved as far down as it
+/// goes, as git places it: the gutter then marks the same lines as
+/// `git diff`.
 pub fn line_diff(old: &str, new: &str) -> Vec<LineChange> {
     let (a, b) = intern(old, new);
-    coalesce(myers::diff(&a, &b))
+    let mut ops = myers::diff(&a, &b);
+    slide_down(&mut ops, &a, &b);
+    coalesce(ops)
+}
+
+/// Moves each pure insertion or deletion down while its first line equals
+/// the unchanged line after it, stopping before it would touch the next
+/// edit.
+fn slide_down(ops: &mut [Op], a: &[u32], b: &[u32]) {
+    // Old line where each op starts (for the "next edit" bound).
+    let start = |op: &Op| match op {
+        Op::Delete { old, .. } => old.start,
+        Op::Insert { old_pos, .. } => *old_pos,
+    };
+    for i in 0..ops.len() {
+        let limit = ops.get(i + 1).map_or(a.len(), start);
+        let prev_end = i
+            .checked_sub(1)
+            .and_then(|p| ops.get(p))
+            .map(|op| match op {
+                Op::Delete { old, .. } => old.end,
+                Op::Insert { old_pos, .. } => *old_pos,
+            });
+        match &mut ops[i] {
+            Op::Insert { old_pos, new } => {
+                // Touching the previous edit: it is part of a modified block.
+                if prev_end == Some(*old_pos) {
+                    continue;
+                }
+                while *old_pos + 1 < limit && new.end < b.len() && b[new.start] == b[new.end] {
+                    *old_pos += 1;
+                    *new = new.start + 1..new.end + 1;
+                }
+            }
+            Op::Delete { old, new_pos } => {
+                if prev_end == Some(old.start) {
+                    continue;
+                }
+                while old.end + 1 < limit && a[old.start] == a[old.end] {
+                    *old = old.start + 1..old.end + 1;
+                    *new_pos += 1;
+                }
+            }
+        }
+    }
 }
 
 /// Maps every distinct line to a small integer so comparisons are cheap.

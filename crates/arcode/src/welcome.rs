@@ -35,7 +35,7 @@ pub fn render(_ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement 
                 .size(px(44.))
                 .rounded_lg()
                 .bg(c.accent)
-                .child(icon(IconName::Type).size(px(24.)).color(c.accent_text)),
+                .child(icon(IconName::CodeXml).size(px(24.)).color(c.accent_text)),
         )
         .child(
             div()

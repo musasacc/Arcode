@@ -23,6 +23,12 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             .into_iter()
             .map(|n| (ThemeChoice::Named(n.to_owned()), n.to_owned())),
     );
+    // Dark and Light mode use the dark or light theme: its card is selected.
+    let shown = match &ui.theme {
+        ThemeChoice::Dark => ThemeChoice::Named(ui.dark_theme.clone()),
+        ThemeChoice::Light => ThemeChoice::Named(ui.light_theme.clone()),
+        other => other.clone(),
+    };
     let mut cards = Vec::new();
     for (value, label) in choices {
         let (first, second) = match &value {
@@ -31,7 +37,7 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             ThemeChoice::Light => (registry.get(&ui.light_theme), None),
             ThemeChoice::Named(name) => (registry.get(name), None),
         };
-        let selected = ui.theme == value;
+        let selected = value == shown;
         let preview = first.filter(|_| value != ThemeChoice::System).cloned();
         let writer = page.writer();
         let id = SharedString::from(format!("theme-card-{label}"));
@@ -48,7 +54,12 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
         ThemeChoice::System => 0,
         ThemeChoice::Dark => 1,
         ThemeChoice::Light => 2,
-        ThemeChoice::Named(_) => usize::MAX,
+        // A theme picked by name is always dark or always light.
+        ThemeChoice::Named(ref name) => match registry.get(name).map(|t| t.appearance) {
+            Some(arcode_config::Appearance::Light) => 2,
+            Some(_) => 1,
+            None => usize::MAX,
+        },
     };
     let writer = page.writer();
     let modes = segmented(

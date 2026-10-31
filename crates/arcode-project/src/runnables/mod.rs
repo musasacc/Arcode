@@ -115,17 +115,33 @@ pub const RUNNABLE_LANGUAGES: [&str; 7] = [
     "typescriptreact",
 ];
 
-/// A short label such as `test tests::it_works`.
+/// A short label such as `test tests::it_works`, or `test tests::*` for
+/// every test in module `tests`.
 pub(crate) fn label(kind: RunnableKind, name: &str) -> String {
     let verb = match kind {
         RunnableKind::Main => return "run".to_string(),
         RunnableKind::Test => "test",
-        RunnableKind::TestModule => "tests",
+        RunnableKind::TestModule if name.is_empty() => return "tests".to_string(),
+        RunnableKind::TestModule => return format!("test {name}::*"),
         RunnableKind::Benchmark => "bench",
     };
     if name.is_empty() {
         verb.to_string()
     } else {
         format!("{verb} {name}")
+    }
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::*;
+
+    #[test]
+    fn labels_name_what_runs() {
+        assert_eq!(label(RunnableKind::Main, "main"), "run");
+        assert_eq!(label(RunnableKind::Test, "tests::ok"), "test tests::ok");
+        assert_eq!(label(RunnableKind::TestModule, "tests"), "test tests::*");
+        assert_eq!(label(RunnableKind::TestModule, ""), "tests");
+        assert_eq!(label(RunnableKind::Benchmark, "b"), "bench b");
     }
 }

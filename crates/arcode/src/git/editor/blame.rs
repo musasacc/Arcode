@@ -34,6 +34,11 @@ impl GitEditors {
         };
         if !blame_settings.inline_blame || column || state.repo.is_none() {
             state.blame_task = None;
+            // Inline blame was just switched off (e.g. by low-end mode):
+            // take down the one already drawn.
+            if state.blame_shown.take().is_some() {
+                editor.update(cx, |e, cx| e.set_virtual_text(BLAME_SET, Vec::new(), cx));
+            }
             return;
         }
         let line = editor.read(cx).cursor_position().line;

@@ -40,7 +40,9 @@ impl Workspace {
         el.on_action(cx.listener(Self::toggle_finder))
             .on_action(cx.listener(Self::toggle_bottom_panel))
             .on_action(cx.listener(Self::toggle_sidebar))
-            .on_action(cx.listener(|ws, _: &SplitRight, window, cx| ws.split_right(window, cx)))
+            .on_action(
+                cx.listener(|ws, _: &SplitRight, window, cx| ws.split_active_tab_right(window, cx)),
+            )
             .on_action(
                 cx.listener(|ws, _: &OpenFolder, window, cx| ws.prompt_open_folder(window, cx)),
             )
@@ -142,6 +144,9 @@ impl Workspace {
         self.sidebar_visible = !self.sidebar_visible;
         let opening = self.sidebar_visible;
         self.start_slide(super::anim::Slider::Sidebar, opening, cx);
+        if opening && self.activity == crate::activity_bar::Activity::Plugins {
+            self.langs.view.update(cx, |v, cx| v.shown(cx));
+        }
         cx.notify();
     }
 

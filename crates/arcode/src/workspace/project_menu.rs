@@ -247,8 +247,14 @@ impl Workspace {
             );
         if self.project.is_some() {
             menu = menu.child(separator()).child(
-                menu_item("close-project", IconName::X, "Close Project", None, cx)
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(CloseProject), cx)),
+                menu_item("close-project", IconName::X, "Close Project", None, cx).on_click(
+                    cx.listener(|ws, _, window, cx| {
+                        // Close the menu first: a confirmation may follow.
+                        ws.project_menu_open = false;
+                        cx.notify();
+                        window.dispatch_action(Box::new(CloseProject), cx);
+                    }),
+                ),
             );
         }
         menu

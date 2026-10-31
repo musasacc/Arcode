@@ -81,10 +81,7 @@ fn on_debugger_event(
     cx: &mut Context<Workspace>,
 ) {
     match event {
-        DebuggerEvent::Open { path, line, .. } => {
-            let at = Point::new(*line, 0);
-            ws.open_at(path, at..at, window, cx);
-        }
+        DebuggerEvent::Open { path, line, .. } => ws.open_debug_source(path, *line, window, cx),
         DebuggerEvent::RunCommand { title, command } => {
             ws.bottom_panel_visible = true;
             let line = command.command_line();
@@ -344,5 +341,30 @@ impl Workspace {
             self.debug.debugger.update(cx, |d, cx| d.reload_choices(cx));
         }
         self.open_file(&path, window, cx);
+    }
+}
+
+impl Workspace {
+    /// Shows `line` of a file the debugger stopped in. A file outside the
+    /// project (a standard library source) opens read-only and joins the
+    /// project's language server instead of starting one at its own root.
+    fn open_debug_source(
+        &mut self,
+        path: &std::path::Path,
+        line: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let outside = self.project().is_some_and(|p| !path.starts_with(&p.root))
+            && self.editor_for_path(&path, cx).is_none();
+        if outside {
+            self.lsp().read(cx).attach_to_workspace(&path);
+        }
+        let at = Point::new(line, 0);
+        self.open_at(&path, at..at, window, cx);
+        if outside && let Some(editor) = self.editor_for_path(&path, cx) {
+            editor.update(cx, |e, cx| e.set_read_only(true, cx));
+        }
     }
 }

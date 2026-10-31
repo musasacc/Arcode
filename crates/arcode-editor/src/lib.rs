@@ -108,6 +108,7 @@ mod mouse;
 mod mouse_column;
 mod mouse_ext;
 mod paint;
+mod reload;
 mod render;
 mod scroll;
 mod snippet;

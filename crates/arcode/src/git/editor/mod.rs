@@ -87,6 +87,7 @@ pub struct GitEditors {
     pub(crate) active: Option<EntityId>,
     pub(crate) blame_column: bool,
     _store_sub: Subscription,
+    _settings_sub: Subscription,
 }
 
 impl EventEmitter<GitEditorsEvent> for GitEditors {}
@@ -105,6 +106,13 @@ impl GitEditors {
             active: None,
             blame_column: false,
             _store_sub: sub,
+            // Inline blame follows its setting at once (low-end mode turns
+            // it off), not only after the cursor moves.
+            _settings_sub: cx.observe_global::<arcode_ui_kit::Settings>(|this, cx| {
+                if let Some(id) = this.active {
+                    this.schedule_inline_blame(id, cx);
+                }
+            }),
         }
     }
 

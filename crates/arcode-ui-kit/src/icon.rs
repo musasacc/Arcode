@@ -21,6 +21,8 @@ pub enum IconName {
     CircleDot,
     CirclePlay,
     CircleX,
+    /// `</>`: the Arcode logo.
+    CodeXml,
     Columns,
     Command,
     Copy,
@@ -91,6 +93,7 @@ impl IconName {
             Self::CircleDot => "icons/circle-dot.svg",
             Self::CirclePlay => "icons/circle-play.svg",
             Self::CircleX => "icons/circle-x.svg",
+            Self::CodeXml => "icons/code-xml.svg",
             Self::Columns => "icons/columns-2.svg",
             Self::Command => "icons/command.svg",
             Self::Copy => "icons/copy.svg",

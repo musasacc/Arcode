@@ -105,7 +105,7 @@ pub fn steps() -> Vec<TourStep> {
             TourTarget::RunButton,
             "Run",
             format!(
-                "Runs the detected command (cargo run, npm start, …) in a terminal ({}). The arrow picks another one.",
+                "{} runs the detected command (cargo run, npm start, …) in a terminal. The arrow picks another one.",
                 shortcut_label("secondary-f5")
             ),
             true,
@@ -129,7 +129,7 @@ pub fn steps() -> Vec<TourStep> {
             TourTarget::SettingsButton,
             "Settings",
             format!(
-                "Themes, fonts, editor options and low-end mode ({}). Run \"Help: Start Tour\" from the palette to see this tour again.",
+                "{} opens themes, fonts, editor options and low-end mode. Run \"Help: Start Tour\" from the palette to see this tour again.",
                 shortcut_label("secondary-,")
             ),
             false,

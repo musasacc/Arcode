@@ -118,6 +118,10 @@ impl Render for TextPrompt {
                         div()
                             .flex_1()
                             .min_w_0()
+                            // The field fills the height: without a flex
+                            // row of the row's height it is zero tall.
+                            .h_full()
+                            .flex()
                             .overflow_hidden()
                             .child(self.input.clone()),
                     )
