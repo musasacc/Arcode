@@ -186,10 +186,13 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "arcode-buffer",
+ "arcode-completion",
  "arcode-config",
+ "arcode-dap",
  "arcode-editor",
  "arcode-git",
  "arcode-lsp",
+ "arcode-project",
  "arcode-search",
  "arcode-syntax",
  "arcode-terminal",
@@ -203,9 +206,11 @@ dependencies = [
  "memory-stats",
  "notify",
  "nucleo-matcher",
+ "raw-window-handle",
  "serde_json",
  "tempfile",
  "unicode-width",
+ "x11rb",
 ]
 
 [[package]]
@@ -240,6 +245,7 @@ dependencies = [
  "serde",
  "tempfile",
  "toml 1.1.8+spec-1.1.0",
+ "toml_edit 0.25.17+spec-1.1.0",
 ]
 
 [[package]]
@@ -252,6 +258,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "toml 1.1.8+spec-1.1.0",
 ]
 
 [[package]]
@@ -264,6 +271,7 @@ dependencies = [
  "arcode-config",
  "arcode-syntax",
  "arcode-ui-kit",
+ "arcode-vim",
  "env_logger",
  "gpui",
  "log",
@@ -6722,6 +6730,7 @@ dependencies = [
  "indexmap",
  "toml_datetime 1.1.2+spec-1.1.0",
  "toml_parser",
+ "toml_writer",
  "winnow 1.0.4",
 ]
 

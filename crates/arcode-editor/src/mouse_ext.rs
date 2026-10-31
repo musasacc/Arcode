@@ -56,6 +56,34 @@ impl Editor {
         true
     }
 
+    /// A right click in the gutter: emits
+    /// [`EditorEvent::GutterContextClicked`] for a mark, or for an empty
+    /// slot of a lane that is clickable when empty.
+    pub(crate) fn gutter_context_click(
+        &mut self,
+        event: &MouseDownEvent,
+        layout: &LayoutSnapshot,
+        cx: &mut Context<Self>,
+    ) {
+        let p = event.position;
+        if p.x < layout.bounds.left() {
+            return;
+        }
+        let Some(lane) = layout.gutter.lane_at(p.x - layout.bounds.left()) else {
+            return;
+        };
+        let RowKind::Text(line) = layout.row_at(p.y, self.buffer.line_count()) else {
+            return;
+        };
+        if p.y > layout.line_top(line) + layout.line_height {
+            return;
+        }
+        let tag = self.gutter_tag(line, lane);
+        if tag.is_some() || lane.clickable_when_empty() {
+            cx.emit(EditorEvent::GutterContextClicked { line, lane, tag });
+        }
+    }
+
     /// Whether `p` is on the light bulb (the whole marker column cell of
     /// its line).
     pub(crate) fn bulb_hit(&self, layout: &LayoutSnapshot, p: Point<Pixels>) -> bool {
@@ -67,7 +95,10 @@ impl Editor {
         }
         let cell = crate::gutter::bulb_bounds(layout, line, layout.line_height);
         let left = layout.bounds.left() + layout.gutter.marker_left;
-        let cell = Bounds::new(point(left, cell.top()), size(MARKER_WIDTH, cell.size.height));
+        let cell = Bounds::new(
+            point(left, cell.top()),
+            size(MARKER_WIDTH, cell.size.height),
+        );
         cell.contains(&p)
     }
 

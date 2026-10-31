@@ -1,8 +1,6 @@
 //! Change bars: computing hunks, drawing them, the hunk popover and its
 //! Stage / Unstage / Revert actions.
 
-use std::time::Duration;
-
 use arcode_buffer::{LineEnding, Point};
 use arcode_editor::{
     ChangeKind as BarKind, Editor, EditorPopover, GutterDecoration, GutterLane, GutterMark,
@@ -15,7 +13,9 @@ use super::{GUTTER_SET, GitEditors, GitEditorsEvent};
 use crate::git::hunk_popover::HunkPopover;
 
 /// Quiet time after typing before the gutter is recomputed.
-const EDIT_DEBOUNCE: Duration = Duration::from_millis(300);
+/// Quiet time after an edit before the hunks are recomputed (longer in
+/// low-end mode, see `arcode_ui_kit::debounce`).
+const EDIT_DEBOUNCE_MS: u64 = 300;
 
 /// What a popover button does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,9 +45,10 @@ impl GitEditors {
         let gutter = settings(cx).git.gutter;
         let repo = state.repo.clone();
         let rel = state.rel_path();
+        let delay = arcode_ui_kit::debounce(EDIT_DEBOUNCE_MS, cx);
         let task = cx.spawn(async move |this, cx| {
             if debounce {
-                cx.background_executor().timer(EDIT_DEBOUNCE).await;
+                cx.background_executor().timer(delay).await;
             }
             let Ok((rope, version)) =
                 editor.read_with(cx, |e, _| (e.buffer().text().clone(), e.buffer().version()))

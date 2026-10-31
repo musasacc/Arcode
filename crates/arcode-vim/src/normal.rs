@@ -15,7 +15,7 @@ use crate::vim::{Ed, Vim};
 use arcode_buffer::movement;
 
 /// True if the command changes the buffer (recorded for `.`).
-fn is_change(kind: &CmdKind) -> bool {
+pub(crate) fn is_change(kind: &CmdKind) -> bool {
     match kind {
         CmdKind::Operate(op, _) | CmdKind::VisualOp(op, _) => op.is_change(),
         CmdKind::Act(a) => matches!(
@@ -36,6 +36,9 @@ fn is_change(kind: &CmdKind) -> bool {
 impl Vim {
     /// Runs a parsed command.
     pub(crate) fn execute(&mut self, cmd: Cmd, keys: Vec<Key>, ed: &mut Ed) -> VimAction {
+        if self.refuses(&cmd.kind) {
+            return self.refuse();
+        }
         if !self.replaying && is_change(&cmd.kind) {
             let visual = self.mode.is_visual().then(|| self.visual_extent(ed));
             self.start_dot(&keys, &cmd.count_idx, cmd.count, visual, ed.b.version());

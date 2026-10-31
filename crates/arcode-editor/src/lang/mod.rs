@@ -218,8 +218,11 @@ impl Editor {
     }
 
     /// Bookkeeping after an edit: hints and the light bulb are asked again,
-    /// the rename field and notices close.
+    /// menus, the rename field and notices close.
     pub(crate) fn lang_after_edits(&mut self, cx: &mut Context<Self>) {
+        // The listed actions were computed for the old text.
+        self.hide_popover(CODE_ACTIONS_POPOVER, cx);
+        self.hide_popover(CONTEXT_MENU_POPOVER, cx);
         self.close_transient_popovers(cx);
         self.inlay_after_edit(cx);
         self.bulb_schedule(cx);

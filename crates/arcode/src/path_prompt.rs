@@ -1,6 +1,7 @@
 //! An in-app "type a folder path" dialog, used when the platform folder
 //! picker is unavailable (e.g. Linux without an XDG desktop portal).
 
+use arcode_ui_kit::Elevated;
 use std::path::PathBuf;
 
 use arcode_ui_kit::{IconName, icon, kbd, theme};
@@ -107,7 +108,7 @@ impl Render for PathPrompt {
             .border_1()
             .border_color(c.border)
             .bg(c.surface_raised)
-            .shadow_md()
+            .elevated(cx)
             .overflow_hidden()
             .child(
                 div()
@@ -126,7 +127,13 @@ impl Render for PathPrompt {
                     .h(px(40.))
                     .px_3()
                     .child(icon(IconName::Folder).size(px(16.)).color(c.accent))
-                    .child(self.input.clone())
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .child(self.input.clone()),
+                    )
                     .child(kbd("Enter")),
             )
             .child(

@@ -7,9 +7,13 @@ use serde::{Deserialize, Serialize};
 use crate::lenient::impl_section;
 
 /// Per-language overrides (`[language.<id>]`).
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LanguageSettings {
+    /// Whether the language's pack is on. A disabled language starts no
+    /// language servers and shows no run buttons; it is still highlighted.
+    #[serde(skip_serializing_if = "is_true")]
+    pub enabled: bool,
     /// Names of `[lsp.<name>]` servers to start for this language, in order.
     pub servers: Vec<String>,
     /// External formatter command line (e.g. `"prettier --stdin-filepath {file}"`);
@@ -22,9 +26,31 @@ pub struct LanguageSettings {
     /// Overrides `editor.insert_spaces`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub insert_spaces: Option<bool>,
+    /// The configured `servers` of a disabled language (they are moved
+    /// here, so nothing starts them). Not read from or written to TOML.
+    #[serde(skip)]
+    pub disabled_servers: Vec<String>,
+}
+
+impl Default for LanguageSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            servers: Vec::new(),
+            formatter: None,
+            tab_size: None,
+            insert_spaces: None,
+            disabled_servers: Vec::new(),
+        }
+    }
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 impl_section!(LanguageSettings {
+    enabled,
     servers,
     formatter,
     tab_size,
@@ -37,6 +63,23 @@ impl LanguageSettings {
         Self {
             servers: servers.iter().map(|s| (*s).to_owned()).collect(),
             ..Self::default()
+        }
+    }
+
+    /// The servers the language would start when enabled.
+    pub fn configured_servers(&self) -> &[String] {
+        if self.enabled {
+            &self.servers
+        } else {
+            &self.disabled_servers
+        }
+    }
+
+    /// Moves the servers of a disabled language aside (see
+    /// [`LanguageSettings::disabled_servers`]).
+    pub(crate) fn apply_enabled(&mut self) {
+        if !self.enabled && !self.servers.is_empty() {
+            self.disabled_servers = std::mem::take(&mut self.servers);
         }
     }
 
@@ -77,6 +120,10 @@ pub struct LspServerSettings {
     /// Passed as `initializationOptions` in the LSP `initialize` request.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub initialization_options: Option<toml::Value>,
+    /// Which features to use from this server (all on by default), e.g.
+    /// `features = { hover = false, completion = false }` for a linter.
+    #[serde(skip_serializing_if = "LspFeatures::is_all_on")]
+    pub features: LspFeatures,
 }
 
 impl_section!(LspServerSettings {
@@ -85,7 +132,66 @@ impl_section!(LspServerSettings {
     env,
     root_markers,
     initialization_options,
+    features,
 });
+
+/// Per-server feature switches (`[lsp.<name>].features`). A feature that
+/// is off is never asked from this server; `diagnostics = false` hides
+/// what it reports. Unknown keys make the whole table invalid (a warning).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LspFeatures {
+    /// Diagnostics (squiggles, Problems panel, status bar counts).
+    pub diagnostics: bool,
+    /// Completion items.
+    pub completion: bool,
+    /// Hover documentation.
+    pub hover: bool,
+    /// Signature help (parameter hints).
+    pub signature_help: bool,
+    /// Go to definition / type definition / implementation.
+    pub definition: bool,
+    /// Find all references.
+    pub references: bool,
+    /// Document and workspace symbols.
+    pub symbols: bool,
+    /// Occurrence highlights.
+    pub highlights: bool,
+    /// Rename symbol.
+    pub rename: bool,
+    /// Formatting.
+    pub formatting: bool,
+    /// Code actions and quick fixes.
+    pub code_actions: bool,
+    /// Inlay hints.
+    pub inlay_hints: bool,
+}
+
+impl Default for LspFeatures {
+    fn default() -> Self {
+        Self {
+            diagnostics: true,
+            completion: true,
+            hover: true,
+            signature_help: true,
+            definition: true,
+            references: true,
+            symbols: true,
+            highlights: true,
+            rename: true,
+            formatting: true,
+            code_actions: true,
+            inlay_hints: true,
+        }
+    }
+}
+
+impl LspFeatures {
+    /// True when every feature is on (the default).
+    pub fn is_all_on(&self) -> bool {
+        *self == Self::default()
+    }
+}
 
 impl LspServerSettings {
     /// Settings that run `command` with no arguments.
@@ -140,6 +246,24 @@ pub fn builtin_servers() -> BTreeMap<String, LspServerSettings> {
         LspServerSettings::with("clangd", &[], &["compile_commands.json", "CMakeLists.txt"]),
         LspServerSettings::with("taplo", &["lsp", "stdio"], &[]),
         LspServerSettings::with("vscode-json-language-server", &["--stdio"], &[]),
+        LspServerSettings::with("vscode-html-language-server", &["--stdio"], &[]),
+        LspServerSettings::with("vscode-css-language-server", &["--stdio"], &[]),
+        LspServerSettings::with("bash-language-server", &["start"], &[]),
+        LspServerSettings::with("yaml-language-server", &["--stdio"], &[]),
+        LspServerSettings::with("marksman", &["server"], &[".marksman.toml"]),
+        LspServerSettings::with(
+            "jdtls",
+            &[],
+            &[
+                "pom.xml",
+                "build.gradle",
+                "build.gradle.kts",
+                "settings.gradle",
+            ],
+        ),
+        LspServerSettings::with("lua-language-server", &[], &[".luarc.json"]),
+        LspServerSettings::with("ruby-lsp", &[], &["Gemfile"]),
+        LspServerSettings::with("intelephense", &["--stdio"], &["composer.json"]),
     ]
     .into_iter()
     .map(|server| (server.command.clone(), server))
@@ -152,6 +276,9 @@ pub fn builtin_languages() -> BTreeMap<String, LanguageSettings> {
         ("rust", "rust-analyzer"),
         ("typescript", "typescript-language-server"),
         ("javascript", "typescript-language-server"),
+        ("typescriptreact", "typescript-language-server"),
+        ("javascriptreact", "typescript-language-server"),
+        // Older names of the two above, kept for configs that use them.
         ("tsx", "typescript-language-server"),
         ("jsx", "typescript-language-server"),
         ("python", "pyright-langserver"),
@@ -160,6 +287,15 @@ pub fn builtin_languages() -> BTreeMap<String, LanguageSettings> {
         ("cpp", "clangd"),
         ("toml", "taplo"),
         ("json", "vscode-json-language-server"),
+        ("html", "vscode-html-language-server"),
+        ("css", "vscode-css-language-server"),
+        ("shellscript", "bash-language-server"),
+        ("yaml", "yaml-language-server"),
+        ("markdown", "marksman"),
+        ("java", "jdtls"),
+        ("lua", "lua-language-server"),
+        ("ruby", "ruby-lsp"),
+        ("php", "intelephense"),
     ]
     .into_iter()
     .map(|(language, server)| {
@@ -186,9 +322,42 @@ mod tests {
     }
 
     #[test]
+    fn server_features_parse_leniently() {
+        let (config, warnings) = crate::Config::from_toml_str(
+            "[lsp.typos]\ncommand = \"typos-lsp\"\nfeatures = { hover = false, completion = false }\n\
+             [lsp.bad]\nfeatures = { hovr = false }\n",
+        );
+        let typos = &config.lsp["typos"].features;
+        assert!(!typos.hover && !typos.completion);
+        assert!(typos.diagnostics && typos.code_actions);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("lsp.bad.features"), "{warnings:?}");
+        assert!(config.lsp["bad"].features.is_all_on());
+    }
+
+    #[test]
+    fn disabled_languages_keep_their_servers_aside() {
+        let (config, warnings) = crate::Config::from_toml_str(
+            "[language.rust]\nenabled = false\n[language.go]\nenabled = true\n",
+        );
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let rust = config.language("rust").unwrap();
+        assert!(!config.language_enabled("rust"));
+        assert!(rust.servers.is_empty());
+        assert_eq!(rust.configured_servers(), ["rust-analyzer"]);
+        assert!(config.servers_for_language("rust").is_empty());
+        assert!(config.language_enabled("go"));
+        assert_eq!(
+            config.language("go").unwrap().configured_servers(),
+            ["gopls"]
+        );
+        assert!(config.language_enabled("no-such-language"));
+    }
+
+    #[test]
     fn builtin_server_details() {
         let servers = builtin_servers();
-        assert_eq!(servers.len(), 7);
+        assert_eq!(servers.len(), 16);
         assert_eq!(servers["taplo"].args, ["lsp", "stdio"]);
         assert_eq!(servers["rust-analyzer"].root_markers, ["Cargo.toml"]);
         assert_eq!(

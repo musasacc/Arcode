@@ -164,6 +164,7 @@ impl Vim {
                 self.highlight = false;
                 VimCommand::NoHighlight
             }
+            r if is_substitute(r) && self.read_only => return self.refuse(),
             r if is_substitute(r) => {
                 let cur = line_of(ed.b, ed.sels.primary().head);
                 let (first, last) = range.unwrap_or((cur, cur));

@@ -7,10 +7,39 @@ use arcode_buffer::{Buffer, Point};
 use arcode_editor::{CodeAction, InlayHint, InlayHintKind, RenameTarget};
 use arcode_lsp::PositionEncoding;
 use arcode_lsp::lsp_types::{
-    self, CodeActionOrCommand, Diagnostic, InlayHintLabel, Position, PrepareRenameResponse, Range,
+    self, CodeActionOrCommand, CodeActionProviderCapability, Diagnostic, InlayHintLabel, OneOf,
+    Position, PrepareRenameResponse, Range, ServerCapabilities,
 };
 
 use super::convert::to_point;
+use super::navigation::one_of;
+
+/// Whether the server offers code actions.
+pub fn supports_actions(c: &ServerCapabilities) -> bool {
+    matches!(
+        c.code_action_provider,
+        Some(CodeActionProviderCapability::Simple(true))
+            | Some(CodeActionProviderCapability::Options(_))
+    )
+}
+
+/// Whether the server resolves code actions lazily.
+pub fn resolves_actions(c: &ServerCapabilities) -> bool {
+    matches!(
+        &c.code_action_provider,
+        Some(CodeActionProviderCapability::Options(o)) if o.resolve_provider == Some(true)
+    )
+}
+
+/// Whether the server renames.
+pub fn supports_rename(c: &ServerCapabilities) -> bool {
+    one_of(&c.rename_provider)
+}
+
+/// Whether the server answers `prepareRename`.
+pub fn prepares_rename(c: &ServerCapabilities) -> bool {
+    matches!(&c.rename_provider, Some(OneOf::Right(o)) if o.prepare_provider == Some(true))
+}
 
 /// What the bridge keeps in [`CodeAction::data`] to apply an action.
 #[derive(Debug, Clone)]
@@ -22,7 +51,11 @@ pub struct ActionData {
 }
 
 /// The editor's hint for an LSP inlay hint.
-pub fn inlay_hint(buffer: &Buffer, hint: lsp_types::InlayHint, encoding: PositionEncoding) -> InlayHint {
+pub fn inlay_hint(
+    buffer: &Buffer,
+    hint: lsp_types::InlayHint,
+    encoding: PositionEncoding,
+) -> InlayHint {
     let label = match hint.label {
         InlayHintLabel::String(s) => s,
         InlayHintLabel::LabelParts(parts) => parts.into_iter().map(|p| p.value).collect(),
@@ -102,7 +135,10 @@ pub fn rename_target(
             let placeholder = text(&range);
             Some(RenameTarget { range, placeholder })
         }
-        PrepareRenameResponse::RangeWithPlaceholder { range: r, placeholder } => Some(RenameTarget {
+        PrepareRenameResponse::RangeWithPlaceholder {
+            range: r,
+            placeholder,
+        } => Some(RenameTarget {
             range: range(r),
             placeholder,
         }),

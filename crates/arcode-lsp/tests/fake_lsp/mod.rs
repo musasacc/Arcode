@@ -5,6 +5,9 @@
 //!   what was received (`"<name>: changed v2 incremental"`).
 //! - `hover` answers `"<name> v<version> <last change kind>"`.
 //! - `completion` answers one item labelled with the server name.
+//! - `ARCODE_FAKE_HOVER=null` / `error` makes hover answer `null` / fail.
+//! - `ARCODE_FAKE_DEFINITION=empty` / `here` offers `definition` and answers
+//!   `[]` / a location at line 0, character 7.
 
 use std::collections::HashMap;
 
@@ -55,6 +58,8 @@ async fn publish<W: AsyncWrite + Unpin>(
 async fn serve() {
     let name = std::env::var("ARCODE_FAKE_NAME").unwrap_or_else(|_| "fake".into());
     let encoding = std::env::var("ARCODE_FAKE_ENCODING").unwrap_or_else(|_| "utf-16".into());
+    let hover_mode = std::env::var("ARCODE_FAKE_HOVER").unwrap_or_else(|_| "normal".into());
+    let definition = std::env::var("ARCODE_FAKE_DEFINITION").ok();
     eprintln!("{name} starting");
     let mut input = BufReader::new(tokio::io::stdin());
     let mut out = tokio::io::stdout();
@@ -70,12 +75,15 @@ async fn serve() {
         let key = uri.as_str().unwrap_or_default().to_string();
         match method.as_str() {
             "initialize" => {
-                let caps = json!({
+                let mut caps = json!({
                     "textDocumentSync": { "openClose": true, "change": 2, "save": { "includeText": true } },
                     "hoverProvider": true,
                     "completionProvider": {},
                     "positionEncoding": encoding,
                 });
+                if definition.is_some() {
+                    caps["definitionProvider"] = json!(true);
+                }
                 send(
                     &mut out,
                     json!({ "jsonrpc": "2.0", "id": id, "result": { "capabilities": caps } }),
@@ -133,6 +141,15 @@ async fn serve() {
                 let params = json!({ "uri": uri, "diagnostics": [] });
                 send(&mut out, json!({ "jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": params })).await;
             }
+            "textDocument/hover" if hover_mode != "normal" => {
+                let reply = if hover_mode == "null" {
+                    json!({ "jsonrpc": "2.0", "id": id, "result": null })
+                } else {
+                    let error = json!({ "code": -32603, "message": "hover failed" });
+                    json!({ "jsonrpc": "2.0", "id": id, "error": error })
+                };
+                send(&mut out, reply).await;
+            }
             "textDocument/hover" => {
                 let doc = docs.get(&key);
                 let value = match doc {
@@ -140,6 +157,19 @@ async fn serve() {
                     None => format!("{name} unknown document"),
                 };
                 let result = json!({ "contents": { "kind": "plaintext", "value": value } });
+                send(
+                    &mut out,
+                    json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+                )
+                .await;
+            }
+            "textDocument/definition" => {
+                let result = if definition.as_deref() == Some("empty") {
+                    json!([])
+                } else {
+                    let pos = json!({ "line": 0, "character": 7 });
+                    json!([{ "uri": uri, "range": { "start": pos, "end": pos } }])
+                };
                 send(
                     &mut out,
                     json!({ "jsonrpc": "2.0", "id": id, "result": result }),

@@ -1,5 +1,6 @@
 //! Server configuration and project-root detection.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -7,6 +8,7 @@ use serde_json::Value;
 
 use super::{LspManager, State, absolute};
 use crate::client::ServerSpec;
+use crate::features::Features;
 
 /// A configured language server.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -24,6 +26,8 @@ pub struct ServerConfig {
     pub root_markers: Vec<String>,
     /// Sent as `initializationOptions`; also answers `workspace/configuration`.
     pub initialization_options: Option<Value>,
+    /// Features the client uses from this server (all by default).
+    pub features: Features,
 }
 
 impl ServerConfig {
@@ -45,6 +49,7 @@ impl ServerConfig {
             args: self.args.clone(),
             env: self.env.clone(),
             initialization_options: self.initialization_options.clone(),
+            features: self.features,
         }
     }
 }
@@ -78,8 +83,31 @@ impl LspManager {
     }
 }
 
+/// Drops repeated server names from each language's list (keeping the
+/// first, highest-priority entry), with a warning: a server listed twice
+/// would otherwise get every `didOpen`/`didChange` twice.
+pub(super) fn dedupe_languages(
+    languages: HashMap<String, Vec<String>>,
+) -> HashMap<String, Vec<String>> {
+    languages
+        .into_iter()
+        .map(|(language, names)| {
+            let mut unique: Vec<String> = Vec::with_capacity(names.len());
+            for name in names {
+                if unique.contains(&name) {
+                    log::warn!("language {language} lists server {name} more than once");
+                } else {
+                    unique.push(name);
+                }
+            }
+            (language, unique)
+        })
+        .collect()
+}
+
 /// The root of the running `name` instance an attached `path` joins
-/// instead of `own_root`, if any.
+/// instead of `own_root`, if any. An instance being replaced (restart or
+/// reload) counts as running: its replacement is started at the same root.
 pub(super) fn shared_root(
     state: &State,
     name: &str,
@@ -95,6 +123,13 @@ pub(super) fn shared_root(
         .iter()
         .filter(|((n, _), slot)| n == name && slot.is_usable())
         .map(|((_, r), _)| r.as_path())
+        .chain(
+            state
+                .stopping
+                .keys()
+                .filter(|(n, _)| n == name)
+                .map(|(_, r)| r.as_path()),
+        )
         .collect();
     reuse_root(path, state.workspace_root.as_deref(), &running)
 }

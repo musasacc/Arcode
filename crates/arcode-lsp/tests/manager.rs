@@ -97,7 +97,7 @@ fn fake_config(name: &str, encoding: &str) -> ServerConfig {
             ("ARCODE_FAKE_ENCODING".into(), encoding.into()),
         ],
         root_markers: vec!["project.marker".into()],
-        initialization_options: None,
+        ..Default::default()
     }
 }
 

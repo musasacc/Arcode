@@ -20,6 +20,9 @@ ligatures = true
 tab_size = 4
 # Insert spaces when pressing Tab.
 insert_spaces = true
+# Guess tabs or spaces and the indent size of each opened file from its
+# content; the status bar shows (and lets you change) what a file uses.
+detect_indentation = true
 show_line_numbers = true
 highlight_current_line = true
 cursor_blink = false
@@ -27,6 +30,11 @@ cursor_blink = false
 word_wrap = false
 # "default" or "vim".
 keymap = "default"
+# Modal Vim editing: Normal, Insert, Visual and Replace modes, operators,
+# text objects, registers ("+ is the system clipboard), dot repeat, / and ?
+# search, :w :q :wq :e :s. "Editor: Toggle Vim Mode" switches it for the
+# session.
+vim_mode = false
 # Insert the closing bracket or quote automatically.
 auto_close_brackets = true
 # Format the file with its language server when saving. Saving never
@@ -72,7 +80,11 @@ theme = "system"
 # .toml files in the "themes" folder next to this file.
 dark_theme = "Arcode Dark"
 light_theme = "Arcode Light"
-# Reduce visual effects on slow machines (also disables animations).
+# Reduce visual effects on slow machines: no animations, no cursor blink,
+# flat popups without shadows and slower (longer debounced) diagnostics and
+# git refreshes. Inlay hints and inline blame are off unless set here. The
+# Settings page turns those set to true off, tagged "[low-end mode]", and
+# turning low-end mode off turns only the tagged ones back on.
 low_end_mode = false
 animations = true
 # Animation duration in milliseconds.
@@ -115,20 +127,71 @@ exclude = []
 # Comment tags listed in the TODO view (case-sensitive, whole words).
 tags = ["TODO", "FIXME", "HACK", "XXX", "BUG", "NOTE"]
 
+[workspace]
+# Reopen a project's tabs, splits, cursors and panels when it is opened.
+restore_session = true
+# Reopen the projects that were open at quit (one window each) when Arcode
+# starts without a path.
+reopen_projects = true
+# Ask before deleting files in the file tree.
+confirm_delete = true
+# Show changes made outside Arcode in the file tree (no polling).
+watch_files = true
+# Folder offered for new projects. Unset: next to the current project.
+# projects_folder = "~/Projects"
+# Show a banner when the project's packages are not installed (e.g.
+# package.json without node_modules, requirements.txt without a
+# virtualenv). Nothing is installed unless you click "Install packages".
+package_banner = true
+
+[files]
+# File pattern -> language id (or name). A pattern without "/" matches the
+# file name, one with "/" the path; * and ? are wildcards. The most
+# specific matching pattern wins. The language picker in the status bar
+# can add entries here.
+# Example: { "*.mdx" = "markdown", "Dockerfile.*" = "shellscript" }
+associations = {}
+
+[debug]
+# Run / Debug buttons next to main functions and tests in the gutter.
+run_buttons = true
+# Show the Debug panel when a debug session starts.
+open_panel_on_start = true
+# Preferred debug adapter per language: codelldb, lldb-dap, gdb (14+),
+# debugpy or delve. Unset: the first one installed. Adapters are never
+# downloaded; install them yourself. Example: { rust = "gdb" }
+adapters = {}
+# Adapter executables that are not on PATH, by adapter name.
+# Example: { "lldb-dap" = "/usr/bin/lldb-dap-18" }
+adapter_paths = {}
+
 # Per-language settings. Built-in assignments:
-#   rust -> rust-analyzer, typescript/javascript/tsx/jsx ->
-#   typescript-language-server, python -> pyright-langserver, go -> gopls,
-#   c/cpp -> clangd, toml -> taplo, json -> vscode-json-language-server.
+#   rust -> rust-analyzer, typescript/javascript (and their React variants)
+#   -> typescript-language-server, python -> pyright-langserver,
+#   go -> gopls, c/cpp -> clangd, toml -> taplo,
+#   json/html/css -> vscode-{json,html,css}-language-server,
+#   shellscript -> bash-language-server, yaml -> yaml-language-server,
+#   markdown -> marksman, java -> jdtls, lua -> lua-language-server,
+#   ruby -> ruby-lsp, php -> intelephense.
 # Any key you set replaces the built-in value for that language only.
 #
+# Several servers can serve one file: diagnostics, completion and code
+# actions come from all of them; hover, definition, rename, formatting and
+# signature help ask them in this order until one has an answer.
+#
 # [language.python]
-# servers = ["pyright-langserver", "ruff"]   # LSP servers, in order
+# enabled = true                             # false turns the language pack off
+# servers = ["pyright-langserver", "ruff"]   # LSP servers, in priority order
 # formatter = "black -q -"                   # external formatter command
 # tab_size = 4                               # overrides editor.tab_size
 # insert_spaces = true                       # overrides editor.insert_spaces
 
 # Language servers. Built-in: rust-analyzer, typescript-language-server,
-# pyright-langserver, gopls, clangd, taplo, vscode-json-language-server.
+# pyright-langserver, gopls, clangd, taplo, vscode-json-language-server,
+# vscode-html-language-server, vscode-css-language-server,
+# bash-language-server, yaml-language-server, marksman, jdtls,
+# lua-language-server, ruby-lsp, intelephense. The Languages page (Plugins
+# view) shows which are installed and how to install them.
 # A new table defines a new server; keys in an existing one override it.
 #
 # [lsp.ruff]
@@ -137,3 +200,12 @@ tags = ["TODO", "FIXME", "HACK", "XXX", "BUG", "NOTE"]
 # env = { RUFF_CACHE_DIR = "/tmp/ruff" }
 # root_markers = ["pyproject.toml", "ruff.toml"]
 # initialization_options = { settings = { lineLength = 100 } }
+# # Features to use from this server (all on by default): diagnostics,
+# # completion, hover, signature_help, definition, references, symbols,
+# # highlights, rename, formatting, code_actions, inlay_hints.
+# features = { hover = false, completion = false }
+#
+# Saving this file applies LSP changes at once: only servers whose settings
+# changed are restarted (a file with a TOML syntax error keeps the running
+# setup). A missing server is reported once; nothing is ever downloaded or
+# installed automatically.

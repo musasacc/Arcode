@@ -56,6 +56,10 @@ pub struct Vim {
     pub(crate) last_macro: Option<char>,
     pub(crate) macro_depth: usize,
     pub(crate) pending_paste: Option<PendingPaste>,
+    /// Edits applied since the last [`Vim::take_edits`].
+    pub(crate) edit_log: Vec<Edit>,
+    /// Refuse every change (see [`Vim::set_read_only`]).
+    pub(crate) read_only: bool,
 }
 
 impl Vim {
@@ -137,6 +141,10 @@ impl Vim {
 
     /// One key, no grouping (used directly when replaying `.`).
     pub(crate) fn process(&mut self, key: &Key, ed: &mut Ed) -> VimAction {
+        if self.read_only && matches!(self.mode, Mode::Insert | Mode::Replace) {
+            self.set_read_only(true);
+            return self.refuse();
+        }
         match self.mode {
             Mode::Insert | Mode::Replace => self.insert_key(key, ed),
             Mode::CommandLine => self.cmdline_key(key, ed),
@@ -218,6 +226,7 @@ impl Vim {
         }
         let recs = ed.b.edit_grouped(fixed, UndoGroup::Merge);
         self.map_marks(&recs);
+        self.edit_log.extend(recs);
         if let Some(&(s, _)) = order.first().map(|&i| &out[i]) {
             self.marks.insert('.', s);
         }

@@ -61,7 +61,9 @@ fn path_of(uri: &arcode_lsp::lsp_types::Uri) -> Result<PathBuf, String> {
     uri_to_path(uri).ok_or_else(|| format!("not a file: {}", uri.as_str()))
 }
 
-fn plain_edits(edits: Vec<OneOf<TextEdit, arcode_lsp::lsp_types::AnnotatedTextEdit>>) -> Vec<TextEdit> {
+fn plain_edits(
+    edits: Vec<OneOf<TextEdit, arcode_lsp::lsp_types::AnnotatedTextEdit>>,
+) -> Vec<TextEdit> {
     edits
         .into_iter()
         .map(|e| match e {
@@ -69,6 +71,10 @@ fn plain_edits(edits: Vec<OneOf<TextEdit, arcode_lsp::lsp_types::AnnotatedTextEd
             OneOf::Right(annotated) => annotated.text_edit,
         })
         .collect()
+}
+
+fn flag(value: Option<bool>) -> bool {
+    value.unwrap_or(false)
 }
 
 /// The operations of `edit`. `documentChanges` wins over `changes` (as
@@ -91,28 +97,28 @@ pub fn plan(edit: WorkspaceEdit) -> Result<Vec<FileOp>, String> {
                     edits: plain_edits(e.edits),
                 },
                 DocumentChangeOperation::Op(ResourceOp::Create(c)) => {
-                    let o = c.options.unwrap_or_default();
+                    let o = c.options.as_ref();
                     FileOp::Create {
                         path: path_of(&c.uri)?,
-                        overwrite: o.overwrite.unwrap_or(false),
-                        ignore_if_exists: o.ignore_if_exists.unwrap_or(false),
+                        overwrite: flag(o.and_then(|o| o.overwrite)),
+                        ignore_if_exists: flag(o.and_then(|o| o.ignore_if_exists)),
                     }
                 }
                 DocumentChangeOperation::Op(ResourceOp::Rename(r)) => {
-                    let o = r.options.unwrap_or_default();
+                    let o = r.options.as_ref();
                     FileOp::Rename {
                         from: path_of(&r.old_uri)?,
                         to: path_of(&r.new_uri)?,
-                        overwrite: o.overwrite.unwrap_or(false),
-                        ignore_if_exists: o.ignore_if_exists.unwrap_or(false),
+                        overwrite: flag(o.and_then(|o| o.overwrite)),
+                        ignore_if_exists: flag(o.and_then(|o| o.ignore_if_exists)),
                     }
                 }
                 DocumentChangeOperation::Op(ResourceOp::Delete(d)) => {
-                    let o = d.options.unwrap_or_default();
+                    let o = d.options.as_ref();
                     FileOp::Delete {
                         path: path_of(&d.uri)?,
-                        recursive: o.recursive.unwrap_or(false),
-                        ignore_if_not_exists: o.ignore_if_not_exists.unwrap_or(false),
+                        recursive: flag(o.and_then(|o| o.recursive)),
+                        ignore_if_not_exists: flag(o.and_then(|o| o.ignore_if_not_exists)),
                     }
                 }
             });

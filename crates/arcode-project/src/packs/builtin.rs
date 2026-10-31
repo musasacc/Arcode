@@ -1,15 +1,36 @@
 //! The built-in language packs.
 
+use super::builtin_more::{java, lua, markdown, php, ruby, shell, yaml};
 use super::steps::{
     check, codelldb, comp, go_install, langservers_extracted_check, lldb_dap, note, npm_global,
-    optional, pack, pip_user, pipx, python_import_check, run, rustup_component,
+    optional, pack, pip_user, pipx, providing, python_import_check, run, rustup_component,
+    with_run,
 };
 use super::{ComponentKind, LanguagePack, Os};
 
 /// All built-in packs: Rust, Python, TypeScript/JavaScript, Go, C/C++, Web
-/// (HTML/CSS/JSON) and TOML.
+/// (HTML/CSS/JSON), TOML, Shell, YAML, Markdown, Java, Lua, Ruby and PHP:
+/// one for every language with a tree-sitter grammar in Arcode.
 pub fn packs() -> Vec<LanguagePack> {
-    vec![rust(), python(), typescript(), go(), cpp(), web(), toml()]
+    vec![
+        with_run(rust(), &["cargo run", "cargo test", "cargo build"]),
+        with_run(
+            python(),
+            &["python main.py", "pytest", "python -m <module>"],
+        ),
+        with_run(typescript(), &["npm run <script>", "node <file>"]),
+        with_run(go(), &["go run .", "go test ./...", "go build"]),
+        with_run(cpp(), &["make <target>", "just <recipe>"]),
+        web(),
+        toml(),
+        shell(),
+        yaml(),
+        markdown(),
+        java(),
+        lua(),
+        ruby(),
+        php(),
+    ]
 }
 
 fn rust() -> LanguagePack {
@@ -51,12 +72,15 @@ fn python() -> LanguagePack {
         "Python",
         &["python"],
         vec![
-            comp(
-                ComponentKind::Lsp,
-                "pyright",
-                vec![check("pyright", &["--version"])],
-                vec![npm_global(&["pyright"])],
-                &["npm"],
+            providing(
+                comp(
+                    ComponentKind::Lsp,
+                    "pyright",
+                    vec![check("pyright", &["--version"])],
+                    vec![npm_global(&["pyright"])],
+                    &["npm"],
+                ),
+                &["pyright-langserver"],
             ),
             optional(comp(
                 ComponentKind::Lsp,
@@ -219,12 +243,19 @@ fn web() -> LanguagePack {
         "Web (HTML, CSS, JSON)",
         &["html", "css", "scss", "less", "json", "jsonc"],
         vec![
-            comp(
-                ComponentKind::Lsp,
-                "vscode-langservers-extracted",
-                vec![langservers_extracted_check()],
-                vec![npm_global(&["vscode-langservers-extracted"])],
-                &["npm"],
+            providing(
+                comp(
+                    ComponentKind::Lsp,
+                    "vscode-langservers-extracted",
+                    vec![langservers_extracted_check()],
+                    vec![npm_global(&["vscode-langservers-extracted"])],
+                    &["npm"],
+                ),
+                &[
+                    "vscode-json-language-server",
+                    "vscode-html-language-server",
+                    "vscode-css-language-server",
+                ],
             ),
             comp(
                 ComponentKind::Formatter,

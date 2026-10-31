@@ -7,6 +7,7 @@
 //! runs them in the integrated terminal.
 
 mod builtin;
+mod builtin_more;
 mod check;
 mod plan;
 mod steps;
@@ -25,29 +26,34 @@ pub use plan::{PlanStep, install_plan, install_plan_for, install_plan_missing};
 pub use system::{SystemRunner, find_executable};
 
 /// LSP language ids the packs may refer to.
-pub const KNOWN_LANGUAGE_IDS: [&str; 22] = [
+pub const KNOWN_LANGUAGE_IDS: [&str; 27] = [
     "c",
     "cpp",
     "css",
     "go",
     "gomod",
     "html",
+    "java",
     "javascript",
     "javascriptreact",
     "json",
     "jsonc",
     "less",
+    "lua",
     "markdown",
     "objective-c",
     "objective-cpp",
+    "php",
     "plaintext",
     "python",
+    "ruby",
     "rust",
     "scss",
     "shellscript",
     "toml",
     "typescript",
     "typescriptreact",
+    "yaml",
 ];
 
 /// An operating system an install step or check applies to.
@@ -176,6 +182,10 @@ pub struct Component {
     pub requires: Vec<String>,
     /// Alternatives and extras: not part of the default install plan.
     pub optional: bool,
+    /// Executables the component puts on `PATH` (for a language server:
+    /// the commands a `[lsp.<name>]` entry may run), e.g. `pyright` and
+    /// `pyright-langserver`.
+    pub provides: Vec<String>,
 }
 
 impl Component {
@@ -206,12 +216,28 @@ pub struct LanguagePack {
     pub languages: Vec<String>,
     /// The tools.
     pub components: Vec<Component>,
+    /// Typical run, test and build commands Arcode detects for projects of
+    /// this language (display only; see [`crate::detect_run_commands`]).
+    pub run_commands: Vec<String>,
 }
 
 impl LanguagePack {
     /// The component named `name`.
     pub fn component(&self, name: &str) -> Option<&Component> {
         self.components.iter().find(|c| c.name == name)
+    }
+
+    /// The component that installs the executable `command` (a program
+    /// name or path; compared by file stem), e.g. the `pyright` component
+    /// for `pyright-langserver`.
+    pub fn component_providing(&self, command: &str) -> Option<&Component> {
+        let stem = std::path::Path::new(command)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(command);
+        self.components
+            .iter()
+            .find(|c| c.name == stem || c.provides.iter().any(|p| p == stem))
     }
 }
 

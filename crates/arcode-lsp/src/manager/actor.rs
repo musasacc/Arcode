@@ -5,6 +5,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use lsp_types::Uri;
 use tokio::runtime::Handle;
@@ -31,8 +32,9 @@ pub(crate) enum Command {
     Change {
         uri: Uri,
         version: i32,
-        changes: Vec<TextChange>,
-        encoding: PositionEncoding,
+        /// The changes in each encoding they were computed for; a server
+        /// whose encoding is missing gets the full text.
+        changes: Arc<[(PositionEncoding, Vec<TextChange>)]>,
         /// Only built if this server needs the whole text.
         full_text: Arc<LazyText>,
     },
@@ -77,12 +79,18 @@ impl ServerSlot {
     }
 }
 
-/// Spawns the actor for `config` at `root` on `runtime`.
+/// How long a replacement waits for the instance it replaces to stop.
+const REPLACE_WAIT: Duration = Duration::from_secs(8);
+
+/// Spawns the actor for `config` at `root` on `runtime`. With `after`, the
+/// server starts only once that fires (the instance it replaces stopped)
+/// or after [`REPLACE_WAIT`]; commands queue meanwhile.
 pub(crate) fn spawn(
     runtime: &Handle,
     config: &ServerConfig,
     root: PathBuf,
     events: EventSink,
+    after: Option<oneshot::Receiver<()>>,
 ) -> Arc<ServerSlot> {
     let (tx, rx) = mpsc::unbounded_channel();
     let client = Arc::new(OnceLock::new());
@@ -96,6 +104,9 @@ pub(crate) fn spawn(
     });
     let config = config.clone();
     runtime.spawn(async move {
+        if let Some(after) = after {
+            let _ = tokio::time::timeout(REPLACE_WAIT, after).await;
+        }
         run(config, root, events, rx, client, &stopped).await;
         stopped.store(true, Ordering::Relaxed);
     });
@@ -155,22 +166,25 @@ fn apply(client: &LspClient, cmd: Command) -> crate::Result<()> {
             uri,
             version,
             changes,
-            encoding,
             full_text,
         } => {
-            if changes.is_empty() || encoding != client.position_encoding() {
+            let own = changes
+                .iter()
+                .find(|(encoding, _)| *encoding == client.position_encoding())
+                .map(|(_, changes)| changes.clone())
+                .filter(|changes| !changes.is_empty());
+            let Some(changes) = own else {
                 // Ranges would be misinterpreted; send the whole text instead.
-                match client.document_sync().did_change_full(
+                return match client.document_sync().did_change_full(
                     uri,
                     version,
                     full_text.get().to_string(),
                 ) {
                     Some(p) => client.notify::<lsp_types::notification::DidChangeTextDocument>(p),
                     None => Ok(()),
-                }
-            } else {
-                client.did_change(uri, version, changes, || full_text.get().to_string())
-            }
+                };
+            };
+            client.did_change(uri, version, changes, || full_text.get().to_string())
         }
         Command::Save { uri, text } => client.did_save(uri, || text.get().to_string()),
         Command::Close { uri } => client.did_close(uri),

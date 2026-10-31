@@ -12,6 +12,9 @@ use crate::lsp_bridge::{LspBridge, LspBridgeEvent};
 use crate::problems::ProblemsEvent;
 use crate::project::Project;
 
+/// Base pause before low-end count refreshes (tripled by `debounce`).
+const COUNTS_DEBOUNCE_MS: u64 = 150;
+
 impl Workspace {
     /// Subscribes to the bridge (counts, status, messages) and to the
     /// Problems list (jump to a problem).
@@ -22,9 +25,11 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Vec<Subscription> {
         let bridge = cx.subscribe(lsp, |ws, _, event: &LspBridgeEvent, cx| match event {
-            LspBridgeEvent::DiagnosticsChanged => ws.refresh_diagnostic_counts(cx),
+            LspBridgeEvent::DiagnosticsChanged => ws.diagnostics_changed(cx),
             LspBridgeEvent::StatusChanged => ws.refresh_status(cx),
             LspBridgeEvent::Message(text) => ws.show_toast(text.clone(), cx),
+            // Applied by `crate::refactor` (it needs the window).
+            LspBridgeEvent::ApplyEdit(_) => {}
         });
         let problems = panel.read(cx).problems().clone();
         let problems = cx.subscribe_in(
@@ -71,6 +76,27 @@ impl Workspace {
             .find(|e| e.read(cx).path() == Some(path.as_path()))
     }
 
+    /// Refreshes the counts at once, or after a pause in low-end mode so a
+    /// burst of diagnostics costs one status bar redraw.
+    fn diagnostics_changed(&mut self, cx: &mut Context<Self>) {
+        if !arcode_ui_kit::low_end(cx) {
+            self.refresh_diagnostic_counts(cx);
+            return;
+        }
+        if self.prefs.counts_task.is_some() {
+            return;
+        }
+        let delay = arcode_ui_kit::debounce(COUNTS_DEBOUNCE_MS, cx);
+        self.prefs.counts_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(delay).await;
+            this.update(cx, |ws, cx| {
+                ws.prefs.counts_task = None;
+                ws.refresh_diagnostic_counts(cx);
+            })
+            .ok();
+        }));
+    }
+
     fn refresh_diagnostic_counts(&mut self, cx: &mut Context<Self>) {
         let counts = self.lsp.read(cx).counts();
         self.status_bar.update(cx, |bar, cx| {
@@ -85,7 +111,9 @@ impl Workspace {
             cx.subscribe(editor, |ws, _, event: &EditorEvent, cx| {
                 if matches!(
                     event,
-                    EditorEvent::SelectionsChanged | EditorEvent::Edited { .. }
+                    EditorEvent::SelectionsChanged
+                        | EditorEvent::Edited { .. }
+                        | EditorEvent::VimStatusChanged
                 ) {
                     ws.refresh_status(cx);
                 }
@@ -154,7 +182,18 @@ impl Workspace {
             }
             None => (None, None, None),
         };
+        let language_id = self
+            .active_editor(cx)
+            .map(|e| e.read(cx).language().id.to_lowercase());
+        self.lsp
+            .update(cx, |lsp, cx| lsp.set_active_language(language_id, cx));
+        let vim = self.active_editor(cx).and_then(|e| e.read(cx).vim_status());
+        let doc = self
+            .active_editor(cx)
+            .map(|e| crate::languages::status_items::DocStatus::of(e.read(cx), cx));
         self.status_bar.update(cx, |bar, cx| {
+            bar.set_vim_status(vim, cx);
+            bar.set_doc_status(doc, cx);
             bar.set_editor_info(branch, language, cursor, cx);
             bar.set_lsp_status(lsp_status, cx);
             bar.set_conflicts(conflicts, cx);

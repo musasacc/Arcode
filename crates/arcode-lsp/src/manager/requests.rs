@@ -3,6 +3,7 @@
 
 use std::future::Future;
 use std::path::Path;
+use std::sync::Arc;
 
 use lsp_types::ServerCapabilities;
 use lsp_types::request::Request;
@@ -10,14 +11,15 @@ use tokio::sync::oneshot;
 
 use super::LspManager;
 use super::actor::{Command, ServerSlot};
+use super::answer::Answer;
 use crate::client::LspClient;
 use crate::error::{LspError, Result};
 use crate::event::PositionEncoding;
 
 impl LspManager {
-    /// Sends a request to the first running server (in priority order) for
-    /// the document whose capabilities pass `supports`. Resolves to
-    /// `(server name, result)`, or [`LspError::NoServer`].
+    /// Sends a request to the running servers for the document whose
+    /// capabilities pass `supports`, in priority order, until one answers
+    /// with something other than `null`; see [`LspManager::request_with`].
     pub fn request<R>(
         &self,
         path: &Path,
@@ -26,37 +28,66 @@ impl LspManager {
     ) -> impl Future<Output = Result<(String, R::Result)>> + Send + 'static
     where
         R: Request,
+        R::Params: Clone,
+        R::Result: Answer,
     {
-        self.request_with::<R>(path, supports, move |_| params)
+        self.request_with::<R>(path, supports, move |_| params.clone())
     }
 
-    /// Like [`LspManager::request`], but builds the params once the server
-    /// (and so its position encoding) is known.
+    /// A single-answer request (hover, definition, rename, formatting,
+    /// signature help, ...): goes to the highest-priority running server
+    /// that passes `supports`; when it answers "nothing" (`null`, or an
+    /// empty list where that means not found; see [`Answer`]) or fails, the
+    /// next one is asked, and so on. Resolves to `(server name, result)`:
+    /// the first real answer, else a "nothing" answer if any server gave one,
+    /// else the first error ([`LspError::NoServer`] when no server
+    /// qualifies).
+    ///
+    /// `make_params` runs now, once per qualifying server, with that
+    /// server's position encoding. A fallback server is only sent its
+    /// request after the previous one answered.
     pub fn request_with<R>(
         &self,
         path: &Path,
         supports: impl Fn(&ServerCapabilities) -> bool,
-        make_params: impl FnOnce(PositionEncoding) -> R::Params,
+        make_params: impl Fn(PositionEncoding) -> R::Params,
     ) -> impl Future<Output = Result<(String, R::Result)>> + Send + 'static
     where
         R: Request,
+        R::Result: Answer,
     {
-        let target = self
+        let candidates: Vec<(Arc<ServerSlot>, R::Params)> = self
             .running(path)
             .into_iter()
-            .find(|(_, c)| supports(c.capabilities()));
-        let pending = target
+            .filter(|(_, c)| supports(c.capabilities()))
             .map(|(slot, client)| {
                 let params = make_params(client.position_encoding());
-                (slot.name.clone(), dispatch::<R>(&slot, params))
+                (slot, params)
             })
-            .ok_or(LspError::NoServer);
+            .collect();
         async move {
-            let (name, rx) = pending?;
-            let result = rx
-                .await
-                .unwrap_or_else(|_| Err(LspError::ServerStopped("request dropped".into())))?;
-            Ok((name, result))
+            let mut null: Option<(String, R::Result)> = None;
+            let mut error: Option<LspError> = None;
+            for (slot, params) in candidates {
+                let answer = dispatch::<R>(&slot, params)
+                    .await
+                    .unwrap_or_else(|_| Err(LspError::ServerStopped("request dropped".into())));
+                match answer {
+                    Ok(result) if !result.is_null() => return Ok((slot.name.clone(), result)),
+                    Ok(result) => {
+                        null.get_or_insert((slot.name.clone(), result));
+                    }
+                    Err(e) => {
+                        log::debug!("[{}] {} failed: {e}", slot.name, R::METHOD);
+                        error.get_or_insert(e);
+                    }
+                }
+            }
+            match (null, error) {
+                (Some(answer), _) => Ok(answer),
+                (None, Some(e)) => Err(e),
+                (None, None) => Err(LspError::NoServer),
+            }
         }
     }
 

@@ -2,8 +2,10 @@
 
 use std::path::PathBuf;
 
-use arcode_ui_kit::{ButtonStyle, IconName, button, icon, kbd, theme, truncated};
-use gpui::{Context, FontWeight, IntoElement, MouseButton, SharedString, div, prelude::*, px};
+use arcode_ui_kit::{ButtonStyle, IconName, Tooltip, button, icon, kbd, theme, truncated};
+use gpui::{
+    AnyView, Context, FontWeight, IntoElement, MouseButton, SharedString, div, prelude::*, px,
+};
 
 use crate::actions::{NewProject, OpenFolder, shortcut_label};
 use crate::app_state;
@@ -93,6 +95,7 @@ pub fn render(_ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement 
             .children(recent.into_iter().enumerate().map(|(ix, (path, name))| {
                 let group = SharedString::from(format!("recent-{ix}"));
                 let open_path = path.clone();
+                let window_path = path.clone();
                 div()
                     .id(("welcome-recent", ix))
                     .group(group.clone())
@@ -117,7 +120,30 @@ pub fn render(_ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement 
                     )
                     .child(
                         div()
+                            .id(("welcome-new-window", ix))
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .justify_center()
+                            .size(px(20.))
+                            .rounded_sm()
+                            .opacity(0.)
+                            .group_hover(group.clone(), |s| s.opacity(1.))
+                            .hover(|s| s.bg(c.surface_raised))
+                            .child(icon(IconName::ExternalLink).size(px(12.)))
+                            .tooltip(|_, cx| -> AnyView { Tooltip::text("Open in New Window", cx) })
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                crate::windows::open_project_in_new_window(window_path.clone(), cx);
+                            }),
+                    )
+                    .child(
+                        div()
                             .id(("welcome-remove", ix))
+                            .tooltip(|_, cx| -> AnyView {
+                                Tooltip::text("Remove from Recent Projects", cx)
+                            })
                             .flex()
                             .flex_none()
                             .items_center()
@@ -157,6 +183,7 @@ pub fn render(_ws: &Workspace, cx: &mut Context<Workspace>) -> impl IntoElement 
         .flex_col()
         .gap_2()
         .child(hint("Open folder", "secondary-o"))
+        .child(hint("New window", "secondary-shift-n"))
         .child(hint("Find file", "secondary-p"))
         .child(hint("Toggle sidebar", "secondary-b"))
         .child(hint("Toggle panel", "secondary-j"))

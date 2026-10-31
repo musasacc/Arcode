@@ -3,6 +3,10 @@
 //! document / workspace symbols. Each returns `None` right away when no
 //! running server offers the feature, so the caller can fall back (e.g.
 //! to the tree-sitter outline); otherwise a runtime-agnostic future.
+//!
+//! References and workspace symbols are merged from every server; the
+//! "go to" requests and document symbols go to the first server (in
+//! priority order) that finds something.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -26,7 +30,7 @@ use arcode_lsp::{LspManager, PositionEncoding, path_to_uri};
 use super::LspBridge;
 use super::convert::buffer_encoding;
 use super::nav_convert::{
-    document_symbol_items, goto_targets, reference_items, workspace_symbol_items,
+    document_symbol_items, goto_targets, merged_reference_items, workspace_symbol_items,
 };
 use crate::navigation::item::{NavItem, NavTarget};
 
@@ -172,13 +176,14 @@ impl LspBridge {
         }))
     }
 
-    /// Every reference to the symbol at `at`, declaration included.
+    /// Every reference to the symbol at `at`, declaration included, merged
+    /// from all servers that find references.
     pub fn references(&self, editor: &Editor, at: Point) -> Option<NavFuture<Vec<NavItem>>> {
         if !self.offers(editor, |c| one_of(&c.references_provider)) {
             return None;
         }
         let (manager, path) = self.served(editor)?;
-        let request = manager.request_with::<References>(
+        let request = manager.request_all_with::<References>(
             &path,
             |c| one_of(&c.references_provider),
             |encoding| ReferenceParams {
@@ -191,11 +196,17 @@ impl LspBridge {
             },
         );
         Some(Box::pin(async move {
-            let (server, locations) = request.await?;
-            let encoding = manager
-                .position_encoding(&path, &server)
-                .unwrap_or_default();
-            Ok(reference_items(locations.unwrap_or_default(), encoding))
+            let answers = request
+                .await
+                .into_iter()
+                .map(|(server, locations)| {
+                    let encoding = manager
+                        .position_encoding(&path, &server)
+                        .unwrap_or_default();
+                    (locations.unwrap_or_default(), encoding)
+                })
+                .collect();
+            Ok(merged_reference_items(answers))
         }))
     }
 

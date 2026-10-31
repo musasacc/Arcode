@@ -64,6 +64,17 @@
 //! A read-only editor ([`Editor::set_read_only`]) takes no edits, shows no
 //! completions and refuses [`Editor::save`].
 //!
+//! # Vim mode and multiple cursors
+//!
+//! With `editor.vim_mode` on (or [`ToggleVimMode`]) each editor hands its
+//! keys to an [`arcode_vim::Vim`] through a key interceptor; see [`vim`]
+//! for the routing, [`Editor::vim_status`] and
+//! [`EditorEvent::VimStatusChanged`] for the status bar and
+//! [`set_vim_request_handler`] for `:q` and `:e`. Outside Vim:
+//! [`SelectAllOccurrences`], [`AddCursorAbove`] / [`AddCursorBelow`],
+//! [`UndoCursor`], Alt+click to add or remove a cursor and box selection
+//! with Alt+Shift+drag or the middle button.
+//!
 //! # Large files
 //!
 //! Above `editor.large_file_bytes` / `editor.large_file_lines` no syntax tree
@@ -80,8 +91,10 @@ mod decorate;
 mod decorate_ext;
 mod diagnostics;
 mod display;
+mod doc_settings;
 mod editor;
 mod element;
+mod event;
 pub mod ext;
 mod ext_api;
 mod gutter;
@@ -92,6 +105,7 @@ mod layout;
 mod layout_extras;
 mod menu;
 mod mouse;
+mod mouse_column;
 mod mouse_ext;
 mod paint;
 mod render;
@@ -99,6 +113,7 @@ mod scroll;
 mod snippet;
 mod style;
 mod syntax_sync;
+pub mod vim;
 
 pub use actions::*;
 pub use api::ScrollAnchor;
@@ -108,6 +123,7 @@ pub use completion::{
     ParameterInfo, SignatureHelp, SignatureInfo, SignatureRequest, SignatureTriggers,
 };
 pub use diagnostics::{DiagnosticSeverity, EditorDiagnostic};
+pub use doc_settings::IndentOverride;
 pub use editor::{Editor, EditorEvent};
 pub use ext::{
     BackgroundHighlight, ChangeKind, CodeLens, CursorShape, DotStyle, EditorPopover,
@@ -120,6 +136,10 @@ pub use lang::{
     TextEdits, inlay_hints_enabled,
 };
 pub use style::EditorStyle;
+pub use vim::{
+    VimModeToggle, VimRequest, VimRequestHandler, VimStatus, set_vim_request_handler,
+    vim_mode_enabled,
+};
 
 use gpui::App;
 
@@ -130,4 +150,5 @@ pub fn init(cx: &mut App) {
     ext::keys::init(cx);
     completion::init(cx);
     lang::init(cx);
+    cx.on_action(|_: &ToggleVimMode, cx| vim::toggle_vim_mode(cx));
 }

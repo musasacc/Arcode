@@ -67,6 +67,9 @@ impl Vim {
         let Some(p) = self.pending_paste.take() else {
             return;
         };
+        if self.read_only {
+            return;
+        }
         let kind = if text.ends_with('\n') {
             RegisterKind::Linewise
         } else {

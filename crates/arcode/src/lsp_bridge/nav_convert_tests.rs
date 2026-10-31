@@ -73,6 +73,28 @@ fn goto_answers_become_unique_targets() {
 }
 
 #[test]
+fn references_of_several_servers_are_merged() {
+    let items = merged_reference_items(vec![
+        (
+            vec![
+                location("/p/a.rs", range(2, 2, 2, 5)),
+                location("/p/b.rs", range(1, 0, 1, 3)),
+            ],
+            PositionEncoding::Utf8,
+        ),
+        (
+            vec![
+                location("/p/a.rs", range(2, 2, 2, 5)),
+                location("/p/a.rs", range(0, 1, 0, 2)),
+            ],
+            PositionEncoding::Utf16,
+        ),
+    ]);
+    let lines: Vec<_> = items.iter().map(|i| i.target.line()).collect();
+    assert_eq!(lines, [0, 2, 1], "a.rs:0, a.rs:2 (once), b.rs:1");
+}
+
+#[test]
 fn references_are_sorted_by_file_and_position() {
     let items = reference_items(
         vec![

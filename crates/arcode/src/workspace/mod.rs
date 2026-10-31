@@ -2,26 +2,60 @@
 //! editor panes, the sidebar, the bottom panel and the status bar.
 
 mod actions;
+mod anim;
+pub(crate) mod close_guard;
+mod debug;
+#[cfg(test)]
+mod debug_tests;
+mod debuggee;
 #[cfg(test)]
 mod feature_tests;
 mod features;
+mod files;
+#[cfg(test)]
+mod files_tests;
 mod git;
 #[cfg(test)]
 mod git_tests;
+mod lang_pickers;
+mod languages;
+#[cfg(test)]
+mod languages_tests;
 #[cfg(test)]
 mod lsp_tests;
+mod new_project;
 mod overlays;
+mod packages;
 mod palette;
 mod panes;
+mod prefs;
+#[cfg(test)]
+mod prefs_fix_tests;
+mod prefs_pickers;
+#[cfg(test)]
+mod prefs_tests;
+mod project_menu;
+mod projects;
 mod render;
+#[cfg(test)]
+mod review_debug;
 #[cfg(test)]
 mod review_git;
 #[cfg(test)]
+mod review_lang_packs;
+#[cfg(test)]
 mod review_palette;
+#[cfg(test)]
+mod review_prefs;
+mod run_menu;
+mod session;
 mod status;
 mod subs;
 #[cfg(test)]
 mod tests;
+mod tour;
+#[cfg(test)]
+mod vim_tests;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -35,7 +69,6 @@ use gpui::{
 };
 
 use crate::activity_bar::Activity;
-use crate::app_state;
 use crate::bottom_panel::{self, BottomPanel};
 use crate::finder::Finder;
 use crate::git::branch_picker::BranchPicker;
@@ -43,10 +76,7 @@ use crate::lsp_bridge::LspBridge;
 use crate::pane::Pane;
 use crate::path_prompt::PathPrompt;
 use crate::project::{self, Project};
-use crate::sidebar::{
-    self,
-    file_tree::{FileTree, FileTreeEvent},
-};
+use crate::sidebar::{self, file_tree::FileTree};
 use crate::status_bar::StatusBar;
 
 /// Upper bound on files indexed for the finder.
@@ -98,6 +128,8 @@ pub struct Workspace {
     git: git::GitParts,
     /// Search view, TODO list.
     features: features::Features,
+    /// Debugger, run buttons and the Run menu.
+    debug: debug::DebugParts,
     /// The command palette, while open.
     palette: Option<Entity<crate::commands::palette::CommandPalette>>,
     branch_picker: Option<Entity<BranchPicker>>,
@@ -107,11 +139,21 @@ pub struct Workspace {
     resizing: Option<Resize>,
     toast: Option<SharedString>,
     toast_task: Option<Task<()>>,
+    /// Toasts shown so far: a new toast fades in even over the last one.
+    toast_seq: usize,
     active_editor_sub: Option<Subscription>,
     /// Go to definition, symbol pickers and the back/forward history.
     pub(crate) nav: crate::navigation::Navigator,
     /// Overlay, pane and editor subscriptions (bounded).
     subs: subs::Subs,
+    /// Session restore bookkeeping.
+    session: session::SessionState,
+    /// The New Project dialog, while open.
+    new_project: Option<Entity<crate::new_project::NewProjectDialog>>,
+    /// Languages page, status bar pickers and the package banner.
+    langs: crate::languages::LangParts,
+    /// Settings page, theme and font pickers, first run, tour, animations.
+    prefs: crate::prefs::PrefsParts,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -123,7 +165,20 @@ impl Focusable for Workspace {
     }
 }
 
+/// The window title for a project (or for no project).
+pub(crate) fn window_title_for(project: Option<&str>) -> String {
+    match project {
+        Some(name) => format!("{name} — Arcode"),
+        None => "Arcode".to_owned(),
+    }
+}
+
 impl Workspace {
+    /// The title of this workspace's window.
+    pub fn window_title(&self) -> String {
+        window_title_for(self.project.as_ref().map(|p| p.name.as_str()))
+    }
+
     /// Creates an empty workspace (welcome screen) in `window`.
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let appearance = cx.observe_window_appearance(window, |_, window, cx| {
@@ -135,13 +190,23 @@ impl Workspace {
         let lsp = cx.new(LspBridge::new);
         let bottom_panel = cx.new(|cx| BottomPanel::new(lsp.clone(), cx));
         let status_bar = cx.new(StatusBar::new);
+        let workspace = cx.weak_entity();
+        let lsp_status = cx.new(|cx| {
+            crate::lsp_bridge::status_view::LspStatusView::new(lsp.clone(), workspace, cx)
+        });
+        status_bar.update(cx, |bar, cx| bar.set_lsp_view(lsp_status.into(), cx));
         let mut subscriptions = vec![appearance, pane_sub];
         subscriptions.extend(Self::subscribe_lsp(&lsp, &bottom_panel, window, cx));
         let (git, git_subs) = git::GitParts::new(window, cx);
         subscriptions.extend(git_subs);
         subscriptions.push(crate::navigation::Navigator::track(cx));
+        subscriptions.push(Self::subscribe_refactor(&lsp, window, cx));
         let (features, feature_subs) = features::Features::new(&bottom_panel, window, cx);
         subscriptions.extend(feature_subs);
+        let (debug, debug_subs) = debug::DebugParts::new(&bottom_panel, window, cx);
+        subscriptions.extend(debug_subs);
+        let (langs, lang_subs) = Self::new_lang_parts(cx);
+        subscriptions.extend(lang_subs);
         Self {
             focus_handle: cx.focus_handle(),
             project: None,
@@ -162,6 +227,7 @@ impl Workspace {
             finder: None,
             git,
             features,
+            debug,
             palette: None,
             branch_picker: None,
             path_prompt: None,
@@ -170,11 +236,28 @@ impl Workspace {
             resizing: None,
             toast: None,
             toast_task: None,
+            toast_seq: 0,
             active_editor_sub: None,
             nav: Default::default(),
             subs: Default::default(),
+            session: Default::default(),
+            new_project: None,
+            langs,
+            prefs: Default::default(),
             _subscriptions: subscriptions,
         }
+        .with_first_run(window, cx)
+    }
+
+    /// Shows the first-run dialog in the first window when Arcode started
+    /// without a configuration file.
+    fn with_first_run(self, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        use crate::prefs::first_run::FirstRunPending;
+        if cx.has_global::<FirstRunPending>() {
+            cx.remove_global::<FirstRunPending>();
+            cx.defer_in(window, |ws, window, cx| ws.show_first_run(window, cx));
+        }
+        self
     }
 
     /// The open project.
@@ -222,12 +305,13 @@ impl Workspace {
 
     /// Whether the welcome screen is shown (no project, no editors).
     pub fn shows_welcome(&self, cx: &gpui::App) -> bool {
-        self.project.is_none() && self.panes.iter().all(|p| p.read(cx).items().is_empty())
+        self.project.is_none() && self.panes.iter().all(|p| !p.read(cx).has_tabs())
     }
 
     /// Shows a transient message at the bottom right.
     pub fn show_toast(&mut self, message: impl Into<SharedString>, cx: &mut Context<Self>) {
         self.toast = Some(message.into());
+        self.toast_seq += 1;
         self.toast_task = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(TOAST_DURATION).await;
             this.update(cx, |ws, cx| {
@@ -237,84 +321,6 @@ impl Workspace {
             .ok();
         }));
         cx.notify();
-    }
-
-    /// Opens `path` as the project, asking first if editors have unsaved
-    /// changes.
-    pub fn open_project(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        self.confirm_discard(window, cx, move |ws, window, cx| {
-            ws.open_project_now(&path, window, cx)
-        });
-    }
-
-    fn open_project_now(&mut self, path: &Path, window: &mut Window, cx: &mut Context<Self>) {
-        let project = match Project::open(path) {
-            Ok(project) => project,
-            Err(err) => {
-                self.show_toast(format!("Cannot open {}: {err}", path.display()), cx);
-                return;
-            }
-        };
-        log::info!("opening project {}", project.root.display());
-        app_state::touch_recent(&project.root, cx);
-        window.set_window_title(&format!("{} — Arcode", project.name));
-        let tree = cx.new(|cx| FileTree::new(project.root.clone(), project.name.clone(), cx));
-        let tree_sub =
-            cx.subscribe_in(&tree, window, |ws, _, event: &FileTreeEvent, window, cx| {
-                let FileTreeEvent::OpenFile(path) = event;
-                ws.open_file(path, window, cx);
-            });
-        self._subscriptions.push(tree_sub);
-        self.file_tree = Some(tree);
-        let root = Some(project.root.clone());
-        self.lsp
-            .update(cx, |lsp, cx| lsp.set_project_root(root.clone(), cx));
-        self.bottom_panel
-            .update(cx, |panel, cx| panel.set_project_root(root.clone(), cx));
-        self.git
-            .store
-            .update(cx, |git, cx| git.set_project_root(root.clone(), cx));
-        self.features.set_root(root, cx);
-        self.branch_picker = None;
-        self.palette = None;
-        self.project = Some(project);
-        self.project_files = Arc::default();
-        self.reset_panes(window, cx);
-        self.activity = Activity::Files;
-        self.sidebar_visible = true;
-        self.project_menu_open = false;
-        self.finder = None;
-        self.rescan_files(cx);
-        self.refresh_status(cx);
-        self.active_pane().read(cx).focus(window, cx);
-        cx.emit(WorkspaceEvent::ProjectChanged);
-        cx.notify();
-    }
-
-    /// Closes the project and returns to the welcome screen.
-    pub fn close_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.confirm_discard(window, cx, |ws, window, cx| {
-            ws.project = None;
-            ws.file_tree = None;
-            ws.project_files = Arc::default();
-            ws.files_task = None;
-            ws.finder = None;
-            ws.project_menu_open = false;
-            ws.reset_panes(window, cx);
-            ws.lsp.update(cx, |lsp, cx| lsp.set_project_root(None, cx));
-            ws.bottom_panel
-                .update(cx, |panel, cx| panel.set_project_root(None, cx));
-            ws.git
-                .store
-                .update(cx, |git, cx| git.set_project_root(None, cx));
-            ws.features.set_root(None, cx);
-            ws.branch_picker = None;
-            window.set_window_title("Arcode");
-            window.focus(&ws.focus_handle);
-            ws.refresh_status(cx);
-            cx.emit(WorkspaceEvent::ProjectChanged);
-            cx.notify();
-        });
     }
 
     /// Re-indexes the project's files in the background.
@@ -362,7 +368,10 @@ impl Workspace {
         self.active_pane()
             .clone()
             .update(cx, |pane, cx| pane.add_editor(editor.clone(), window, cx));
-        if arcode_config::paths::config_file().as_deref() == Some(path.as_path()) {
+        self.prepare_editor_language(&editor, cx);
+        let config =
+            crate::prefs::store::config_path(cx).map(|p| std::fs::canonicalize(&p).unwrap_or(p));
+        if config.as_deref() == Some(path.as_path()) {
             let sub = cx.subscribe(&editor, |_, _, event: &EditorEvent, cx| {
                 if *event == EditorEvent::Saved {
                     crate::app::reload_settings(cx);
@@ -376,7 +385,13 @@ impl Workspace {
             .editors
             .update(cx, |git, cx| git.register(&editor, cx));
         self.track_feature_editor(&editor, cx);
+        self.debug
+            .debugger
+            .update(cx, |d, cx| d.register_editor(&editor, cx));
+        self.apply_remembered_state(&editor, cx);
         cx.emit(WorkspaceEvent::EditorOpened(editor));
+        self.schedule_session_save(cx);
+        self.schedule_package_check(cx);
         cx.notify();
     }
 }

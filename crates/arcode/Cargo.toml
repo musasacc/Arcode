@@ -22,8 +22,11 @@ arcode-lsp.workspace = true
 arcode-terminal.workspace = true
 arcode-config.workspace = true
 arcode-git.workspace = true
+arcode-project.workspace = true
+arcode-dap.workspace = true
 arcode-search.workspace = true
 arcode-editor.workspace = true
+arcode-completion.workspace = true
 arcode-terminal-view.workspace = true
 arcode-ui-kit.workspace = true
 anyhow.workspace = true
@@ -36,6 +39,11 @@ memory-stats.workspace = true
 notify.workspace = true
 async-channel.workspace = true
 unicode-width.workspace = true
+
+# Placing restored windows on X11 (GPUI sets no position hint there).
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+x11rb = "0.13"
+raw-window-handle = "0.6"
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

@@ -256,6 +256,7 @@ fn handle_notification(
 ) {
     let server = shared.name.clone();
     match method {
+        "textDocument/publishDiagnostics" if !shared.features.diagnostics => {}
         "textDocument/publishDiagnostics" => {
             let Ok(p) = serde_json::from_value::<PublishDiagnosticsParams>(params) else {
                 return shared.log(MessageType::WARNING, "invalid publishDiagnostics".into());

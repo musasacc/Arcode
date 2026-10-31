@@ -12,6 +12,9 @@ use crate::Editor;
 use crate::layout::LayoutSnapshot;
 use crate::menu::{MenuItem, MenuRow, OnPick};
 
+/// A context menu entry (`None` is a separator): label, action, enabled.
+type Entry = (&'static str, Box<dyn Action>, bool);
+
 /// `Ctrl+Shift+F`-style label of a keystroke for the current platform.
 pub(crate) fn keystroke_label(ks: &Keystroke) -> String {
     let m = &ks.modifiers;
@@ -38,6 +41,39 @@ pub(crate) fn keystroke_label(ks: &Keystroke) -> String {
     parts.join("+")
 }
 
+/// The key binding shown for `action`: the first one using the secondary
+/// modifier (Ctrl+X rather than Shift+Delete or Ctrl+Insert) when there is
+/// one, else the one that takes precedence.
+fn binding_label(
+    window: &Window,
+    action: &dyn Action,
+    focus: &gpui::FocusHandle,
+) -> Option<String> {
+    let bindings = window.bindings_for_action_in(action, focus);
+    let secondary = |b: &&gpui::KeyBinding| {
+        b.keystrokes().first().is_some_and(|k| {
+            let m = k.inner().modifiers;
+            if cfg!(target_os = "macos") {
+                m.platform
+            } else {
+                m.control
+            }
+        })
+    };
+    let binding = bindings
+        .iter()
+        .find(secondary)
+        .or_else(|| bindings.last())?;
+    Some(
+        binding
+            .keystrokes()
+            .iter()
+            .map(|k| keystroke_label(k.inner()))
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
+
 impl Editor {
     /// A right click: moves the cursor there unless it is inside a
     /// selection, then opens the context menu.
@@ -50,6 +86,7 @@ impl Editor {
     ) {
         let p = event.position;
         if p.x < layout.text_bounds.left() {
+            self.gutter_context_click(event, layout, cx);
             return;
         }
         let pos = self.char_for_position(layout, p);
@@ -79,9 +116,13 @@ impl Editor {
     ) {
         let editable = !self.read_only;
         let has_selection = self.selections.iter().any(|s| s.anchor != s.head);
-        let mut entries: Vec<Option<(&str, Box<dyn Action>, bool)>> = vec![
+        let mut entries: Vec<Option<Entry>> = vec![
             Some(("Go to Definition", Box::new(crate::GoToDefinition), true)),
-            Some(("Find All References", Box::new(crate::FindAllReferences), true)),
+            Some((
+                "Find All References",
+                Box::new(crate::FindAllReferences),
+                true,
+            )),
             None,
             Some(("Rename Symbol", Box::new(crate::RenameSymbol), editable)),
             Some(("Refactor...", Box::new(crate::Refactor), editable)),
@@ -109,15 +150,7 @@ impl Editor {
                     actions.push(None);
                 }
                 Some((label, action, enabled)) => {
-                    let binding = window
-                        .highest_precedence_binding_for_action_in(action.as_ref(), &self.focus_handle)
-                        .map(|b| {
-                            b.keystrokes()
-                                .iter()
-                                .map(|k| keystroke_label(k.inner()))
-                                .collect::<Vec<_>>()
-                                .join(" ")
-                        });
+                    let binding = binding_label(window, action.as_ref(), &self.focus_handle);
                     rows.push(MenuRow::Item(
                         MenuItem::new(label).detail(binding).enabled(enabled),
                     ));

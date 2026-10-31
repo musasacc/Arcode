@@ -5,8 +5,9 @@
 //! Hints follow edits (the extension store maps their positions) until
 //! the answer for the new text arrives, so typing does not flicker. They
 //! are asked again 400 ms after the last edit, when scrolling leaves the
-//! fetched lines, and when the provider says they are stale
-//! ([`Editor::refresh_inlay_hints`], e.g. `workspace/inlayHint/refresh`).
+//! fetched lines, and at the next layout after the provider says they are
+//! stale ([`Editor::refresh_inlay_hints`], e.g.
+//! `workspace/inlayHint/refresh`), so hidden editors do not ask.
 //! Nothing is asked while they are turned off (`editor.inlay_hints`, or
 //! the session-wide [`ToggleInlayHints`](crate::ToggleInlayHints)).
 
@@ -84,12 +85,18 @@ impl Editor {
         self.lang.inlay.enabled && self.lang.provider.is_some()
     }
 
-    /// Asks the provider for hints again (they are stale, e.g. the server
-    /// finished indexing). Keeps the shown hints until the answer.
+    /// Marks the hints stale (e.g. the server finished indexing). They are
+    /// asked again at the editor's next layout, so only editors that are
+    /// shown ask; a background tab asks when it is shown again. Keeps the
+    /// shown hints until the answer.
     pub fn refresh_inlay_hints(&mut self, cx: &mut Context<Self>) {
-        self.lang.inlay.fetched = None;
+        let inlay = &mut self.lang.inlay;
+        inlay.fetched = None;
+        // An answer on its way may predate what made the hints stale.
+        inlay.task = None;
+        inlay.seq += 1;
         if self.inlay_active() {
-            self.inlay_schedule(SCROLL_DEBOUNCE, cx);
+            cx.notify();
         }
     }
 

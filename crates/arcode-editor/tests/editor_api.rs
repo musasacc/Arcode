@@ -91,6 +91,52 @@ fn apply_edits_is_one_undo_step(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn output_is_appended_to_a_read_only_editor(cx: &mut TestAppContext) {
+    let (editor, cx, _) = open(cx, "one\n");
+    editor.update(cx, |e, cx| e.set_read_only(true, cx));
+    // The cursor at the start stays there.
+    editor.update(cx, |e, cx| e.append_output("two\n", cx));
+    assert_eq!(text(&editor, cx), "one\ntwo\n");
+    assert_eq!(cursor(&editor, cx), Point::new(0, 0));
+    assert!(!editor.read_with(cx, |e, _| e.is_dirty()));
+    // A cursor at the end follows the output.
+    cx.simulate_keystrokes("secondary-end");
+    editor.update(cx, |e, cx| e.append_output("three\n", cx));
+    assert_eq!(cursor(&editor, cx), Point::new(3, 0));
+    assert!(editor.read_with(cx, |e, _| e.is_read_only() && !e.is_dirty()));
+    // Typing is still blocked.
+    cx.simulate_input("x");
+    assert_eq!(text(&editor, cx), "one\ntwo\nthree\n");
+}
+
+#[gpui::test]
+fn an_edit_group_is_one_undo_step(cx: &mut TestAppContext) {
+    let (editor, cx, _) = open(cx, "one\ntwo\n");
+    cx.simulate_input("x");
+    assert_eq!(text(&editor, cx), "xone\ntwo\n");
+    editor.update(cx, |e, cx| {
+        e.begin_edit_group();
+        // The second edit is computed against the text the first left.
+        e.apply_edits(
+            vec![(Point::new(0, 0)..Point::new(0, 0), "use a;\n".into())],
+            cx,
+        );
+        e.apply_edits(vec![(Point::new(1, 0)..Point::new(1, 4), "ONE".into())], cx);
+        e.end_edit_group();
+    });
+    assert_eq!(text(&editor, cx), "use a;\nONE\ntwo\n");
+    // Typing afterwards is a step of its own.
+    cx.simulate_input("y");
+    assert_eq!(text(&editor, cx), "use a;\nONEy\ntwo\n");
+    cx.simulate_keystrokes("secondary-z");
+    assert_eq!(text(&editor, cx), "use a;\nONE\ntwo\n");
+    cx.simulate_keystrokes("secondary-z");
+    assert_eq!(text(&editor, cx), "xone\ntwo\n", "the group is one step");
+    cx.simulate_keystrokes("secondary-z");
+    assert_eq!(text(&editor, cx), "one\ntwo\n");
+}
+
+#[gpui::test]
 fn snippet_tabstops(cx: &mut TestAppContext) {
     let (editor, cx, _) = open(cx, "\n");
     editor.update(cx, |e, cx| {

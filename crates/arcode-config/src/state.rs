@@ -15,10 +15,20 @@ use serde::{Deserialize, Serialize};
 use crate::fsutil::write_atomic;
 use crate::paths;
 
+mod session;
+
+pub use session::{
+    FileSession, LayoutSession, MAX_BREAKPOINTS, MAX_EXPANDED_DIRS, MAX_FILE_STATES, PaneSession,
+    ProjectSession, SavedBreakpoint, SavedSelection,
+};
+
 /// Maximum number of entries kept in [`AppState::recent_projects`].
 pub const MAX_RECENT_PROJECTS: usize = 20;
 /// Maximum number of entries kept in [`AppState::recent_commands`].
 pub const MAX_RECENT_COMMANDS: usize = 30;
+/// Maximum number of project sessions kept (sessions of projects that are
+/// neither recent nor open are dropped first).
+pub const MAX_SESSIONS: usize = 40;
 
 /// A project shown on the welcome screen.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,19 +57,6 @@ pub struct WindowState {
     pub maximized: bool,
 }
 
-/// Open editors of one project.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ProjectSession {
-    /// Open files, in tab order.
-    pub open_files: Vec<PathBuf>,
-    /// The focused file.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_file: Option<PathBuf>,
-    /// Cursor `(line, column)` per file path (zero-based, column in chars).
-    pub cursors: BTreeMap<String, (usize, usize)>,
-}
-
 /// Everything Arcode remembers between runs.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -78,6 +75,10 @@ pub struct AppState {
     pub window: Option<WindowState>,
     /// Editor sessions keyed by project path (see [`AppState::session_key`]).
     pub sessions: BTreeMap<String, ProjectSession>,
+    /// Projects (keyed like [`AppState::sessions`]) whose "packages are
+    /// not installed" banner was turned off with "Don't ask again".
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub hidden_package_banners: Vec<String>,
 }
 
 impl AppState {
@@ -111,7 +112,18 @@ impl AppState {
     /// the file (with a log warning) instead of failing the whole save. They
     /// stay in `self` for the rest of the run.
     pub fn save_to(&self, path: &Path) -> anyhow::Result<()> {
-        let text = toml::to_string(&*self.persistable()).context("serializing app state")?;
+        Self::write_toml(path, &self.to_toml()?)
+    }
+
+    /// The text [`AppState::save_to`] writes. Serializing is cheap; with
+    /// [`AppState::write_toml`] the (slow, fsynced) write can run on
+    /// another thread.
+    pub fn to_toml(&self) -> anyhow::Result<String> {
+        toml::to_string(&*self.persistable()).context("serializing app state")
+    }
+
+    /// Writes text from [`AppState::to_toml`] to `path` atomically.
+    pub fn write_toml(path: &Path, text: &str) -> anyhow::Result<()> {
         write_atomic(path, text.as_bytes()).with_context(|| format!("writing {}", path.display()))
     }
 
@@ -184,10 +196,7 @@ impl AppState {
         state.recent_projects.retain(|p| keep(&p.path));
         state.open_projects.retain(|p| keep(p));
         for session in state.sessions.values_mut() {
-            session.open_files.retain(|p| keep(p));
-            if session.active_file.as_deref().is_some_and(|p| !keep(p)) {
-                session.active_file = None;
-            }
+            session.retain_unicode(&keep);
         }
         Cow::Owned(state)
     }
@@ -195,10 +204,10 @@ impl AppState {
     fn all_paths_unicode(&self) -> bool {
         self.recent_projects.iter().all(|p| is_unicode(&p.path))
             && self.open_projects.iter().all(|p| is_unicode(p))
-            && self.sessions.values().all(|s| {
-                s.open_files.iter().all(|p| is_unicode(p))
-                    && s.active_file.as_deref().is_none_or(is_unicode)
-            })
+            && self
+                .sessions
+                .values()
+                .all(ProjectSession::all_paths_unicode)
     }
 
     /// The key used in [`AppState::sessions`] for a project path.
@@ -214,6 +223,57 @@ impl AppState {
     /// The session of a project, created empty if missing.
     pub fn session_mut(&mut self, project: &Path) -> &mut ProjectSession {
         self.sessions.entry(Self::session_key(project)).or_default()
+    }
+
+    /// Stores the session of a project (compacted), then drops sessions
+    /// beyond [`MAX_SESSIONS`] whose project is neither recent nor open.
+    pub fn set_session(&mut self, project: &Path, mut session: ProjectSession) {
+        session.compact();
+        self.sessions.insert(Self::session_key(project), session);
+        if self.sessions.len() <= MAX_SESSIONS {
+            return;
+        }
+        let known: std::collections::HashSet<String> = self
+            .recent_projects
+            .iter()
+            .map(|p| Self::session_key(&p.path))
+            .chain(self.open_projects.iter().map(|p| Self::session_key(p)))
+            .chain([Self::session_key(project)])
+            .collect();
+        let mut extra = self.sessions.len() - MAX_SESSIONS;
+        self.sessions.retain(|key, _| {
+            if extra > 0 && !known.contains(key) {
+                extra -= 1;
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    /// Whether the package banner is turned off for `project`.
+    pub fn package_banner_hidden(&self, project: &Path) -> bool {
+        let key = Self::session_key(project);
+        self.hidden_package_banners.contains(&key)
+    }
+
+    /// Turns the package banner off for `project` ("Don't ask again").
+    pub fn hide_package_banner(&mut self, project: &Path) {
+        if !self.package_banner_hidden(project) {
+            self.hidden_package_banners.push(Self::session_key(project));
+        }
+    }
+
+    /// Records that `project` is open in a window (restored on start).
+    pub fn add_open_project(&mut self, project: &Path) {
+        if !self.open_projects.iter().any(|p| p == project) {
+            self.open_projects.push(project.to_path_buf());
+        }
+    }
+
+    /// Records that `project`'s window was closed or switched away.
+    pub fn remove_open_project(&mut self, project: &Path) {
+        self.open_projects.retain(|p| p != project);
     }
 }
 

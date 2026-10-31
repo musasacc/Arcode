@@ -152,6 +152,12 @@ impl EntityInputHandler for Editor {
         if self.read_only {
             return;
         }
+        if self.vim.is_some() && self.marked.is_none() && range_utf16.is_none() {
+            // Text the platform sends without a key (dead keys, input
+            // methods without preedit) goes through Vim, so `.` repeats it.
+            self.vim_insert_text(text, cx);
+            return;
+        }
         if self.marked.is_none() && range_utf16.is_none() {
             self.edit_with(cx, |b, s, cfg| ops::type_text(b, s, text, cfg));
             self.completion_typed(text, cx);

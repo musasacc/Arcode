@@ -40,6 +40,14 @@
 //! [`UndoGroup::Merge`](arcode_buffer::UndoGroup::Merge) and break the group
 //! when the command completes. Arrow keys in Insert mode start a new step.
 //!
+//! # Read-only buffers
+//!
+//! [`Vim::set_read_only`] makes Vim refuse every change before it touches
+//! the buffer (operators other than `y`, Insert/Replace mode, `p`, `x`,
+//! `u`, `<C-r>`, `.`, `:s`, changes inside a replayed macro), returning a
+//! [`VimAction::StatusMessage`] with [`READ_ONLY_MESSAGE`]. Motions,
+//! yanks, searches and Visual mode keep working.
+//!
 //! # Registers and clipboard
 //!
 //! Unnamed, `"0`, `"1`-`"9`, `"-`, `"a`-`"z` (`"A`-`"Z` append), `"_`,
@@ -75,9 +83,11 @@ mod normal;
 mod ops;
 mod parse;
 mod put;
+mod readonly;
 mod registers;
 mod repeat;
 mod search;
+mod shared;
 mod subst;
 mod text;
 mod textobj;
@@ -87,6 +97,8 @@ mod visual;
 
 pub use arcode_buffer::ops::IndentUnit;
 pub use key::Key;
+pub use readonly::READ_ONLY_MESSAGE;
+pub use shared::VimShared;
 pub use types::{
     CursorShape, Mode, Register, RegisterKind, SearchQuery, VimAction, VimCommand, VimContext,
 };

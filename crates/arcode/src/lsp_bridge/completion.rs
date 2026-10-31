@@ -7,6 +7,7 @@
 //! that caused them has already been queued; answers are converted against
 //! the buffer when they arrive.
 
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -33,11 +34,30 @@ use super::convert::buffer_encoding;
 /// Completion and signature help from the bridge's language servers.
 pub struct LspCompletionProvider {
     bridge: WeakEntity<LspBridge>,
+    /// The trigger character the open list was asked with, so asking an
+    /// incomplete list again goes to the same servers.
+    session_trigger: RefCell<Option<String>>,
+}
+
+/// Whether a server with `caps` is asked for completions: it must offer
+/// them and, for a list opened by a trigger character, have registered
+/// that character (a spell checker is not asked after `.`).
+pub fn asks_server(caps: &ServerCapabilities, trigger_character: Option<&str>) -> bool {
+    caps.completion_provider.as_ref().is_some_and(|p| {
+        trigger_character.is_none_or(|t| {
+            p.trigger_characters
+                .as_ref()
+                .is_some_and(|registered| registered.iter().any(|r| r == t))
+        })
+    })
 }
 
 impl LspCompletionProvider {
     pub fn new(bridge: WeakEntity<LspBridge>) -> Self {
-        LspCompletionProvider { bridge }
+        LspCompletionProvider {
+            bridge,
+            session_trigger: RefCell::new(None),
+        }
     }
 
     /// The manager and the document path, when a server runs for it.
@@ -131,9 +151,15 @@ impl CompletionProvider for LspCompletionProvider {
                 trigger_character: None,
             },
         };
+        let trigger_character = match trigger {
+            CompletionTrigger::Invoked => None,
+            CompletionTrigger::Character(c) => Some(c.clone()),
+            CompletionTrigger::Incomplete => self.session_trigger.borrow().clone(),
+        };
+        self.session_trigger.replace(trigger_character.clone());
         let request = manager.request_all_with::<Completion>(
             &path,
-            |c| c.completion_provider.is_some(),
+            |c| asks_server(c, trigger_character.as_deref()),
             |encoding| CompletionParams {
                 text_document_position: position(editor, &path, encoding),
                 work_done_progress_params: Default::default(),
@@ -214,7 +240,7 @@ impl CompletionProvider for LspCompletionProvider {
             &path,
             |c| c.signature_help_provider.is_some(),
             |encoding| SignatureHelpParams {
-                context: Some(context),
+                context: Some(context.clone()),
                 text_document_position_params: position(editor, &path, encoding),
                 work_done_progress_params: Default::default(),
             },
@@ -223,5 +249,32 @@ impl CompletionProvider for LspCompletionProvider {
             let (_, help) = request.await?;
             Ok(help.and_then(signature_help))
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arcode_lsp::lsp_types::CompletionOptions;
+
+    fn caps(triggers: Option<&[&str]>) -> ServerCapabilities {
+        ServerCapabilities {
+            completion_provider: Some(CompletionOptions {
+                trigger_characters: triggers.map(|t| t.iter().map(|s| s.to_string()).collect()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn trigger_characters_only_reach_servers_that_registered_them() {
+        let ra = caps(Some(&[".", ":"]));
+        let spell = caps(None);
+        assert!(asks_server(&ra, None) && asks_server(&spell, None));
+        assert!(asks_server(&ra, Some(".")));
+        assert!(!asks_server(&spell, Some(".")));
+        assert!(!asks_server(&ra, Some("<")));
+        assert!(!asks_server(&ServerCapabilities::default(), None));
     }
 }

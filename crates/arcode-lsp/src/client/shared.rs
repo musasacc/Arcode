@@ -33,6 +33,8 @@ pub(crate) struct Shared {
     pub(crate) root: PathBuf,
     pub(crate) events: EventSink,
     pub(crate) initialization_options: Option<Value>,
+    /// Features the client uses from this server.
+    pub(crate) features: crate::Features,
     /// Negotiated position encoding, set once `initialize` answered.
     encoding: OnceLock<PositionEncoding>,
     outgoing: mpsc::UnboundedSender<String>,
@@ -49,6 +51,7 @@ impl Shared {
         root: PathBuf,
         events: EventSink,
         initialization_options: Option<Value>,
+        features: crate::Features,
     ) -> (Arc<Self>, mpsc::UnboundedReceiver<String>) {
         let (tx, rx) = mpsc::unbounded_channel();
         let shared = Arc::new(Shared {
@@ -56,6 +59,7 @@ impl Shared {
             root,
             events,
             initialization_options,
+            features,
             encoding: OnceLock::new(),
             outgoing: tx,
             state: Mutex::new(State {

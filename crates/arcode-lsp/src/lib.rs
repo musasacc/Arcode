@@ -19,6 +19,7 @@ mod client;
 pub mod diagnostics;
 mod error;
 mod event;
+mod features;
 mod manager;
 mod memory;
 mod rpc;
@@ -36,8 +37,9 @@ pub use error::{
 pub use event::{
     EditOutcome, EditReply, EventReceiver, EventSink, LspEvent, PositionEncoding, ServerStatus,
 };
+pub use features::Features;
 pub use lsp_types;
-pub use manager::{LspManager, ServerConfig, find_root};
+pub use manager::{Answer, LspManager, ServerConfig, find_root};
 pub use sync::{DocumentSync, TextChange};
 pub use uri::{path_to_uri, uri_to_path};
 

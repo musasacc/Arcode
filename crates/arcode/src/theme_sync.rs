@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use arcode_config::ThemeRegistry;
 use arcode_ui_kit::{set_theme, settings, theme};
-use gpui::{App, Global, WindowAppearance};
+use gpui::{App, AppContext, Global, Task, WindowAppearance};
 
 /// Global holding every available theme.
 pub struct Themes(pub ThemeRegistry);
@@ -48,4 +48,33 @@ pub fn apply(appearance: WindowAppearance, cx: &mut App) {
         let resolved = Arc::new(resolved.clone());
         set_theme(resolved, cx);
     }
+}
+
+/// Shows `theme` without changing the settings (a picker's live preview).
+/// [`apply`] goes back to the configured theme.
+pub fn preview(theme: &arcode_config::Theme, cx: &mut App) {
+    if theme.name != active_name(cx) {
+        set_theme(Arc::new(theme.clone()), cx);
+    }
+}
+
+/// The name of the theme shown now.
+pub fn active_name(cx: &App) -> String {
+    cx.try_global::<arcode_ui_kit::ActiveTheme>()
+        .map(|_| theme(cx).name.clone())
+        .unwrap_or_default()
+}
+
+/// Reads the user themes folder again on the background executor and
+/// replaces the registry; the task ends when the new registry is in place.
+pub fn reload_themes(cx: &mut App) -> Task<()> {
+    let dir = arcode_config::paths::themes_dir();
+    let load = cx.background_spawn(async move { ThemeRegistry::load(dir.as_deref()) });
+    cx.spawn(async move |cx| {
+        let (registry, warnings) = load.await;
+        for warning in warnings {
+            log::warn!("theme: {warning}");
+        }
+        cx.update(|cx| cx.set_global(Themes(registry))).ok();
+    })
 }

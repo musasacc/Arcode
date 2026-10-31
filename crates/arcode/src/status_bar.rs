@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 
 use arcode_ui_kit::{IconName, icon, settings, theme};
 use gpui::{
-    App, Context, Global, IntoElement, ParentElement, Render, SharedString, Styled, Task, Window,
-    div, prelude::*, px,
+    App, AppContext, Context, Global, IntoElement, ParentElement, Render, SharedString, Styled,
+    Task, Window, div, prelude::*, px,
 };
 
 /// How often the memory figure may refresh.
@@ -60,37 +60,74 @@ pub struct StatusBar {
     /// Resident memory in MiB, when perf stats are on.
     memory_mib: Option<u64>,
     _memory_task: Option<Task<()>>,
+    _settings_sub: Option<gpui::Subscription>,
+    /// Shown instead of `lsp_status` when set: one entry per language
+    /// server with a menu (see `lsp_bridge::status_view`).
+    lsp_view: Option<gpui::AnyView>,
+    /// Vim mode of the active editor, shown first.
+    vim: Option<arcode_editor::VimStatus>,
+    /// Indentation, encoding and line ending of the active editor.
+    doc: Option<crate::languages::status_items::DocStatus>,
 }
 
 impl StatusBar {
-    /// Creates the status bar; starts the memory sampler if
-    /// `ui.show_perf_stats` is on.
+    /// Creates the status bar; runs the memory sampler while
+    /// `ui.show_perf_stats` is on (it follows the setting).
     pub fn new(cx: &mut Context<Self>) -> Self {
-        let show = settings(cx).ui.show_perf_stats;
         let mut bar = Self {
             info: StatusInfo::default(),
             memory_mib: None,
             _memory_task: None,
+            _settings_sub: None,
+            lsp_view: None,
+            vim: None,
+            doc: None,
         };
-        if show {
-            bar.memory_mib = sample_memory();
-            bar._memory_task = Some(cx.spawn(async move |this, cx| {
-                loop {
-                    cx.background_executor().timer(MEMORY_REFRESH).await;
-                    let sample = sample_memory();
-                    let alive = this.update(cx, |bar, cx| {
-                        if bar.memory_mib != sample {
-                            bar.memory_mib = sample;
-                            cx.notify();
-                        }
-                    });
-                    if alive.is_err() {
-                        break;
-                    }
-                }
-            }));
-        }
+        bar.sync_sampler(cx);
+        bar._settings_sub =
+            Some(cx.observe_global::<arcode_ui_kit::Settings>(|bar, cx| bar.sync_sampler(cx)));
         bar
+    }
+
+    /// Starts or stops the memory sampler to match the setting. Samples are
+    /// read on the background executor; the bar redraws only when the shown
+    /// value (whole MiB) changes.
+    fn sync_sampler(&mut self, cx: &mut Context<Self>) {
+        let show = settings(cx).ui.show_perf_stats;
+        if show == self._memory_task.is_some() {
+            return;
+        }
+        if !show {
+            self._memory_task = None;
+            if self.memory_mib.take().is_some() {
+                cx.notify();
+            }
+            return;
+        }
+        self._memory_task = Some(cx.spawn(async move |this, cx| {
+            let mut first = true;
+            loop {
+                if !first {
+                    cx.background_executor().timer(MEMORY_REFRESH).await;
+                }
+                first = false;
+                let sample = cx.background_spawn(async { sample_memory() }).await;
+                let alive = this.update(cx, |bar, cx| {
+                    if bar.memory_mib != sample {
+                        bar.memory_mib = sample;
+                        cx.notify();
+                    }
+                });
+                if alive.is_err() {
+                    break;
+                }
+            }
+        }));
+    }
+
+    /// The memory figure shown (MiB), if any.
+    pub fn memory_mib(&self) -> Option<u64> {
+        self.memory_mib
     }
 
     /// The displayed information.
@@ -121,6 +158,48 @@ impl StatusBar {
             ..self.info.clone()
         };
         self.set_info(info, cx);
+    }
+
+    /// The indentation / encoding / line ending entries shown, if any.
+    pub fn doc_status(&self) -> Option<&crate::languages::status_items::DocStatus> {
+        self.doc.as_ref()
+    }
+
+    /// Sets the indentation / encoding / line ending entries (`None`
+    /// without an active editor).
+    pub fn set_doc_status(
+        &mut self,
+        doc: Option<crate::languages::status_items::DocStatus>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.doc != doc {
+            self.doc = doc;
+            cx.notify();
+        }
+    }
+
+    /// The Vim mode entry shown, if any.
+    pub fn vim_status(&self) -> Option<&arcode_editor::VimStatus> {
+        self.vim.as_ref()
+    }
+
+    /// Sets the Vim mode entry (`None` outside Vim mode).
+    pub fn set_vim_status(
+        &mut self,
+        vim: Option<arcode_editor::VimStatus>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.vim != vim {
+            self.vim = vim;
+            cx.notify();
+        }
+    }
+
+    /// Shows `view` (the language server entries) instead of the status
+    /// text.
+    pub fn set_lsp_view(&mut self, view: gpui::AnyView, cx: &mut Context<Self>) {
+        self.lsp_view = Some(view);
+        cx.notify();
     }
 
     /// Sets the language server status text.
@@ -202,6 +281,10 @@ impl Render for StatusBar {
                 .items_center()
                 .h_full()
                 .min_w_0()
+                .overflow_hidden()
+                .when_some(self.vim.as_ref(), |el, vim| {
+                    el.child(arcode_editor::vim::status_element(vim, cx))
+                })
                 .when_some(info.branch.clone(), |el, branch| {
                     el.child(
                         item(
@@ -260,9 +343,16 @@ impl Render for StatusBar {
             .when_some(info.cursor, |el, (line, col)| {
                 el.child(item(cursor_label(line, col)))
             })
-            .when_some(info.language.clone(), |el, lang| el.child(item(lang)))
-            .when_some(info.lsp_status.clone(), |el, status| {
-                el.child(item(status).text_color(c.text_muted))
+            .children(crate::languages::status_items::render(
+                self.doc.as_ref(),
+                info.language.clone(),
+                cx,
+            ))
+            .when_some(self.lsp_view.clone(), |el, view| el.child(view))
+            .when(self.lsp_view.is_none(), |el| {
+                el.when_some(info.lsp_status.clone(), |el, status| {
+                    el.child(item(status).text_color(c.text_muted))
+                })
             })
             .when(perf, |el| {
                 el.when_some(ready, |el, ready| {

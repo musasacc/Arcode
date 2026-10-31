@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use arcode_editor::{Editor, EditorEvent};
-use arcode_ui_kit::{IconName, icon_button, kbd, theme};
+use arcode_ui_kit::{IconName, icon_button, theme};
 use gpui::{
     App, Context, Entity, EntityId, EventEmitter, FocusHandle, Focusable, PromptLevel,
     SharedString, Subscription, Window, div, prelude::*, px,
@@ -16,7 +16,10 @@ use crate::actions::{
 use crate::find_bar::FindBar;
 
 mod find;
+mod page;
 mod tab;
+
+pub use page::PageTab;
 
 /// Height of the tab strip.
 pub const TAB_BAR_HEIGHT: f32 = 34.;
@@ -30,6 +33,8 @@ pub enum PaneEvent {
     ActiveItemChanged,
     /// The user asked to close this (empty) pane.
     CloseRequested,
+    /// A tab was closed; the editor is about to be dropped.
+    ItemClosed(Entity<Editor>),
 }
 
 /// How a tab without a file (e.g. a diff) is shown and found again.
@@ -69,6 +74,10 @@ pub struct Pane {
     /// The find bar (created on first use) and whether it is shown.
     find: Option<(Entity<FindBar>, Subscription)>,
     find_open: bool,
+    /// Non-editor tabs (the Settings page) and the active one, if a page
+    /// rather than an editor is shown.
+    pages: Vec<PageTab>,
+    active_page: Option<usize>,
     _focus_sub: Option<Subscription>,
 }
 
@@ -96,6 +105,8 @@ impl Pane {
             titles: HashMap::new(),
             find: None,
             find_open: false,
+            pages: Vec::new(),
+            active_page: None,
             _focus_sub: Some(sub),
         }
     }
@@ -105,9 +116,12 @@ impl Pane {
         &self.items
     }
 
-    /// The active editor.
+    /// The active editor (none while a page is shown).
     pub fn active_editor(&self) -> Option<&Entity<Editor>> {
-        self.items.get(self.active)
+        match self.active_page {
+            Some(_) => None,
+            None => self.items.get(self.active),
+        }
     }
 
     /// Sets whether the close-pane button is offered.
@@ -183,6 +197,7 @@ impl Pane {
             return;
         };
         self.active = index;
+        self.active_page = None;
         window.focus(&editor.focus_handle(cx));
         self.sync_find_target(cx);
         cx.emit(PaneEvent::ActiveItemChanged);
@@ -191,6 +206,9 @@ impl Pane {
 
     /// Focuses the active editor, or the pane itself when empty.
     pub fn focus(&self, window: &mut Window, cx: &App) {
+        if let Some(page) = self.active_page() {
+            return window.focus(&page.focus);
+        }
         match self.active_editor() {
             Some(editor) => window.focus(&editor.focus_handle(cx)),
             None => window.focus(&self.focus_handle),
@@ -235,10 +253,19 @@ impl Pane {
         .detach();
     }
 
+    /// Closes the tab at `index` without asking, discarding unsaved
+    /// changes (Vim's `:q!`).
+    pub fn close_discarding(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if index < self.items.len() {
+            self.remove(index, window, cx);
+        }
+    }
+
     fn remove(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let editor = self.items.remove(index);
         self.subscriptions
             .retain(|(id, _)| *id != editor.entity_id());
+        cx.emit(PaneEvent::ItemClosed(editor.clone()));
         self.titles.remove(&editor.entity_id());
         if self.active > index || self.active >= self.items.len() {
             self.active = self.active.saturating_sub(1);
@@ -252,7 +279,9 @@ impl Pane {
     }
 
     fn close_active(&mut self, _: &CloseTab, window: &mut Window, cx: &mut Context<Self>) {
-        if self.items.is_empty() {
+        if let Some(ix) = self.active_page {
+            self.close_page(ix, window, cx);
+        } else if self.items.is_empty() {
             if self.closable {
                 cx.emit(PaneEvent::CloseRequested);
             }
@@ -260,45 +289,21 @@ impl Pane {
             self.close(self.active, window, cx);
         }
     }
-
-    fn render_empty(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let c = theme(cx).colors.clone();
-        let hint = |label: &'static str, keys: &str| {
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap_6()
-                .w(px(240.))
-                .child(label)
-                .child(kbd(shortcut_label(keys)))
-        };
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .gap_2()
-            .text_sm()
-            .text_color(c.text_muted)
-            .child(hint("Find file", "secondary-p"))
-            .child(hint("Split editor", "secondary-\\"))
-            .child(hint("Toggle sidebar", "secondary-b"))
-            .child(hint("Toggle panel", "secondary-j"))
-    }
 }
 
 impl Render for Pane {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = theme(cx).colors.clone();
-        let tabs: Vec<_> = self
+        let mut tabs: Vec<_> = self
             .items
             .clone()
             .iter()
             .enumerate()
             .map(|(ix, e)| self.render_tab(ix, e, cx).into_any_element())
             .collect();
+        for (ix, page) in self.pages.clone().iter().enumerate() {
+            tabs.push(self.render_page_tab(ix, page, cx).into_any_element());
+        }
         let tab_bar = div()
             .flex()
             .flex_none()
@@ -331,7 +336,7 @@ impl Render for Pane {
                                 window.dispatch_action(Box::new(SplitRight), cx)
                             }),
                     )
-                    .when(self.closable && self.items.is_empty(), |el| {
+                    .when(self.closable && !self.has_tabs(), |el| {
                         el.child(
                             icon_button("close-pane", IconName::X)
                                 .size(px(24.))
@@ -342,7 +347,9 @@ impl Render for Pane {
                         )
                     }),
             );
+        let page = self.active_page().map(|p| p.view.clone());
         let body = match self.active_editor() {
+            _ if page.is_some() => div().flex_1().min_h_0().children(page).into_any_element(),
             Some(editor) => div()
                 .flex_1()
                 .min_h_0()

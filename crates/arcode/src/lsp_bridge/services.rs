@@ -17,10 +17,10 @@ use arcode_lsp::lsp_types::request::{
     PrepareRenameRequest, RangeFormatting, Rename,
 };
 use arcode_lsp::lsp_types::{
-    CodeActionContext, CodeActionOrCommand, CodeActionParams, CodeActionProviderCapability,
-    Command, DocumentFormattingParams, DocumentRangeFormattingParams, ExecuteCommandParams,
-    FormattingOptions, InlayHintParams, OneOf, Position, Range as LspRange, RenameParams,
-    ServerCapabilities, TextDocumentIdentifier, WorkspaceEdit,
+    CodeActionContext, CodeActionOrCommand, CodeActionParams, Command, DocumentFormattingParams,
+    DocumentRangeFormattingParams, ExecuteCommandParams, FormattingOptions, InlayHintParams,
+    Position, Range as LspRange, RenameParams, ServerCapabilities, TextDocumentIdentifier,
+    WorkspaceEdit,
 };
 use arcode_lsp::{EditReply, LspManager, PositionEncoding, path_to_uri};
 use arcode_ui_kit::settings;
@@ -28,35 +28,13 @@ use gpui::{AsyncApp, Context, Task, WeakEntity};
 
 use super::LspBridge;
 use super::convert::buffer_encoding;
-use super::edits::edit_applied;
+use super::edits::{EditSource, edit_applied};
 use super::navigation::{one_of, text_position};
 use super::services_convert::{
-    ActionData, code_action, context_diagnostics, inlay_hint, rename_target,
+    ActionData, code_action, context_diagnostics, inlay_hint, prepares_rename, rename_target,
+    resolves_actions, supports_actions, supports_rename,
 };
 use super::workspace_edit::buffer_edits;
-
-fn supports_actions(c: &ServerCapabilities) -> bool {
-    matches!(
-        c.code_action_provider,
-        Some(CodeActionProviderCapability::Simple(true))
-            | Some(CodeActionProviderCapability::Options(_))
-    )
-}
-
-fn resolves_actions(c: &ServerCapabilities) -> bool {
-    matches!(
-        &c.code_action_provider,
-        Some(CodeActionProviderCapability::Options(o)) if o.resolve_provider == Some(true)
-    )
-}
-
-fn supports_rename(c: &ServerCapabilities) -> bool {
-    one_of(&c.rename_provider)
-}
-
-fn prepares_rename(c: &ServerCapabilities) -> bool {
-    matches!(&c.rename_provider, Some(OneOf::Right(o)) if o.prepare_provider == Some(true))
-}
 
 /// Inlay hints, code actions, rename and formatting from the bridge's
 /// servers.
@@ -73,11 +51,22 @@ impl LspLanguageServices {
         self.bridge.upgrade()?.read(cx).served(editor)
     }
 
-    /// `(start, end)` of `range` as an LSP range in `encoding`.
+    /// `(start, end)` of `range` as an LSP range in `encoding`. A point
+    /// past the last line (e.g. `Point::new(line_count, 0)` for "up to the
+    /// end") means the end of the buffer, so the last line is covered.
     fn lsp_range(editor: &Editor, range: &Range<Point>, encoding: PositionEncoding) -> LspRange {
         let enc = buffer_encoding(encoding);
-        let (l0, c0) = editor.point_to_lsp(range.start, enc);
-        let (l1, c1) = editor.point_to_lsp(range.end, enc);
+        let lines = editor.buffer().line_count();
+        let clamp = |p: Point| {
+            if p.line >= lines {
+                let last = lines.saturating_sub(1);
+                Point::new(last, editor.buffer().line_len(last))
+            } else {
+                p
+            }
+        };
+        let (l0, c0) = editor.point_to_lsp(clamp(range.start), enc);
+        let (l1, c1) = editor.point_to_lsp(clamp(range.end), enc);
         LspRange::new(Position::new(l0, c0), Position::new(l1, c1))
     }
 }
@@ -92,7 +81,7 @@ async fn apply_edit(
 ) -> anyhow::Result<()> {
     let (reply, outcome) = EditReply::channel();
     bridge.update(cx, |b, cx| {
-        b.apply_workspace_edit(edit, encoding, Some(label), reply, cx)
+        b.apply_workspace_edit(edit, encoding, Some(label), reply, EditSource::Editor, cx)
     })?;
     edit_applied(outcome).await
 }
@@ -189,7 +178,7 @@ impl LanguageServices for LspLanguageServices {
         if requests.is_empty() {
             return None;
         }
-        Some(cx.background_spawn(async move {
+        Some(cx.spawn(async move |_, _| {
             let mut out = Vec::new();
             for (server, request) in requests {
                 match request.await {
@@ -346,14 +335,16 @@ impl LanguageServices for LspLanguageServices {
                 if !offered {
                     return None;
                 }
-                Box::pin(manager.request_with::<RangeFormatting>(&path, supports_range, |enc| {
-                    DocumentRangeFormattingParams {
-                        text_document: document,
-                        range: Self::lsp_range(editor, &range, enc),
-                        options,
-                        work_done_progress_params: Default::default(),
-                    }
-                }))
+                Box::pin(
+                    manager.request_with::<RangeFormatting>(&path, supports_range, |enc| {
+                        DocumentRangeFormattingParams {
+                            text_document: document.clone(),
+                            range: Self::lsp_range(editor, &range, enc),
+                            options: options.clone(),
+                            work_done_progress_params: Default::default(),
+                        }
+                    }),
+                )
             }
             None => {
                 let offered = manager
@@ -364,13 +355,15 @@ impl LanguageServices for LspLanguageServices {
                 if !offered {
                     return None;
                 }
-                Box::pin(manager.request_with::<Formatting>(&path, supports_document, |_| {
-                    DocumentFormattingParams {
-                        text_document: document,
-                        options,
-                        work_done_progress_params: Default::default(),
-                    }
-                }))
+                Box::pin(
+                    manager.request_with::<Formatting>(&path, supports_document, |_| {
+                        DocumentFormattingParams {
+                            text_document: document.clone(),
+                            options: options.clone(),
+                            work_done_progress_params: Default::default(),
+                        }
+                    }),
+                )
             }
         };
         Some(cx.spawn(async move |this, cx| {
@@ -384,6 +377,10 @@ impl LanguageServices for LspLanguageServices {
         }))
     }
 }
+
+#[cfg(test)]
+#[path = "review_services_tests.rs"]
+mod review_tests;
 
 /// The services object for an editor of the bridge.
 pub(crate) fn services(bridge: WeakEntity<LspBridge>) -> Rc<dyn LanguageServices> {

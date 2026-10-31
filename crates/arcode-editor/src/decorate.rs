@@ -103,8 +103,8 @@ pub(crate) fn text_decorations(
     // Block-style cursors stay visible (hollow) when unfocused, like Vim.
     let show = (focused && editor.cursor_visible) || (!focused && shape != CursorShape::Bar);
     if show {
-        for s in editor.selections.iter().filter(|s| in_view(s.head)) {
-            let p = buffer.char_to_point(s.head);
+        for head in editor.cursor_heads().into_iter().filter(|&h| in_view(h)) {
+            let p = buffer.char_to_point(head);
             if !visible.contains(&p.line) {
                 continue;
             }

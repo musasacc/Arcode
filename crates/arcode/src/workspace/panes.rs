@@ -24,12 +24,16 @@ impl Workspace {
                     }
                 }
                 PaneEvent::ActiveItemChanged => {
+                    // Tabs opened, closed or switched: remember it soon.
+                    ws.schedule_session_save(cx);
+                    ws.end_hidden_settings_preview(window, cx);
                     if ix == Some(ws.active_pane) {
                         ws.active_editor_changed(cx);
                     } else {
                         cx.notify();
                     }
                 }
+                PaneEvent::ItemClosed(editor) => ws.remember_closed_editor(editor, cx),
                 PaneEvent::CloseRequested => {
                     if let Some(ix) = ix {
                         ws.close_pane(ix, window, cx);
@@ -46,6 +50,7 @@ impl Workspace {
         self.subs.tie(pane.downgrade().into(), sub);
         self.panes = vec![pane];
         self.active_pane = 0;
+        self.end_hidden_settings_preview(window, cx);
         self.update_closable(cx);
         self.active_editor_changed(cx);
     }
@@ -68,7 +73,7 @@ impl Workspace {
         if self.panes.len() <= 1 || ix >= self.panes.len() {
             return;
         }
-        if !self.panes[ix].read(cx).items().is_empty() {
+        if self.panes[ix].read(cx).has_tabs() {
             return;
         }
         self.panes.remove(ix);

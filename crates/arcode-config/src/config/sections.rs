@@ -39,6 +39,9 @@ pub struct EditorSettings {
     pub tab_size: usize,
     /// Insert spaces instead of tab characters.
     pub insert_spaces: bool,
+    /// Guess tabs or spaces and the indent size of each opened file from
+    /// its content (overriding `tab_size` / `insert_spaces` for that file).
+    pub detect_indentation: bool,
     /// Show line numbers in the gutter.
     pub show_line_numbers: bool,
     /// Highlight the line containing the cursor.
@@ -49,6 +52,9 @@ pub struct EditorSettings {
     pub word_wrap: bool,
     /// Keybinding scheme.
     pub keymap: Keymap,
+    /// Modal Vim editing (also on when `keymap` is `"vim"`). "Editor:
+    /// Toggle Vim Mode" switches it for the session.
+    pub vim_mode: bool,
     /// Insert the closing bracket/quote when typing an opening one.
     pub auto_close_brackets: bool,
     /// Format the file (via LSP or the language formatter) when saving.
@@ -93,11 +99,13 @@ impl Default for EditorSettings {
             ligatures: true,
             tab_size: 4,
             insert_spaces: true,
+            detect_indentation: true,
             show_line_numbers: true,
             highlight_current_line: true,
             cursor_blink: false,
             word_wrap: false,
             keymap: Keymap::Default,
+            vim_mode: false,
             auto_close_brackets: true,
             format_on_save: false,
             format_on_save_timeout_ms: 1500,
@@ -121,11 +129,13 @@ impl_section!(EditorSettings {
     ligatures,
     tab_size,
     insert_spaces,
+    detect_indentation,
     show_line_numbers,
     highlight_current_line,
     cursor_blink,
     word_wrap,
     keymap,
+    vim_mode,
     auto_close_brackets,
     format_on_save,
     format_on_save_timeout_ms,
@@ -322,6 +332,16 @@ impl UiSettings {
             self.animation_ms
         } else {
             0
+        }
+    }
+
+    /// A debounce delay for background refreshes (diagnostics, git):
+    /// `base_ms`, or three times it in low-end mode.
+    pub fn debounce_ms(&self, base_ms: u64) -> u64 {
+        if self.low_end_mode {
+            base_ms.saturating_mul(3)
+        } else {
+            base_ms
         }
     }
 

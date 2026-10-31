@@ -41,7 +41,10 @@ impl ActionGroup {
     pub fn is_refactor(self) -> bool {
         matches!(
             self,
-            ActionGroup::Extract | ActionGroup::Inline | ActionGroup::Rewrite | ActionGroup::Refactor
+            ActionGroup::Extract
+                | ActionGroup::Inline
+                | ActionGroup::Rewrite
+                | ActionGroup::Refactor
         )
     }
 }

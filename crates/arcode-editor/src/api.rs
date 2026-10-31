@@ -51,6 +51,34 @@ impl Editor {
         cx.notify();
     }
 
+    /// Appends `text` at the end, also when the editor is read-only: for
+    /// output views such as a server log. The buffer stays clean (closing
+    /// never asks to save). A primary cursor at the end follows the text
+    /// and keeps it in view; otherwise neither cursor nor scrolling move.
+    pub fn append_output(&mut self, text: &str, cx: &mut Context<Self>) {
+        if text.is_empty() {
+            return;
+        }
+        let len = self.buffer.len_chars();
+        let follow = self.selections.primary().head == len;
+        let end = self.buffer.char_to_point(len);
+        let autoscroll = self.autoscroll.take();
+        let read_only = std::mem::replace(&mut self.read_only, false);
+        self.apply_edits(vec![(end..end, text.to_string())], cx);
+        self.read_only = read_only;
+        self.buffer.mark_saved();
+        self.check_dirty(cx);
+        if follow {
+            let end = self.buffer.len_chars();
+            self.selections = SelectionSet::single(end);
+            let last = self.buffer.line_count().saturating_sub(1);
+            self.autoscroll = Some(Autoscroll::Line(last, ScrollAnchor::Fit));
+        } else {
+            self.autoscroll = autoscroll;
+        }
+        cx.notify();
+    }
+
     /// Char offset of `point` (clamped).
     pub fn point_to_offset(&self, point: Point) -> usize {
         let line = point.line.min(self.buffer.line_count().saturating_sub(1));
@@ -127,16 +155,32 @@ impl Editor {
             .iter()
             .map(|(r, t)| (r.clone(), t.chars().count()))
             .collect();
-        let before = self.selections.clone();
-        let mut after = before.clone();
+        let mut after = self.selections.clone();
         after.transform(|s| {
             Selection::new(map_offset(s.anchor, &shifts), map_offset(s.head, &shifts))
         });
-        self.buffer.break_undo_group();
-        let applied = self
-            .buffer
-            .edit_with_selections(raw, UndoGroup::New, &before, &after);
-        self.buffer.break_undo_group();
+        let applied = match self.edit_group.clone() {
+            // Grouped: continue the step the previous grouped edit opened.
+            Some(previous) => {
+                let before = previous.unwrap_or_else(|| self.selections.clone());
+                let applied =
+                    self.buffer
+                        .edit_with_selections(raw, UndoGroup::Merge, &before, &after);
+                if !applied.is_empty() {
+                    self.edit_group = Some(Some(after.clone()));
+                }
+                applied
+            }
+            None => {
+                let before = self.selections.clone();
+                self.buffer.break_undo_group();
+                let applied =
+                    self.buffer
+                        .edit_with_selections(raw, UndoGroup::New, &before, &after);
+                self.buffer.break_undo_group();
+                applied
+            }
+        };
         if applied.is_empty() {
             return false;
         }
@@ -144,6 +188,25 @@ impl Editor {
         self.selections = after;
         self.after_edits(applied, cx);
         true
+    }
+
+    /// Starts joining edits: every [`Editor::apply_edits`] until
+    /// [`Editor::end_edit_group`] becomes part of one undo step (e.g. the
+    /// several text edits a workspace edit may make to one file, each
+    /// computed against the text the previous one left).
+    pub fn begin_edit_group(&mut self) {
+        if self.edit_group.is_none() {
+            self.buffer.break_undo_group();
+            self.edit_group = Some(None);
+        }
+    }
+
+    /// Ends the group [`Editor::begin_edit_group`] started; the next edit
+    /// is a new undo step.
+    pub fn end_edit_group(&mut self) {
+        if self.edit_group.take().is_some() {
+            self.buffer.break_undo_group();
+        }
     }
 
     /// Replaces the selections with cursors/ranges given as points.

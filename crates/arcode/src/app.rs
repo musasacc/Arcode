@@ -5,16 +5,12 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use arcode_config::Config;
-use gpui::{
-    App, Application, Bounds, Focusable, TitlebarOptions, WindowBounds, WindowOptions, point,
-    prelude::*, px, size,
-};
+use gpui::{App, Application};
 
 use crate::status_bar::Startup;
-use crate::workspace::Workspace;
 use crate::{
-    actions, app_state, commands, find_bar, finder, path_prompt, project, prompt, search_view,
-    sidebar, text_field, theme_sync,
+    actions, app_state, commands, find_bar, finder, new_project, path_prompt, project, prompt,
+    search_view, sidebar, text_field, theme_sync, windows,
 };
 
 /// What to open at startup, from the command line.
@@ -50,41 +46,6 @@ pub fn parse_args(args: impl Iterator<Item = String>) -> Result<LaunchTarget, St
     Ok(target)
 }
 
-fn window_options(cx: &App) -> WindowOptions {
-    let saved = app_state::state(cx)
-        .window
-        .filter(|w| w.width >= 400. && w.height >= 300.);
-    let window_bounds = match saved {
-        Some(w) => {
-            let bounds = Bounds::new(point(px(w.x), px(w.y)), size(px(w.width), px(w.height)));
-            if w.maximized {
-                WindowBounds::Maximized(bounds)
-            } else {
-                WindowBounds::Windowed(bounds)
-            }
-        }
-        None => {
-            let screen = cx
-                .primary_display()
-                .map(|d| d.bounds().size)
-                .unwrap_or(size(px(1440.), px(900.)));
-            let width = px(1280.).min(screen.width * 0.9);
-            let height = px(820.).min(screen.height * 0.85);
-            WindowBounds::Windowed(Bounds::centered(None, size(width, height), cx))
-        }
-    };
-    WindowOptions {
-        window_bounds: Some(window_bounds),
-        titlebar: Some(TitlebarOptions {
-            title: Some("Arcode".into()),
-            ..Default::default()
-        }),
-        app_id: Some("dev.arcode.Arcode".into()),
-        window_min_size: Some(size(px(480.), px(320.))),
-        ..Default::default()
-    }
-}
-
 /// Runs Arcode with the process arguments; returns when the app quits.
 pub fn run() {
     let started = Instant::now();
@@ -100,6 +61,15 @@ pub fn run() {
     for warning in &warnings {
         log::warn!("config: {warning}");
     }
+    // Without a configuration folder there is nothing the first-run dialog
+    // could write, so it is not shown.
+    let config_exists =
+        arcode_config::paths::config_file().is_none_or(|path| path.try_exists().unwrap_or(true));
+    let first_run = crate::prefs::first_run::wanted(
+        config_exists,
+        std::env::var("ARCODE_SKIP_FIRST_RUN").ok().as_deref(),
+    );
+    crate::prefs::frames::init_logging();
 
     Application::new()
         .with_assets(arcode_ui_kit::Assets)
@@ -108,12 +78,16 @@ pub fn run() {
                 started,
                 ready: None,
             });
+            if first_run {
+                cx.set_global(crate::prefs::first_run::FirstRunPending);
+            }
             arcode_ui_kit::load_fonts(cx);
             arcode_ui_kit::set_settings(config, cx);
             theme_sync::init(cx);
             theme_sync::apply(cx.window_appearance(), cx);
             app_state::init(cx);
             arcode_editor::init(cx);
+            crate::vim_glue::init(cx);
             arcode_terminal_view::init(cx);
             actions::bind_keys(cx);
             prompt::init(cx);
@@ -123,40 +97,38 @@ pub fn run() {
             find_bar::bind_keys(cx);
             search_view::bind_keys(cx);
             commands::init(cx);
+            crate::lsp_bridge::init(cx);
             path_prompt::bind_keys(cx);
             sidebar::file_tree::bind_keys(cx);
 
-            cx.on_action(|_: &actions::Quit, cx| quit(cx));
+            new_project::bind_keys(cx);
+
+            cx.on_action(|_: &actions::Quit, cx| windows::quit(cx));
+            cx.on_action(|_: &actions::NewWindow, cx| {
+                cx.defer(|cx| {
+                    windows::open_window(None, None, cx);
+                })
+            });
             cx.on_window_closed(|cx| {
-                if cx.windows().is_empty() {
+                if windows::workspace_windows(cx).is_empty() {
                     cx.quit();
                 }
             })
             .detach();
             cx.on_app_quit(|cx| {
+                // Quitting through the app records sessions first; this
+                // covers a quit requested by the OS.
+                if !windows::workspace_windows(cx).is_empty() {
+                    windows::record_all(cx);
+                }
                 app_state::save(cx);
                 async {}
             })
             .detach();
 
-            let options = window_options(cx);
-            let opened = cx.open_window(options, |window, cx| {
-                let ws = cx.new(|cx| Workspace::new(window, cx));
-                ws.update(cx, |ws, cx| {
-                    if let Some(project) = target.project.clone() {
-                        ws.open_project(project, window, cx);
-                    }
-                    if let Some(file) = target.file.clone() {
-                        ws.open_file(&file, window, cx);
-                    }
-                });
-                if target.file.is_none() {
-                    window.focus(&ws.focus_handle(cx));
-                }
-                ws
-            });
-            if let Err(err) = opened {
-                log::error!("failed to open the main window: {err:#}");
+            let opened = open_startup_windows(target, cx);
+            if opened == 0 {
+                log::error!("failed to open the main window");
                 cx.quit();
             }
             cx.activate(true);
@@ -164,26 +136,55 @@ pub fn run() {
 }
 
 /// Re-reads the configuration file and applies it (theme, fonts, …) to
-/// every window.
+/// every window. The file is read on the background executor, after the
+/// settings writes queued before (see [`crate::prefs::store`]).
 pub fn reload_settings(cx: &mut App) {
-    let (config, warnings) = Config::load();
-    for warning in &warnings {
+    crate::prefs::store::reload(cx);
+}
+
+/// Makes a freshly loaded configuration active (theme, fonts, …) in every
+/// window. `warnings` are the loader's.
+pub fn apply_settings(mut config: Config, warnings: &[String], cx: &mut App) {
+    for warning in warnings {
         log::warn!("config: {warning}");
+    }
+    if warnings.iter().any(|w| Config::is_syntax_warning(w)) {
+        // A typo mid-edit must not restart every language server with the
+        // built-in list; keep the running LSP setup until the file parses.
+        let current = arcode_ui_kit::settings(cx);
+        config.languages = current.languages.clone();
+        config.lsp = current.lsp.clone();
     }
     arcode_ui_kit::set_settings(config, cx);
     theme_sync::apply(cx.window_appearance(), cx);
     log::info!("settings reloaded");
 }
 
-/// Remembers every window's placement, then quits.
-fn quit(cx: &mut App) {
-    for handle in cx.windows() {
-        handle
-            .update(cx, |_, window, cx| app_state::record_window(window, cx))
-            .ok();
+/// Opens the windows Arcode starts with: the command-line target, else the
+/// projects open at the last quit (when `workspace.reopen_projects` is on),
+/// else an empty window with the welcome screen. Returns how many opened.
+fn open_startup_windows(target: LaunchTarget, cx: &mut App) -> usize {
+    // Every project opened from here on records itself again, so after a
+    // crash only the projects open in this run are reopened.
+    let last_open = app_state::open_projects(cx);
+    app_state::set_open_projects(Vec::new(), cx);
+    if target.project.is_some() || target.file.is_some() {
+        return usize::from(windows::open_window(target.project, target.file, cx).is_some());
     }
-    app_state::save(cx);
-    cx.quit();
+    let reopen = arcode_ui_kit::settings(cx).workspace.reopen_projects;
+    let projects: Vec<_> = if reopen {
+        last_open.into_iter().filter(|p| p.is_dir()).collect()
+    } else {
+        Vec::new()
+    };
+    let mut opened = 0;
+    for project in projects {
+        opened += usize::from(windows::open_window(Some(project), None, cx).is_some());
+    }
+    if opened == 0 {
+        opened += usize::from(windows::open_window(None, None, cx).is_some());
+    }
+    opened
 }
 
 #[cfg(test)]

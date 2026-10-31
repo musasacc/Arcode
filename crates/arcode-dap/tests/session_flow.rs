@@ -64,7 +64,13 @@ async fn full_session(behavior: Behavior) {
         .iter()
         .position(|e| matches!(e, DebugEvent::Stopped(s) if s.reason == "breakpoint"))
         .expect("Stopped event");
-    assert_eq!(stopped_at, events.len() - 2, "StateChanged follows Stopped");
+    // `collect_until` ends at the Stopped state. The startup task may
+    // still report Running in between when the adapter stops before it
+    // answers `launch` (debugpy style), so only the order is checked.
+    assert!(
+        stopped_at < events.len() - 1 && is_stopped(&events[events.len() - 1]),
+        "StateChanged(Stopped) follows Stopped: {events:?}"
+    );
     assert_eq!(
         session.state(),
         SessionState::Stopped {

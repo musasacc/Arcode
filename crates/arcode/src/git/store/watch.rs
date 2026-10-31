@@ -1,15 +1,14 @@
 //! Following file-system changes: refresh the status, tell editors the
 //! index moved, and look for repositories again when a `.git` appears.
 
-use std::time::Duration;
-
 use gpui::Context;
 
 use super::{GitEvent, GitStore};
 use crate::git::watcher::{Change, RepoWatcher};
 
-/// Quiet time after a file-system event before refreshing.
-const WATCH_DEBOUNCE: Duration = Duration::from_millis(250);
+/// Quiet time after a file-system event before refreshing (longer in
+/// low-end mode).
+const WATCH_DEBOUNCE_MS: u64 = 250;
 /// Channel room: the watcher queues at most one message per kind.
 const CHANNEL_CAPACITY: usize = 8;
 
@@ -24,9 +23,10 @@ impl GitStore {
         let (tx, rx) = async_channel::bounded::<Change>(CHANNEL_CAPACITY);
         self.watcher =
             RepoWatcher::start_with_paths(&root, &self.repos, tx, Some(self.changed.clone()));
+        let delay = arcode_ui_kit::debounce(WATCH_DEBOUNCE_MS, cx);
         self._watch_task = Some(cx.spawn(async move |this, cx| {
             while let Ok(first) = rx.recv().await {
-                cx.background_executor().timer(WATCH_DEBOUNCE).await;
+                cx.background_executor().timer(delay).await;
                 let mut kinds = vec![first];
                 while let Ok(kind) = rx.try_recv() {
                     kinds.push(kind);

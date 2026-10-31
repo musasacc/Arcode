@@ -4,9 +4,11 @@
 use arcode_ui_kit::{settings, theme};
 use gpui::{Context, CursorStyle, Div, MouseButton, MouseMoveEvent, Window, div, prelude::*, px};
 
+use super::anim::Slider;
 use super::{Resize, Workspace};
 use crate::activity_bar::{self, Activity};
 use crate::bottom_panel;
+use crate::prefs::tour::TourTarget;
 use crate::sidebar;
 use crate::status_bar;
 use crate::{title_bar, welcome};
@@ -52,7 +54,8 @@ impl Workspace {
             (Activity::Git, _) => self.git.panel.clone().into_any_element(),
             (Activity::Search, _) => self.features.search.clone().into_any_element(),
             (Activity::Todo, _) => self.features.todo_side.clone().into_any_element(),
-            (other, _) => sidebar::placeholder(other, cx).into_any_element(),
+            (Activity::Debug, _) => self.debug.sidebar.clone().into_any_element(),
+            (Activity::Plugins, _) => self.langs.view.clone().into_any_element(),
         };
         div()
             .relative()
@@ -88,6 +91,7 @@ impl Workspace {
             .border_t_1()
             .border_color(c.border)
             .child(self.bottom_panel.clone())
+            .child(self.prefs.anchors.recorder(TourTarget::TerminalPanel))
             .child(
                 div()
                     .id("panel-resize")
@@ -140,6 +144,7 @@ impl Workspace {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         status_bar::mark_ready(cx);
+        crate::prefs::frames::tick();
         let c = theme(cx).colors.clone();
         let ui = settings(cx).ui.clone();
         let welcome = self.shows_welcome(cx);
@@ -159,12 +164,23 @@ impl Render for Workspace {
                 },
                 cx,
             );
+            let bar = div()
+                .relative()
+                .flex_none()
+                .h_full()
+                .child(bar)
+                .child(self.prefs.anchors.recorder(TourTarget::ActivityBar));
+            let show_sidebar = self.sidebar_visible || self.sliding_closed(Slider::Sidebar);
+            let show_panel = self.bottom_panel_visible || self.sliding_closed(Slider::Panel);
             div()
                 .flex()
                 .flex_1()
                 .min_h_0()
                 .child(bar)
-                .when(self.sidebar_visible, |el| el.child(self.render_sidebar(cx)))
+                .when(show_sidebar, |el| {
+                    let sidebar = self.render_sidebar(cx);
+                    el.child(self.slide_wrap(Slider::Sidebar, sidebar, self.sidebar_width, cx))
+                })
                 .child(
                     div()
                         .flex()
@@ -172,15 +188,24 @@ impl Render for Workspace {
                         .flex_1()
                         .min_w_0()
                         .h_full()
+                        .children(self.render_package_banner(cx))
                         .child(self.render_panes(cx))
-                        .when(self.bottom_panel_visible, |el| {
-                            el.child(self.render_bottom_panel(cx))
+                        .when(show_panel, |el| {
+                            let panel = self.render_bottom_panel(cx);
+                            let height = self.bottom_panel_height;
+                            el.child(self.slide_wrap(Slider::Panel, panel, height, cx))
                         }),
                 )
         };
         let root = div()
             .id("workspace")
-            .key_context(crate::actions::WORKSPACE_CONTEXT)
+            // While the first-run dialog or the tour is up, no workspace
+            // shortcut may act behind it.
+            .key_context(if self.modal_open() {
+                crate::actions::MODAL_CONTEXT
+            } else {
+                crate::actions::WORKSPACE_CONTEXT
+            })
             .track_focus(&self.focus_handle)
             .relative()
             .size_full()
@@ -198,8 +223,11 @@ impl Render for Workspace {
             })
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_key_down(cx.listener(|ws, event: &gpui::KeyDownEvent, _, cx| {
-                if ws.project_menu_open && event.keystroke.key == "escape" {
+                if event.keystroke.key == "escape"
+                    && (ws.project_menu_open || ws.debug.run.menu.is_some())
+                {
                     ws.project_menu_open = false;
+                    ws.debug.run.menu = None;
                     cx.stop_propagation();
                     cx.notify();
                 }
@@ -214,13 +242,27 @@ impl Render for Workspace {
             )
             .child(title_bar::render(self, window, cx))
             .child(body)
-            .child(self.status_bar.clone());
+            .child(
+                div()
+                    .relative()
+                    .flex_none()
+                    .child(self.status_bar.clone())
+                    .child(self.prefs.anchors.recorder(TourTarget::StatusBar)),
+            );
         let root = self.register_actions(root, cx);
         let root = self.register_git_actions(root, cx);
         let root = self.register_nav_actions(root, cx);
         let root = self.register_feature_actions(root, cx);
+        let root = self.register_file_actions(root, cx);
+        let root = self.register_debug_actions(root, cx);
+        let root = self.register_language_actions(root, cx);
+        let root = self.register_prefs_actions(root, cx);
         let root = self.render_overlays(root, cx);
+        let root = self.render_run_overlays(root, cx);
+        let root = self.render_new_project_overlay(root, cx);
         let root = self.render_palette_overlay(root, cx);
-        self.render_nav_overlay(root, cx)
+        let root = self.render_nav_overlay(root, cx);
+        let root = self.render_prefs_overlays(root, cx);
+        self.render_tour_overlay(root, window, cx)
     }
 }
