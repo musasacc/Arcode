@@ -31,6 +31,12 @@ pub fn shows_breadcrumb(width: Pixels) -> bool {
     width >= BREADCRUMB_MIN_PANE_WIDTH
 }
 
+/// Whether tabs whose scroll range is `max_offset` wide overflow the
+/// strip, so a hairline marks where the clipped tab area ends.
+pub fn tabs_overflow(max_offset: Pixels) -> bool {
+    max_offset >= px(1.)
+}
+
 /// The horizontal scroll offset (0 or below, down to `-max`) that shows a
 /// tab laid out at `tab` in a strip at `strip`, when the strip is now
 /// scrolled by `offset`; `None` when the tab is in view already. A tab
@@ -86,8 +92,8 @@ impl Pane {
         };
         let c = theme(cx).colors.clone();
         // Measures the strip so the breadcrumb can hide in narrow panes,
-        // and keeps the active tab in view; a new frame is asked for only
-        // when either changes something.
+        // marks overflowing tabs and keeps the active tab in view; a new
+        // frame is asked for only when one of them changes something.
         let pane = cx.entity().downgrade();
         let measure = canvas(
             move |bounds, _, cx| {
@@ -95,6 +101,11 @@ impl Pane {
                 pane.update(cx, |pane, cx| {
                     if now != pane.wide {
                         pane.wide = now;
+                        cx.notify();
+                    }
+                    let overflow = tabs_overflow(pane.tab_scroll.max_offset().width);
+                    if overflow != pane.tabs_overflow {
+                        pane.tabs_overflow = overflow;
                         cx.notify();
                     }
                     if pane.reveal_active_tab(active_tab) {
@@ -130,6 +141,18 @@ impl Pane {
                     .track_scroll(&self.tab_scroll)
                     .children(tabs),
             )
+            // Clipped tabs end at a hairline, not straight into the
+            // breadcrumb or the buttons.
+            .when(self.tabs_overflow, |el| {
+                el.child(
+                    div()
+                        .flex_none()
+                        .w(px(1.))
+                        .h(px(16.))
+                        .ml(px(6.))
+                        .bg(c.border),
+                )
+            })
             .children(breadcrumb)
             .child(
                 div()
@@ -334,6 +357,14 @@ mod tests {
             reveal_offset(strip, b(150., 400.), px(-50.), px(300.)),
             None
         );
+    }
+
+    #[test]
+    fn overflow_needs_a_whole_pixel_of_scroll_range() {
+        assert!(!tabs_overflow(px(0.)));
+        assert!(!tabs_overflow(px(0.5)));
+        assert!(tabs_overflow(px(1.)));
+        assert!(tabs_overflow(px(240.)));
     }
 
     #[test]

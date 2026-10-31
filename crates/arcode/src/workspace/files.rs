@@ -33,7 +33,7 @@ impl Workspace {
             tree.follow_sources(git, lsp, cx);
             tree
         });
-        let sub =cx.subscribe_in(&tree, window, |ws, _, event: &FileTreeEvent, window, cx| {
+        let sub = cx.subscribe_in(&tree, window, |ws, _, event: &FileTreeEvent, window, cx| {
             ws.on_tree_event(event, window, cx)
         });
         self.subs.set("file_tree", sub);
