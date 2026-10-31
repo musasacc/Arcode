@@ -1,0 +1,64 @@
+# plugin.toml: the manifest. Arcode reads this file at startup without
+# loading any wasm, so everything the editor needs to show your commands,
+# lenses and panels must be declared here. Unknown keys are errors.
+# Every field is described in docs/plugins/manifest.md.
+
+[plugin]
+# Lowercase letters, digits, `.` and `-`; 3 to 64 characters. Use your own
+# prefix (`acme.`, your name, ...). The `arcode.` prefix is reserved for
+# plugins that ship with Arcode.
+id = "example.hello-world"
+name = "Hello World"
+version = "0.1.0"
+# The plugin API version this plugin was built against.
+api = "0.1"
+# The component file next to this manifest (the default).
+entry = "plugin.wasm"
+description = "Example plugin: a palette command, a code lens on TODO lines and a small panel"
+
+[capabilities]
+# Read the document a code lens or command is about. Nothing else: no
+# project files (`workspace`), no edits (`editor-write`), no `network`.
+# Ask for as little as you can; users see this list before enabling you.
+editor = "context"
+
+# [limits] is optional. The defaults (64 MiB memory, 60 s task budget) are
+# more than enough here.
+
+# Palette commands. Ids are local to the plugin; Arcode namespaces them as
+# `example.hello-world/say-hello`. A title with a `Category:` prefix is
+# listed under that category.
+[[contributes.commands]]
+id = "say-hello"
+title = "Hello: Say Hello"
+
+[[contributes.commands]]
+id = "show-panel"
+title = "Hello: Show Panel"
+
+# The command a TODO lens runs when clicked. A lens can only run a command
+# the manifest declares, so it is listed in the palette too; from there it
+# looks at the cursor line instead.
+[[contributes.commands]]
+id = "explain-todo"
+title = "Hello: Explain TODO at Cursor"
+
+# Ask for lenses on documents of these languages. Opening such a document
+# is also what activates (starts) the plugin.
+[[contributes.code-lenses]]
+languages = ["rust", "python", "javascript", "typescript", "go", "c", "cpp", "java", "markdown"]
+
+# A panel with its own activity-bar entry on the left. `icon` is a name
+# from Arcode's icon set; plugins never ship images.
+[[contributes.panels]]
+id = "hello"
+title = "Hello"
+location = "sidebar"
+icon = "info"
+
+# A setting with a default. The plugin reads it with host::settings_as().
+[[contributes.settings]]
+key = "greeting"
+type = "string"
+default = "Hello"
+description = "The word the plugin greets you with"

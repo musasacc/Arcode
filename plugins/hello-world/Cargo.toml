@@ -1,0 +1,20 @@
+# The example plugin. Copy this folder to start your own plugin: rename the
+# package, change the id in plugin.toml, and replace the code in src/.
+[package]
+name = "hello-world"
+description = "Example Arcode plugin: a palette command, a code lens and a small panel."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+# `cdylib` is what becomes the wasm32-wasip2 component (plugin.wasm).
+# `rlib` lets native `cargo test` link the same code.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Outside this repository, point at the SDK with a path or git dependency:
+#   arcode-plugin = { package = "arcode-plugin-api", path = "../arcode/crates/arcode-plugin-api" }
+arcode-plugin.workspace = true
+serde.workspace = true
