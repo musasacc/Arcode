@@ -15,14 +15,13 @@ fn review_npm_style_shim_resolves_to_cmd() {
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::write(dir.path().join("fakenpm"), "#!/bin/sh\necho 1.0\n").expect("write");
     std::fs::write(dir.path().join("fakenpm.cmd"), "@echo off\r\necho 1.0\r\n").expect("write");
-    // SAFETY: this test binary has a single test, nothing reads PATH concurrently.
+    // SAFETY: the other test in this binary does not read PATH.
     unsafe { std::env::set_var("PATH", dir.path()) };
     let found = find_executable("fakenpm").expect("found");
-    assert_eq!(
-        found.extension().and_then(|e| e.to_str()),
-        Some("cmd"),
-        "resolved {found:?}"
-    );
+    // The suffix comes from PATHEXT, which Windows spells `.CMD`; file
+    // names and Rust's batch-file detection both ignore case.
+    let ext = found.extension().and_then(|e| e.to_str()).unwrap_or("");
+    assert!(ext.eq_ignore_ascii_case("cmd"), "resolved {found:?}");
     let outcome = SystemRunner.run("fakenpm", &[], Duration::from_secs(5));
     assert!(matches!(outcome, RunOutcome::Success { .. }), "{outcome:?}");
 }
