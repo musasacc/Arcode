@@ -48,15 +48,36 @@ pub(crate) fn start_dir(path: &Path) -> PathBuf {
     }
 }
 
-/// Parses a TOML file; `None` if missing or invalid.
+/// Largest config file [`read_toml`] and [`read_json`] read.
+const MAX_CONFIG: u64 = 8 * 1024 * 1024;
+
+/// The text of a regular file of at most [`MAX_CONFIG`] bytes. A FIFO or
+/// a device (a symlink to `/dev/zero` in a cloned repository) would block
+/// or never end, so special files are skipped.
+fn read_config_text(path: &Path) -> Option<String> {
+    use std::io::Read;
+    let meta = fs::metadata(path).ok()?;
+    if !meta.is_file() || meta.len() > MAX_CONFIG {
+        return None;
+    }
+    let mut text = String::new();
+    fs::File::open(path)
+        .ok()?
+        .take(MAX_CONFIG)
+        .read_to_string(&mut text)
+        .ok()?;
+    Some(text)
+}
+
+/// Parses a TOML file; `None` if missing, invalid or not a regular file.
 pub(crate) fn read_toml(path: &Path) -> Option<toml::Table> {
-    let text = fs::read_to_string(path).ok()?;
+    let text = read_config_text(path)?;
     toml::from_str(&text).ok()
 }
 
-/// Parses a JSON file; `None` if missing or invalid.
+/// Parses a JSON file; `None` if missing, invalid or not a regular file.
 pub(crate) fn read_json(path: &Path) -> Option<serde_json::Value> {
-    let text = fs::read_to_string(path).ok()?;
+    let text = read_config_text(path)?;
     serde_json::from_str(&text).ok()
 }
 

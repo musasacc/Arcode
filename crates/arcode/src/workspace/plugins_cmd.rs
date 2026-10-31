@@ -53,7 +53,7 @@ impl Workspace {
         about: Option<DocId>,
         cx: &mut Context<Self>,
     ) {
-        self.plugins_sync_project();
+        self.plugins_sync_project(cx);
         let active = self.active_editor(cx);
         if let Some(editor) = &active {
             self.plugin_publish(editor, cx);
@@ -135,15 +135,41 @@ impl Workspace {
         .on_action(cx.listener(|ws, _: &CancelPluginTask, _, cx| {
             ws.plugins.status.update(cx, |s, cx| s.cancel_newest(cx));
         }))
-        .on_key_down(cx.listener(|ws, e: &gpui::KeyDownEvent, _, cx| {
-            // Esc cancels a running plugin task first.
-            if e.keystroke.key == "escape"
-                && !e.keystroke.modifiers.modified()
-                && ws.plugins.status.update(cx, |s, cx| s.cancel_newest(cx))
+    }
+
+    /// Installs (once, when the first task starts) the Esc interceptor:
+    /// while a plugin task runs, Esc in this window cancels the newest one
+    /// before any key binding sees it (the editor's Escape would otherwise
+    /// take it to clear a selection). Esc goes on as usual when no task
+    /// runs or a consent prompt or quick pick is open (Esc answers those).
+    pub(super) fn plugin_install_esc(&mut self, cx: &mut Context<Self>) {
+        if self.plugins.esc_interceptor.is_some() {
+            return;
+        }
+        let Some(window_id) = self.plugins.window else {
+            return;
+        };
+        let this = cx.entity().downgrade();
+        let interceptor = cx.intercept_keystrokes(move |event, window, cx| {
+            let key = &event.keystroke;
+            if key.key != "escape"
+                || key.modifiers.modified()
+                || window.window_handle().window_id() != window_id
             {
+                return;
+            }
+            let cancelled = this
+                .update(cx, |ws, cx| {
+                    ws.plugins.prompts_open == 0
+                        && ws.plugins.quick_pick.is_none()
+                        && ws.plugins.status.update(cx, |s, cx| s.cancel_newest(cx))
+                })
+                .unwrap_or(false);
+            if cancelled {
                 cx.stop_propagation();
             }
-        }))
+        });
+        self.plugins.esc_interceptor = Some(interceptor);
     }
 
     pub(super) fn reload_plugins(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -152,15 +178,27 @@ impl Workspace {
         }
         let dev = self.plugins.dev_folders.clone();
         self.plugins.client.reload(dev);
+        self.plugin_retire_panels("Plugins: Reload", Some(window), cx);
+        let old = std::mem::take(&mut self.plugins.contributions);
         self.plugins.contributions = self.plugins.client.contributions();
+        let gone: Vec<_> = old
+            .commands
+            .into_iter()
+            .map(|c| c.id)
+            .filter(|id| {
+                !self
+                    .plugins
+                    .contributions
+                    .commands
+                    .iter()
+                    .any(|c| &c.id == id)
+            })
+            .collect();
+        commands::unregister_commands(&gone, cx);
         commands::register_commands(&self.plugins.contributions.commands, cx);
-        self.plugins.sidebar_views.clear();
-        if self.activity == crate::activity_bar::Activity::Extension {
-            self.plugins.sidebar_active = None;
-            self.activity = crate::activity_bar::Activity::Files;
-        }
         for tracked in self.plugins.editors.values_mut() {
             tracked.lens_version = None;
+            tracked.lens_targets.clear();
         }
         self.plugin_refresh_visible(cx);
         let count = self

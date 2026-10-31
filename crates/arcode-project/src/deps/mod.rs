@@ -16,6 +16,7 @@ mod bundler;
 mod capture;
 mod cargo_deps;
 mod commands;
+mod commands_python;
 mod composer;
 mod go_deps;
 mod lines;
@@ -32,18 +33,18 @@ mod tools;
 mod validate;
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod review_tests;
+#[cfg(test)]
+mod tests;
 
 use std::path::PathBuf;
 
 pub use capture::{CancelFlag, CapturedOutput, capture};
-pub use commands::{PackageAction, PackageCommand, action_command};
+pub use commands::{PackageAction, PackageCommand, action_command, is_cmd_shim};
 pub use outdated::{OutdatedFormat, OutdatedPackage, outdated_command, parse_outdated};
 pub use scan::{is_package_file, read_manifest, scan_manifests};
-pub use tools::{find_program, install_hint};
-pub use validate::{validate_package_name, validate_version};
+pub use tools::{find_program, install_hint, print_file_command};
+pub use validate::{validate_cargo_target, validate_package_name, validate_version};
 
 /// A package manager.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -255,6 +256,9 @@ pub struct ProjectManifest {
     pub yarn_berry: bool,
     /// Whether this is a workspace root (Cargo, npm/pnpm/yarn).
     pub workspace_root: bool,
+    /// A Cargo virtual manifest (`[workspace]` without `[package]`):
+    /// `cargo add` and `cargo remove` need a member package.
+    pub virtual_manifest: bool,
     /// Declared dependencies in manifest order.
     pub deps: Vec<Dependency>,
     /// Why the manifest (or its lockfile) could not be read completely.
@@ -274,6 +278,7 @@ impl ProjectManifest {
             python: None,
             yarn_berry: false,
             workspace_root: false,
+            virtual_manifest: false,
             deps: Vec::new(),
             error: None,
         }
@@ -289,7 +294,7 @@ impl ProjectManifest {
 }
 
 /// PEP 503 normalized Python name: lower case, runs of `-_.` become `-`.
-pub(crate) fn normalize_python(name: &str) -> String {
+pub fn normalize_python(name: &str) -> String {
     let mut out = String::with_capacity(name.len());
     let mut sep = false;
     for c in name.chars() {

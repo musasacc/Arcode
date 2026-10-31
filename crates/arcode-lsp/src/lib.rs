@@ -29,6 +29,7 @@ pub mod uri;
 
 pub use client::{
     DEFAULT_REQUEST_TIMEOUT, INITIALIZE_TIMEOUT, LspClient, SHUTDOWN_TIMEOUT, ServerSpec,
+    kill_all_servers, kill_servers_on_signals,
 };
 pub use diagnostics::{DiagnosticCounts, DiagnosticStore, source_label};
 pub use error::{

@@ -70,6 +70,9 @@ pub fn run() {
         std::env::var("ARCODE_SKIP_FIRST_RUN").ok().as_deref(),
     );
     crate::prefs::frames::init_logging();
+    // Ctrl+C or a hangup of the starting terminal runs no quit callback;
+    // language servers lead their own process groups, so kill those.
+    arcode_lsp::kill_servers_on_signals();
 
     Application::new()
         .with_assets(arcode_ui_kit::Assets)
@@ -113,7 +116,11 @@ pub fn run() {
             });
             cx.on_window_closed(|cx| {
                 if windows::workspace_windows(cx).is_empty() {
-                    cx.quit();
+                    // This runs inside the platform's close handler; on X11
+                    // quitting there panics (its state is still borrowed),
+                    // which skipped every quit callback. Quit on the next
+                    // turn of the event loop instead.
+                    cx.spawn(async |cx| cx.update(|cx| cx.quit()).ok()).detach();
                 }
             })
             .detach();
@@ -124,7 +131,11 @@ pub fn run() {
                     windows::record_all(cx);
                 }
                 app_state::save(cx);
-                async {}
+                // Runs after every quit callback (each workspace's graceful
+                // LSP shutdown included): servers still stopping on a
+                // background thread would otherwise outlive the app and
+                // leave their children (wrapper scripts' servers) behind.
+                async { arcode_lsp::kill_all_servers() }
             })
             .detach();
 

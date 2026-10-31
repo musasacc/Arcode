@@ -56,6 +56,9 @@ pub struct PanelView {
     snapshot: Arc<PanelSnapshot>,
     /// "stopped: <reason>" after a crash, until the next view arrives.
     stopped: Option<(String, bool)>,
+    /// Its instance was stopped by a reload or project switch: the panel
+    /// id may belong to a new panel now, so nothing is sent any more.
+    retired: bool,
     inputs: HashMap<NodeId, form::InputState>,
     /// Host-side overrides until the plugin redraws the node.
     tabs: HashMap<NodeId, u32>,
@@ -93,7 +96,7 @@ impl PanelView {
     ) -> Self {
         let plugin_name = client.plugin_name(&plugin).into();
         cx.on_release(|view: &mut PanelView, _| {
-            let Some(m) = view.client.manager() else {
+            let Some(m) = view.client.manager().filter(|_| !view.retired) else {
                 return;
             };
             // Only a running instance that still has the panel hears about
@@ -114,6 +117,7 @@ impl PanelView {
             focus: cx.focus_handle(),
             snapshot: snapshot.unwrap_or_default(),
             stopped: None,
+            retired: false,
             inputs: HashMap::new(),
             tabs: HashMap::new(),
             checks: HashMap::new(),
@@ -150,6 +154,9 @@ impl PanelView {
         changes: Changes,
         cx: &mut Context<Self>,
     ) {
+        if self.retired {
+            return;
+        }
         let old = std::mem::replace(&mut self.snapshot, snapshot);
         self.stopped = None;
         let new = self.snapshot.clone();
@@ -207,9 +214,24 @@ impl PanelView {
         cx.notify();
     }
 
+    /// Detaches the view from its stopped instance for good (see
+    /// `retired`); it keeps showing its last content under a banner.
+    pub fn retire(&mut self, reason: String, cx: &mut Context<Self>) {
+        self.retired = true;
+        self.set_stopped(reason, false, cx);
+    }
+
+    /// Whether [`PanelView::retire`] was called.
+    pub fn is_retired(&self) -> bool {
+        self.retired
+    }
+
     /// Sends a widget event with the text of every input edited since the
     /// previous event.
     fn send(&mut self, node: NodeId, kind: EventKind, cx: &mut Context<Self>) {
+        if self.retired {
+            return;
+        }
         let values = self.take_values(cx);
         let event = Event { node, kind, values };
         let result = self

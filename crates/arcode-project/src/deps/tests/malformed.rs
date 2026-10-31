@@ -165,3 +165,34 @@ fn unreadable_files_are_reported() {
     );
     assert!(found[0].deps.is_empty());
 }
+
+/// A repository can hold symlinks to devices: reading one would never
+/// end. Manifests, lockfiles and the ancestors looked up for workspace
+/// settings are read only when they are regular files.
+#[cfg(unix)]
+#[test]
+fn special_files_are_not_read() {
+    let (_dir, root) = project();
+    std::os::unix::fs::symlink("/dev/zero", root.join("Cargo.toml")).unwrap();
+    std::os::unix::fs::symlink("/dev/zero", root.join("package.json")).unwrap();
+    write(
+        &root,
+        "crates/a/Cargo.toml",
+        "[package]\nname = \"a\"\n\n[dependencies]\nserde = \"1\"\n",
+    );
+    std::os::unix::fs::symlink("/dev/zero", root.join("crates/a/Cargo.lock")).unwrap();
+    write(
+        &root,
+        "web/package.json",
+        "{\"dependencies\": {\"left-pad\": \"1\"}}",
+    );
+    std::os::unix::fs::symlink("/dev/zero", root.join("web/yarn.lock")).unwrap();
+    let found = scan_manifests(&root);
+    assert_eq!(
+        listing(&found, &root),
+        ["cargo crates/a/Cargo.toml", "npm web/package.json"]
+    );
+    assert_eq!(dep(&found[0], "serde").requested, "1");
+    assert!(found[0].lockfile.is_none());
+    assert_eq!(dep(&found[1], "left-pad").requested, "1");
+}

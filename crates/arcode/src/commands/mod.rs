@@ -101,6 +101,14 @@ pub fn register(cx: &mut App, label: &str, action: Box<dyn Action>) {
     });
 }
 
+/// Removes every command whose action `remove` picks (e.g. plugin commands
+/// that are gone after "Plugins: Reload").
+pub fn unregister(cx: &mut App, remove: impl Fn(&dyn Action) -> bool) {
+    cx.default_global::<CommandRegistry>()
+        .commands
+        .retain(|c| !remove(c.action_ref()));
+}
+
 /// Like [`register`] for actions handled app-wide (`cx.on_action`), which
 /// are available whatever has focus.
 pub fn register_global(cx: &mut App, label: &str, action: Box<dyn Action>) {

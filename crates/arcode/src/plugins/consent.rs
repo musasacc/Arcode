@@ -7,7 +7,8 @@
 //! `ARCODE_PLUGIN_CONSENT` answers every prompt without showing it:
 //! `allow-once`, `allow-project`, `allow-always` (each optionally with
 //! `+write` for workspace prompts) or `deny`. It is read from the
-//! environment of the Arcode process only, never from a project.
+//! environment of the Arcode process only, never from a project, and only
+//! by debug builds: a release build always asks.
 
 use arcode_plugin_host::consent::{ConsentAnswer, ConsentKind, ConsentRequest};
 use arcode_plugin_host::grants::GrantScope;
@@ -32,8 +33,12 @@ pub fn parse_scripted(text: &str) -> Option<ConsentAnswer> {
     Some(ConsentAnswer::Allow { scope, write })
 }
 
-/// The scripted answer from the environment, if set and valid.
+/// The scripted answer from the environment, if set and valid (debug
+/// builds only).
 pub fn scripted() -> Option<ConsentAnswer> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
     let value = std::env::var(SCRIPTED_ENV).ok()?;
     let answer = parse_scripted(&value);
     if answer.is_none() {

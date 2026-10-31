@@ -5,7 +5,8 @@
 //! through its `JoinHandle`; dropping that PTY hangs up the child and then
 //! waits for it. We join the loop on our own thread and drop the PTY there,
 //! right after the loop ends. On Unix a child still running at that point
-//! gets `SIGHUP` and, if it survives [`KILL_GRACE`], `SIGKILL`.
+//! gets `SIGHUP` and, if it survives [`KILL_GRACE`], `SIGKILL`. The
+//! processes it started in its own process group get `SIGHUP` too.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -47,8 +48,9 @@ pub(crate) fn spawn_io_thread(
         })
 }
 
-/// Hangs up the (not yet reaped) child and kills it if it is still running
-/// after `grace`. Its pid stays reserved until the PTY reaps it.
+/// Hangs up the (not yet reaped) child, and what it started in its process
+/// group, and kills the child if it is still running after `grace`. Its
+/// pid stays reserved until the PTY reaps it.
 #[cfg(unix)]
 pub(crate) fn terminate(pid: u32, grace: Duration) {
     let Ok(pid) = libc::pid_t::try_from(pid) else {
@@ -57,7 +59,7 @@ pub(crate) fn terminate(pid: u32, grace: Duration) {
     if unix::has_exited(pid) {
         return;
     }
-    unix::signal(pid, libc::SIGHUP);
+    crate::hangup::hang_up(pid);
     let deadline = std::time::Instant::now() + grace;
     while std::time::Instant::now() < deadline {
         if unix::has_exited(pid) {

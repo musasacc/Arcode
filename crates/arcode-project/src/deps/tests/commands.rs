@@ -61,6 +61,93 @@ fn cargo_commands() {
     );
     assert_eq!(argv(&m, &update("rand")), "cargo | update | -p | rand");
     assert_eq!(argv(&m, &PackageAction::UpdateAll), "cargo | update");
+    // `[target.'cfg(..)'.dependencies]` and `[target.<triple>.dev-dependencies]`.
+    assert_eq!(
+        argv(&m, &remove("ryu", DepKind::Normal, Some("cfg(unix)"))),
+        "cargo | remove | ryu | --target | cfg(unix)"
+    );
+    assert_eq!(
+        argv(
+            &m,
+            &remove("winapi", DepKind::Dev, Some("x86_64-pc-windows-gnu"))
+        ),
+        "cargo | remove | winapi | --dev | --target | x86_64-pc-windows-gnu"
+    );
+    assert!(action_command(&m, &remove("x", DepKind::Normal, Some("--offline")), false).is_err());
+    // cargo cannot edit `[workspace.dependencies]`.
+    let err = action_command(
+        &m,
+        &remove("serde", DepKind::Normal, Some("workspace")),
+        false,
+    )
+    .expect_err("workspace dependency");
+    assert!(err.contains("[workspace.dependencies]"), "{err}");
+    assert_eq!(
+        argv(&m, &update("serde")),
+        "cargo | update | -p | serde",
+        "updating works anywhere"
+    );
+}
+
+#[test]
+fn cargo_virtual_manifest_refuses_add_and_remove() {
+    let mut ws = manifest(Manager::Cargo, "Cargo.toml");
+    ws.workspace_root = true;
+    ws.virtual_manifest = true;
+    for action in [
+        add("itoa", None, false),
+        remove("itoa", DepKind::Normal, None),
+    ] {
+        let err = action_command(&ws, &action, false).expect_err("virtual manifest");
+        assert!(err.contains("virtual workspace"), "{err}");
+    }
+    assert_eq!(argv(&ws, &update("itoa")), "cargo | update | -p | itoa");
+    assert_eq!(argv(&ws, &PackageAction::UpdateAll), "cargo | update");
+    // A root with `[package]` and `[workspace]` edits its own package.
+    ws.virtual_manifest = false;
+    assert_eq!(argv(&ws, &add("itoa", None, false)), "cargo | add | itoa");
+}
+
+#[test]
+fn only_batch_shims_refuse_cmd_metacharacters_on_windows() {
+    for manager in [
+        Manager::Cargo,
+        Manager::Uv,
+        Manager::Poetry,
+        Manager::Pipenv,
+        Manager::Bun,
+        Manager::Go,
+    ] {
+        assert!(!is_cmd_shim(manager, true), "{manager:?}");
+        let m = manifest(manager, "x");
+        assert!(
+            action_command(&m, &add("a", Some(">=2.31"), false), true).is_ok(),
+            "{manager:?}"
+        );
+    }
+    for manager in [
+        Manager::Npm,
+        Manager::Pnpm,
+        Manager::Yarn,
+        Manager::Composer,
+        Manager::Bundler,
+    ] {
+        assert!(is_cmd_shim(manager, true), "{manager:?}");
+        assert!(!is_cmd_shim(manager, false), "{manager:?}");
+    }
+}
+
+#[test]
+fn print_file_commands() {
+    let file = Path::new("/tmp/out.txt");
+    let cmd = print_file_command(file, Path::new("/work"), "npm outdated --json", false);
+    assert_eq!(cmd.program, "cat");
+    assert_eq!(cmd.args, ["/tmp/out.txt"]);
+    assert_eq!(cmd.cwd, Path::new("/work"));
+    assert_eq!(cmd.display, "npm outdated --json");
+    let win = print_file_command(file, Path::new("/work"), "x", true);
+    assert_eq!(win.program, "findstr");
+    assert_eq!(win.args, ["^", "/tmp/out.txt"]);
 }
 
 #[test]

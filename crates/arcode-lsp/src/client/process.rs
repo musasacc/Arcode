@@ -155,15 +155,14 @@ where
 }
 
 /// Waits for the child to exit, or kills it when `kill` fires or is dropped.
-/// Whatever the server started dies with `group` when this returns or is
-/// dropped.
+/// Whatever the server started dies with `group` once the server is gone,
+/// or when this future is dropped.
 pub(crate) async fn supervise(
     shared: Arc<Shared>,
     mut child: Child,
     group: GroupGuard,
     kill: oneshot::Receiver<()>,
 ) {
-    let _group = group;
     let status = tokio::select! {
         status = child.wait() => status,
         _ = kill => {
@@ -171,6 +170,8 @@ pub(crate) async fn supervise(
             child.wait().await
         }
     };
+    // Before reporting the stop: whoever waits for it may exit right after.
+    drop(group);
     let reason = match status {
         Ok(s) => format!("server exited ({s})"),
         Err(e) => format!("waiting for server failed: {e}"),

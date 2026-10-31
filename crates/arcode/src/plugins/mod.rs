@@ -29,6 +29,9 @@ pub mod paths;
 pub mod snapshot;
 pub mod status;
 
+#[cfg(test)]
+mod review_tests;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -62,6 +65,9 @@ pub struct TrackedEditor {
     pub lens_task: Option<Task<()>>,
     /// Buffer version the shown lenses were asked for.
     pub lens_version: Option<u64>,
+    /// A lens clicked after an edit (its line and label): run once the
+    /// lenses of the current text are back, if one there still matches.
+    pub pending_click: Option<(usize, SharedString)>,
     /// Editor events and release.
     pub subs: Vec<Subscription>,
 }
@@ -118,6 +124,14 @@ pub struct Plugins {
     pub window: Option<gpui::WindowId>,
     /// The editor-request receiver until its loop starts.
     pub requests: Option<async_channel::Receiver<bridge::EditorRequest>>,
+    /// Bumped whenever every instance was stopped (reload, project
+    /// switch): panel ids restart at 1, so page keys carry it.
+    pub generation: u64,
+    /// Esc cancels a running task before any key binding sees it;
+    /// installed when the first task starts.
+    pub esc_interceptor: Option<Subscription>,
+    /// Consent prompts on screen (Esc answers those, not the task).
+    pub prompts_open: usize,
 }
 
 impl Plugins {
@@ -139,6 +153,9 @@ impl Plugins {
             tasks: Vec::new(),
             window: None,
             requests: Some(requests),
+            generation: 0,
+            esc_interceptor: None,
+            prompts_open: 0,
         }
     }
 
@@ -151,7 +168,7 @@ impl Plugins {
     }
 
     /// The page key of a panel's tab.
-    pub fn page_key(key: &PanelKey) -> SharedString {
-        format!("plugin\u{0}{}\u{0}{}", key.0, key.1).into()
+    pub fn page_key(&self, key: &PanelKey) -> SharedString {
+        format!("plugin\u{0}{}\u{0}{}\u{0}{}", self.generation, key.0, key.1).into()
     }
 }

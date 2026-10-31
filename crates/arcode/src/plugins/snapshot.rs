@@ -27,10 +27,32 @@ pub struct ContributedLanguage {
     pub name: String,
 }
 
+/// Extensions (space separated) no plugin language may claim, besides
+/// plain text's own (`.txt`): files that usually hold keys, certificates,
+/// credentials, configuration or private notes. Plain text stays private (the host gives
+/// `editor = "context"` plugins documents of languages they contribute, and
+/// the app never asks lens providers about plain text), so claiming these
+/// would hand them to a plugin without a prompt.
+const NEVER_CLAIMED: &str = "asc bak cer cfg conf cred credentials crt csr csv der env gpg \
+    htpasswd ini jks kdb kdbx key keystore log netrc note notes old orig ovpn p12 p7b p8 pass \
+    passwd password pem pfx pgp ppk properties pub secret secrets sig text tmp token tsv";
+
+/// Whether a plugin language may claim files with extension `ext`: not one
+/// of plain text's own extensions nor one of [`NEVER_CLAIMED`].
+pub fn claimable(ext: &str) -> bool {
+    let plain = arcode_syntax::plain_text().extensions;
+    !plain
+        .iter()
+        .copied()
+        .chain(NEVER_CLAIMED.split_whitespace())
+        .any(|e| e.eq_ignore_ascii_case(ext))
+}
+
 /// The language id plugins see for a document: the editor's own language,
 /// unless the editor has nothing better than plain text and a plugin
 /// contributes a language for the file's extension (Arcode has no `.http`
-/// grammar, the HTTP client contributes `http`).
+/// grammar, the HTTP client contributes `http`), and that extension is
+/// [`claimable`].
 pub fn language_for(
     path: Option<&Path>,
     editor_language: &str,
@@ -39,6 +61,7 @@ pub fn language_for(
     let plain = arcode_syntax::plain_text().id;
     if editor_language == plain
         && let Some(ext) = path.and_then(|p| p.extension()).and_then(|e| e.to_str())
+        && claimable(ext)
         && let Some(lang) = contributed
             .iter()
             .find(|l| l.extension.eq_ignore_ascii_case(ext))
@@ -122,6 +145,24 @@ mod tests {
             plain
         );
         assert_eq!(language_for(None, plain, &http()), plain);
+    }
+
+    #[test]
+    fn private_plain_text_cannot_be_claimed() {
+        assert!(claimable("http") && claimable("REST"));
+        for ext in ["txt", "TXT", "text", "pem", "key", "env", "log", "kdbx"] {
+            assert!(!claimable(ext), "{ext}");
+        }
+        let plain = arcode_syntax::plain_text().id;
+        let env = vec![ContributedLanguage {
+            extension: "env".into(),
+            id: "dotenv".into(),
+            name: "Env".into(),
+        }];
+        assert_eq!(
+            language_for(Some(Path::new("/p/prod.env")), plain, &env),
+            plain
+        );
     }
 
     #[test]

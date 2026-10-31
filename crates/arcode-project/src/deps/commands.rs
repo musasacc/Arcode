@@ -4,7 +4,8 @@
 
 use std::path::{Path, PathBuf};
 
-use super::validate::{validate_package_name, validate_version};
+use super::commands_python::{pip_command, pipenv_args, poetry_args, uv_args};
+use super::validate::{validate_cargo_target, validate_package_name, validate_version};
 use super::{DepKind, Manager, ProjectManifest};
 use crate::command::command_line;
 
@@ -76,8 +77,9 @@ pub(crate) fn program_name(manager: Manager, windows: bool) -> String {
     }
 }
 
-/// Whether the program is a batch file `cmd.exe` interprets.
-pub(crate) fn is_cmd_shim(manager: Manager, windows: bool) -> bool {
+/// Whether `manager`'s program on the target platform is a batch file
+/// `cmd.exe` interprets (so versions cannot hold `< > ^ !`).
+pub fn is_cmd_shim(manager: Manager, windows: bool) -> bool {
     windows
         && matches!(
             manager,
@@ -99,12 +101,12 @@ pub(crate) fn python_program(m: &ProjectManifest, windows: bool) -> (String, Opt
     }
 }
 
-fn s(list: &[&str]) -> Vec<String> {
+pub(super) fn s(list: &[&str]) -> Vec<String> {
     list.iter().map(|a| (*a).to_string()).collect()
 }
 
 /// `name` with a version in the manager's syntax.
-fn with_version(manager: Manager, name: &str, version: Option<&str>) -> String {
+pub(super) fn with_version(manager: Manager, name: &str, version: Option<&str>) -> String {
     let Some(v) = version else {
         return name.to_string();
     };
@@ -142,12 +144,25 @@ pub fn action_command(
     if let Some(version) = version {
         validate_version(version, shim)?;
     }
-    if let PackageAction::Remove { group: Some(g), .. } = action {
-        validate_package_name(g).map_err(|_| format!("Unexpected group name {g:?}"))?;
+    if let PackageAction::Remove {
+        kind,
+        group: Some(g),
+        ..
+    } = action
+    {
+        match manager {
+            // A target (checked in `cargo_args`).
+            Manager::Cargo => {}
+            // Only a dev group or an extra becomes an argument.
+            m if m.is_python() && matches!(kind, DepKind::Dev | DepKind::Optional) => {
+                validate_package_name(g).map_err(|_| format!("Unexpected group name {g:?}"))?;
+            }
+            _ => {}
+        }
     }
     let args = match manager {
         Manager::Pip => return pip_command(m, action, windows),
-        Manager::Cargo => cargo_args(action),
+        Manager::Cargo => cargo_args(m, action)?,
         Manager::Npm => npm_args(action),
         Manager::Pnpm | Manager::Bun => pnpm_bun_args(manager, action),
         Manager::Yarn => yarn_args(action, m.yarn_berry),
@@ -166,8 +181,34 @@ pub fn action_command(
     ))
 }
 
-fn cargo_args(action: &PackageAction) -> Vec<String> {
-    match action {
+/// Group of a `[workspace.dependencies]` entry (see `cargo_deps`).
+const CARGO_WORKSPACE_GROUP: &str = "workspace";
+
+fn cargo_args(m: &ProjectManifest, action: &PackageAction) -> Result<Vec<String>, String> {
+    let edits = matches!(
+        action,
+        PackageAction::Add { .. } | PackageAction::Remove { .. }
+    );
+    if edits && m.virtual_manifest {
+        return Err(
+            "This Cargo.toml is a virtual workspace: add or remove packages in a member's \
+             Cargo.toml (cargo cannot tell which member to change)"
+                .to_string(),
+        );
+    }
+    if let PackageAction::Remove {
+        name,
+        group: Some(g),
+        ..
+    } = action
+        && g == CARGO_WORKSPACE_GROUP
+    {
+        return Err(format!(
+            "cargo cannot remove {name} from [workspace.dependencies]: remove it from the \
+             members, then delete its line in Cargo.toml"
+        ));
+    }
+    Ok(match action {
         PackageAction::Add { name, version, dev } => {
             let mut a = s(&[
                 "add",
@@ -178,18 +219,24 @@ fn cargo_args(action: &PackageAction) -> Vec<String> {
             }
             a
         }
-        PackageAction::Remove { name, kind, .. } => {
+        PackageAction::Remove { name, kind, group } => {
             let mut a = s(&["remove", name]);
             match kind {
                 DepKind::Dev => a.push("--dev".into()),
                 DepKind::Build => a.push("--build".into()),
                 _ => {}
             }
+            // `[target.'cfg(unix)'.dependencies]`: cargo only looks there
+            // with `--target`.
+            if let Some(target) = group {
+                validate_cargo_target(target)?;
+                a.extend(s(&["--target", target]));
+            }
             a
         }
         PackageAction::Update { name } => s(&["update", "-p", name]),
         PackageAction::UpdateAll => s(&["update"]),
-    }
+    })
 }
 
 fn npm_args(action: &PackageAction) -> Vec<String> {
@@ -251,106 +298,6 @@ fn yarn_args(action: &PackageAction, berry: bool) -> Vec<String> {
         PackageAction::UpdateAll if berry => s(&["up", "*"]),
         PackageAction::UpdateAll => s(&["upgrade"]),
     }
-}
-
-/// `--dev` for the dev group, `--group g` for other groups, `--optional
-/// extra` for extras.
-fn python_group_args(kind: DepKind, group: Option<&str>, poetry: bool) -> Vec<String> {
-    match (kind, group) {
-        (DepKind::Optional, Some(extra)) if !poetry => s(&["--optional", extra]),
-        (DepKind::Dev, Some(g)) if g != "dev" || poetry => s(&["--group", g]),
-        (DepKind::Dev, _) => s(&["--dev"]),
-        _ => Vec::new(),
-    }
-}
-
-fn uv_args(action: &PackageAction) -> Vec<String> {
-    match action {
-        PackageAction::Add { name, version, dev } => {
-            let mut a = s(&["add", &with_version(Manager::Uv, name, version.as_deref())]);
-            if *dev {
-                a.push("--dev".into());
-            }
-            a
-        }
-        PackageAction::Remove { name, kind, group } => {
-            let mut a = s(&["remove", name]);
-            a.extend(python_group_args(*kind, group.as_deref(), false));
-            a
-        }
-        PackageAction::Update { name } => s(&["lock", "--upgrade-package", name]),
-        PackageAction::UpdateAll => s(&["lock", "--upgrade"]),
-    }
-}
-
-fn poetry_args(action: &PackageAction) -> Vec<String> {
-    match action {
-        PackageAction::Add { name, version, dev } => {
-            let mut a = s(&[
-                "add",
-                &with_version(Manager::Poetry, name, version.as_deref()),
-            ]);
-            if *dev {
-                a.extend(s(&["--group", "dev"]));
-            }
-            a
-        }
-        PackageAction::Remove { name, kind, group } => {
-            let mut a = s(&["remove", name]);
-            a.extend(python_group_args(*kind, group.as_deref(), true));
-            a
-        }
-        PackageAction::Update { name } => s(&["update", name]),
-        PackageAction::UpdateAll => s(&["update"]),
-    }
-}
-
-fn pipenv_args(action: &PackageAction) -> Vec<String> {
-    match action {
-        PackageAction::Add { name, version, dev } => {
-            let mut a = s(&[
-                "install",
-                &with_version(Manager::Pipenv, name, version.as_deref()),
-            ]);
-            if *dev {
-                a.push("--dev".into());
-            }
-            a
-        }
-        PackageAction::Remove { name, .. } => s(&["uninstall", name]),
-        PackageAction::Update { name } => s(&["update", name]),
-        PackageAction::UpdateAll => s(&["update"]),
-    }
-}
-
-/// pip runs as `<python> -m pip ...` in the project's virtualenv when
-/// there is one.
-fn pip_command(
-    m: &ProjectManifest,
-    action: &PackageAction,
-    windows: bool,
-) -> Result<PackageCommand, String> {
-    let mut args = s(&["-m", "pip"]);
-    match action {
-        PackageAction::Add { name, version, .. } => {
-            args.extend(s(&[
-                "install",
-                &with_version(Manager::Pip, name, version.as_deref()),
-            ]));
-        }
-        PackageAction::Remove { name, .. } => args.extend(s(&["uninstall", "-y", name])),
-        PackageAction::Update { name } => args.extend(s(&["install", "-U", name])),
-        PackageAction::UpdateAll => {
-            let file = m.file_name();
-            if file == "pyproject.toml" {
-                args.extend(s(&["install", "-U", "-e", "."]));
-            } else {
-                args.extend(s(&["install", "-U", "-r", &file]));
-            }
-        }
-    }
-    let (program, shown) = python_program(m, windows);
-    Ok(PackageCommand::new(program, args, &m.dir, shown.as_deref()))
 }
 
 fn go_args(action: &PackageAction) -> Vec<String> {

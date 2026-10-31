@@ -82,6 +82,8 @@ fn cargo_workspace_with_inherited_and_locked_versions() {
 
     let ws = &found[0];
     assert!(ws.workspace_root);
+    assert!(ws.virtual_manifest, "[workspace] without [package]");
+    assert!(!found[1].virtual_manifest);
     assert_eq!(
         ws.lockfile.as_deref(),
         Some(root.join("Cargo.lock").as_path())

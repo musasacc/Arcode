@@ -6,7 +6,9 @@
 use std::path::{Path, PathBuf};
 
 use arcode_buffer::Point;
-use arcode_project::deps::{PackageAction, PackageCommand, action_command, find_program};
+use arcode_project::deps::{
+    PackageAction, PackageCommand, action_command, find_program, print_file_command,
+};
 use gpui::{AppContext, Context, Entity, Focusable, InteractiveElement, Subscription, Window};
 
 use super::Workspace;
@@ -17,6 +19,7 @@ use crate::packages::{
     PackagesStoreEvent, PackagesView, RefreshPackages, ShowPackages, UpdateAllPackages,
     not_installed,
 };
+use crate::terminal_panel::OnExit;
 
 /// The Packages entities of a workspace.
 pub struct PackagesParts {
@@ -59,6 +62,11 @@ impl PackagesParts {
                         PackagesStoreEvent::RunInTerminal { manifest, command } => {
                             ws.run_package_command(manifest, command.clone(), window, cx)
                         }
+                        PackagesStoreEvent::ShowOutput {
+                            manifest,
+                            command,
+                            output,
+                        } => ws.show_package_output(manifest, command, output, window, cx),
                     },
                 ),
             ];
@@ -122,35 +130,83 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let store = self.pkgs.store.downgrade();
+        let on_exit: OnExit = Box::new(move |cx| {
+            store.update(cx, |s, cx| s.refresh(cx)).ok();
+        });
+        self.start_package_command(manifest, command, on_exit, window, cx);
+    }
+
+    /// Shows `output`, which `command` (a check for updates) printed but
+    /// could not be read, in a terminal tab: from a temporary file the tab
+    /// prints, so the check (and its network requests) does not run again.
+    pub(super) fn show_package_output(
+        &mut self,
+        manifest: &Path,
+        command: &PackageCommand,
+        output: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let file = match write_temp_output(output) {
+            Ok(file) => file,
+            Err(err) => {
+                self.show_toast(format!("Cannot show the output: {err}"), cx);
+                return;
+            }
+        };
+        let title = format!("{} (output)", command.display);
+        let print = print_file_command(&file, &command.cwd, &title, cfg!(windows));
+        let remove = file.clone();
+        let on_exit: OnExit = Box::new(move |_| {
+            let _ = std::fs::remove_file(&remove);
+        });
+        if !self.start_package_command(manifest, print, on_exit, window, cx) {
+            let _ = std::fs::remove_file(&file);
+        }
+    }
+
+    /// Starts `command` in a terminal tab and shows it; `on_exit` runs when
+    /// it exits. False when it could not start (reported in a toast).
+    fn start_package_command(
+        &mut self,
+        manifest: &Path,
+        command: PackageCommand,
+        on_exit: OnExit,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         #[cfg(test)]
         if let Some(recorded) = &mut self.pkgs.recorded {
+            // As if started; `on_exit` never runs.
             recorded.push(command);
-            return;
+            return true;
         }
         let Some(m) = self.pkgs.store.read(cx).manifest(manifest).cloned() else {
-            return;
+            return false;
         };
         if find_program(&command.program).is_none() {
             self.show_toast(not_installed(&m, &command), cx);
-            return;
+            return false;
         }
-        let store = self.pkgs.store.downgrade();
-        let on_exit: crate::terminal_panel::OnExit = Box::new(move |cx| {
-            store.update(cx, |s, cx| s.refresh(cx)).ok();
-        });
         let terminals = self.bottom_panel.read(cx).terminals().clone();
         let started = terminals.update(cx, |t, cx| {
             t.run_program(&command, Some(on_exit), window, cx)
         });
-        match started {
+        let ok = match started {
             Ok(()) => {
                 self.bottom_panel
                     .update(cx, |p, cx| p.set_active_tab(BottomTab::Terminal, cx));
                 self.bottom_panel_visible = true;
+                true
             }
-            Err(err) => self.show_toast(format!("Cannot run {}: {err}", command.display), cx),
-        }
+            Err(err) => {
+                self.show_toast(format!("Cannot run {}: {err}", command.display), cx);
+                false
+            }
+        };
         cx.notify();
+        ok
     }
 
     /// Shows the Packages view.
@@ -205,4 +261,30 @@ impl Workspace {
             ws.pkgs.store.update(cx, |s, cx| s.refresh(cx));
         }))
     }
+}
+
+/// Writes `text` to a new file in the temporary folder (never one that
+/// exists: no following a planted symlink).
+fn write_temp_output(text: &str) -> std::io::Result<PathBuf> {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let dir = std::env::temp_dir();
+    for _ in 0..100 {
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let path = dir.join(format!("arcode-check-{}-{n}.txt", std::process::id()));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                file.write_all(text.as_bytes())?;
+                return Ok(path);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::other("no free file name"))
 }

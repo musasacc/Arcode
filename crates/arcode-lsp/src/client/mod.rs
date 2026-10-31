@@ -5,6 +5,7 @@ mod group;
 mod process;
 mod resolve;
 mod shared;
+mod signals;
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -21,8 +22,10 @@ use serde_json::Value;
 use tokio::io::{AsyncRead, AsyncWrite, BufReader};
 use tokio::sync::oneshot;
 
+pub use group::kill_all as kill_all_servers;
 pub use process::ServerSpec;
 use shared::Shared;
+pub use signals::install as kill_servers_on_signals;
 
 use crate::capabilities::initialize_params;
 use crate::error::{LspError, Result};

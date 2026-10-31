@@ -117,8 +117,13 @@ impl AppEditor {
         if self.requests.try_send(make(tx)).is_err() {
             return Err(EditorError::Denied);
         }
-        rx.recv_timeout(UI_REPLY_TIMEOUT)
-            .unwrap_or(Err(EditorError::Denied))
+        match rx.recv_timeout(UI_REPLY_TIMEOUT) {
+            Ok(answer) => answer,
+            // An answer sent while this timed out still counts (the UI did
+            // it). Once `rx` is dropped the UI sees the send fail and takes
+            // its change back (`Workspace::plugin_editor_request`).
+            Err(_) => rx.try_recv().unwrap_or(Err(EditorError::Denied)),
+        }
     }
 }
 

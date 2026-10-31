@@ -37,12 +37,22 @@ pub enum PackagesStoreEvent {
     /// Show a short message.
     Message(String),
     /// Run a command in a terminal tab (a check whose output is not
-    /// machine readable, or could not be parsed).
+    /// machine readable).
     RunInTerminal {
         /// The manifest the command is for.
         manifest: PathBuf,
         /// The command.
         command: PackageCommand,
+    },
+    /// Show the output of a check that could not be read, in a terminal
+    /// tab (without running the check again).
+    ShowOutput {
+        /// The manifest the check was for.
+        manifest: PathBuf,
+        /// The check's command (its line names the tab).
+        command: PackageCommand,
+        /// What it printed (standard output, then standard error).
+        output: String,
     },
 }
 
@@ -229,12 +239,13 @@ impl PackagesStore {
                             )),
                             None => {
                                 cx.emit(PackagesStoreEvent::Message(format!(
-                                    "Could not read the output of `{}`; it runs in a terminal now",
+                                    "Could not read the output of `{}`; it is shown in a terminal",
                                     command.display
                                 )));
-                                cx.emit(PackagesStoreEvent::RunInTerminal {
+                                cx.emit(PackagesStoreEvent::ShowOutput {
                                     manifest: key.clone(),
                                     command: command.clone(),
+                                    output: raw_output(&out.stdout, &out.stderr, out.code),
                                 });
                                 Some(CheckState::Failed("Check failed".into()))
                             }
@@ -275,6 +286,25 @@ impl PackagesStore {
             flag.cancel();
         }
     }
+}
+
+/// The text shown for a check whose output could not be read.
+fn raw_output(stdout: &str, stderr: &str, code: Option<i32>) -> String {
+    let mut text = stdout.to_string();
+    if !stderr.is_empty() {
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(stderr);
+    }
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    match code {
+        Some(code) => text.push_str(&format!("[exit code {code}]\n")),
+        None => text.push_str("[stopped]\n"),
+    }
+    text
 }
 
 /// "`pnpm` is not installed. Run `corepack enable` ..."

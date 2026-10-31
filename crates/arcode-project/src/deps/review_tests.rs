@@ -3,6 +3,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::time::Duration;
 
 use super::*;
