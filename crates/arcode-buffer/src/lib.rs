@@ -31,6 +31,7 @@
 mod buffer;
 mod changes;
 mod coords;
+mod disk;
 mod edit;
 mod history;
 mod io;
@@ -44,6 +45,7 @@ mod text_util;
 
 pub use buffer::Buffer;
 pub use coords::{Point, PositionEncoding, TsPoint};
+pub use disk::{DiskCheck, DiskStamp};
 pub use edit::{Edit, LspRange};
 pub use history::{UndoGroup, UndoResult};
 pub use line_ending::LineEnding;

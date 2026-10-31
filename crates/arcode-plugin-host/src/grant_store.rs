@@ -7,80 +7,17 @@
 //!
 //! Files are written atomically (temp file + rename) in owner-only
 //! directories. Malformed entries are skipped with a warning: a broken file
-//! means "ask again", never "allow".
+//! means "ask again", never "allow". Other windows and processes write the
+//! same files, so a store re-reads a file that changed before it decides
+//! and before it writes (`grant_files`).
 
-use std::fs;
-use std::io::Write;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
-
-use crate::grants::{Capability, Decision, GrantScope, GrantState, GrantTable, Grants};
+use crate::grant_files::{Stamp, read_table, stamp, static_changes, write_table};
+use crate::grants::{Capability, Decision, GrantScope, GrantState, Grants};
 use crate::manifest::{Capabilities, PluginId};
-use crate::paths::{PluginPaths, create_private_dir};
-
-/// Largest grants file read.
-const MAX_GRANTS_BYTES: u64 = 1024 * 1024;
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct GrantFile {
-    #[serde(default, rename = "grant")]
-    grants: Vec<GrantEntry>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct GrantEntry {
-    plugin: String,
-    capability: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    host: Option<String>,
-    state: String,
-}
-
-impl GrantEntry {
-    fn from_grant(plugin: &PluginId, cap: &Capability, state: GrantState) -> Self {
-        let (capability, host) = match cap {
-            Capability::WorkspaceRead => ("workspace-read", None),
-            Capability::WorkspaceWrite => ("workspace-write", None),
-            Capability::EditorAllOpen => ("editor-all-open", None),
-            Capability::EditorWrite => ("editor-write", None),
-            Capability::Network { host } => ("network", Some(host.clone())),
-            Capability::NetworkBackground => ("network-background", None),
-        };
-        let state = match state {
-            GrantState::Allow => "allow",
-            GrantState::Deny => "deny",
-        };
-        Self {
-            plugin: plugin.to_string(),
-            capability: capability.into(),
-            host,
-            state: state.into(),
-        }
-    }
-
-    fn to_grant(&self) -> Option<(PluginId, Capability, GrantState)> {
-        let plugin = PluginId::parse(&self.plugin).ok()?;
-        let cap = match (self.capability.as_str(), &self.host) {
-            ("workspace-read", None) => Capability::WorkspaceRead,
-            ("workspace-write", None) => Capability::WorkspaceWrite,
-            ("editor-all-open", None) => Capability::EditorAllOpen,
-            ("editor-write", None) => Capability::EditorWrite,
-            ("network", Some(host)) if !host.is_empty() => Capability::Network {
-                host: host.to_ascii_lowercase(),
-            },
-            ("network-background", None) => Capability::NetworkBackground,
-            _ => return None,
-        };
-        let state = match self.state.as_str() {
-            "allow" => GrantState::Allow,
-            "deny" => GrantState::Deny,
-            _ => return None,
-        };
-        Some((plugin, cap, state))
-    }
-}
+use crate::paths::PluginPaths;
 
 /// Grants plus the files they persist to.
 #[derive(Debug, Clone)]
@@ -88,6 +25,11 @@ pub struct GrantStore {
     grants: Grants,
     global_path: PathBuf,
     project_path: Option<PathBuf>,
+    /// The file versions `grants.global` / `grants.project` were read from.
+    global_stamp: Option<Stamp>,
+    project_stamp: Option<Stamp>,
+    /// See [`GrantStore::take_static_changes`].
+    static_changed: BTreeSet<PluginId>,
 }
 
 impl GrantStore {
@@ -96,16 +38,20 @@ impl GrantStore {
     pub fn open(paths: &PluginPaths, project_root: Option<&Path>) -> Self {
         let project_path = project_root.map(|root| paths.project_grants(root));
         let grants = Grants {
-            global: read_table(&paths.global_grants),
-            project: project_path.as_deref().map(read_table).unwrap_or_default(),
-            session: GrantTable::new(),
             has_project: project_path.is_some(),
+            ..Grants::default()
         };
-        Self {
+        let mut store = Self {
             grants,
             global_path: paths.global_grants.clone(),
             project_path,
-        }
+            global_stamp: None,
+            project_stamp: None,
+            static_changed: BTreeSet::new(),
+        };
+        store.reload();
+        store.static_changed.clear();
+        store
     }
 
     /// An in-memory store that never touches disk (tests, headless use).
@@ -117,26 +63,72 @@ impl GrantStore {
             },
             global_path: PathBuf::new(),
             project_path: None,
+            global_stamp: None,
+            project_stamp: None,
+            static_changed: BTreeSet::new(),
         }
     }
 
-    /// The current grants.
+    /// The grants as last read ([`GrantStore::refresh`] first for the
+    /// files' current state).
     pub fn grants(&self) -> &Grants {
         &self.grants
     }
 
-    /// See [`Grants::decide`].
+    /// Re-reads the files another window or process changed since they
+    /// were read.
+    pub fn refresh(&mut self) {
+        self.read_files(false);
+    }
+
+    /// Re-reads both files.
+    fn reload(&mut self) {
+        self.read_files(true);
+    }
+
+    fn read_files(&mut self, always: bool) {
+        if self.global_path.as_os_str().is_empty() {
+            return;
+        }
+        let global = stamp(&self.global_path);
+        if always || global != self.global_stamp {
+            let table = read_table(&self.global_path);
+            static_changes(&self.grants.global, &table, &mut self.static_changed);
+            self.grants.global = table;
+            self.global_stamp = global;
+        }
+        if let Some(path) = &self.project_path {
+            let project = stamp(path);
+            if always || project != self.project_stamp {
+                let table = read_table(path);
+                static_changes(&self.grants.project, &table, &mut self.static_changed);
+                self.grants.project = table;
+                self.project_stamp = project;
+            }
+        }
+    }
+
+    /// The plugins whose file grants (`/project` access) were changed by
+    /// another window or process since the last call: their running
+    /// instances should be recycled.
+    pub fn take_static_changes(&mut self) -> BTreeSet<PluginId> {
+        std::mem::take(&mut self.static_changed)
+    }
+
+    /// See [`Grants::decide`] (after [`GrantStore::refresh`]).
     pub fn decide(
-        &self,
+        &mut self,
         plugin: &PluginId,
         cap: &Capability,
         caps: &Capabilities,
         network_enabled: bool,
     ) -> Decision {
+        self.refresh();
         self.grants.decide(plugin, cap, caps, network_enabled)
     }
 
-    /// Records an answer and saves the affected file.
+    /// Records an answer and saves the affected files (re-read first, so
+    /// changes made elsewhere are kept).
     pub fn record(
         &mut self,
         plugin: &PluginId,
@@ -144,13 +136,26 @@ impl GrantStore {
         state: GrantState,
         scope: GrantScope,
     ) -> Decision {
+        if scope != GrantScope::Once {
+            self.reload();
+        }
         let decision = self.grants.record(plugin, cap, state, scope);
-        self.save(scope);
+        match scope {
+            GrantScope::Once => {}
+            GrantScope::Project => self.save(GrantScope::Project),
+            // A global answer also clears the project's entry.
+            GrantScope::Global => {
+                self.save(GrantScope::Project);
+                self.save(GrantScope::Global);
+            }
+        }
         decision
     }
 
-    /// Revokes a grant in every scope and saves.
+    /// Revokes a grant in every scope and saves (re-read first, as for
+    /// [`GrantStore::record`]).
     pub fn revoke(&mut self, plugin: &PluginId, cap: &Capability) -> bool {
+        self.reload();
         let removed = self.grants.revoke(plugin, cap);
         if removed {
             self.save(GrantScope::Project);
@@ -159,77 +164,33 @@ impl GrantStore {
         removed
     }
 
-    fn save(&self, scope: GrantScope) {
-        let (table, path) = match scope {
+    fn save(&mut self, scope: GrantScope) {
+        let (table, path, stamp_slot) = match scope {
             GrantScope::Once => return,
             GrantScope::Project => match &self.project_path {
-                Some(path) => (&self.grants.project, path),
+                Some(path) => (&self.grants.project, path, &mut self.project_stamp),
                 None => return,
             },
-            GrantScope::Global => (&self.grants.global, &self.global_path),
+            GrantScope::Global => (
+                &self.grants.global,
+                &self.global_path,
+                &mut self.global_stamp,
+            ),
         };
         if path.as_os_str().is_empty() {
             return;
         }
-        if let Err(e) = write_table(path, table) {
-            log::warn!("cannot save plugin grants to {}: {e}", path.display());
+        match write_table(path, table) {
+            Ok(()) => *stamp_slot = stamp(path),
+            Err(e) => log::warn!("cannot save plugin grants to {}: {e}", path.display()),
         }
     }
-}
-
-fn read_table(path: &Path) -> GrantTable {
-    let mut table = GrantTable::new();
-    let Ok(meta) = fs::metadata(path) else {
-        return table;
-    };
-    if !meta.is_file() || meta.len() > MAX_GRANTS_BYTES {
-        log::warn!("ignoring plugin grants file {}", path.display());
-        return table;
-    }
-    let file: GrantFile = match fs::read_to_string(path).map(|t| toml::from_str(&t)) {
-        Ok(Ok(file)) => file,
-        Ok(Err(e)) => {
-            log::warn!("ignoring malformed plugin grants {}: {e}", path.display());
-            return table;
-        }
-        Err(e) => {
-            log::warn!("cannot read plugin grants {}: {e}", path.display());
-            return table;
-        }
-    };
-    for entry in &file.grants {
-        match entry.to_grant() {
-            Some((plugin, cap, state)) => {
-                table.insert((plugin, cap), state);
-            }
-            None => log::warn!("skipping invalid grant entry in {}", path.display()),
-        }
-    }
-    table
-}
-
-fn write_table(path: &Path, table: &GrantTable) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        create_private_dir(dir)?;
-    }
-    let file = GrantFile {
-        grants: table
-            .iter()
-            .map(|((p, c), s)| GrantEntry::from_grant(p, c, *s))
-            .collect(),
-    };
-    let text = toml::to_string(&file).map_err(std::io::Error::other)?;
-    let tmp = path.with_extension("toml.tmp");
-    {
-        let mut f = fs::File::create(&tmp)?;
-        f.write_all(text.as_bytes())?;
-        f.sync_all()?;
-    }
-    fs::rename(&tmp, path)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
     use crate::manifest::{EditorAccess, NetworkCapability, WorkspaceAccess};
 
@@ -283,7 +244,7 @@ mod tests {
                 GrantScope::Once,
             );
         }
-        let store = GrantStore::open(&paths, Some(&project));
+        let mut store = GrantStore::open(&paths, Some(&project));
         assert_eq!(store.decide(&id(), &net, &caps(), true), Decision::Allow);
         let read = &Capability::WorkspaceRead;
         assert_eq!(store.decide(&id(), read, &caps(), true), Decision::Allow);
@@ -292,7 +253,7 @@ mod tests {
             Decision::Ask
         );
         // The project grant stays with its project.
-        let elsewhere = GrantStore::open(&paths, Some(&tmp.path().join("other")));
+        let mut elsewhere = GrantStore::open(&paths, Some(&tmp.path().join("other")));
         assert_eq!(elsewhere.decide(&id(), read, &caps(), true), Decision::Ask);
         // Nothing was written into the project tree.
         assert_eq!(fs::read_dir(&project).unwrap().count(), 0);
@@ -320,12 +281,12 @@ mod tests {
         // Sanity: the same text *is* honoured from the user's own file.
         fs::create_dir_all(paths.global_grants.parent().unwrap()).unwrap();
         fs::write(&paths.global_grants, evil).unwrap();
-        let honest = GrantStore::open(&paths, Some(&project));
+        let mut honest = GrantStore::open(&paths, Some(&project));
         let write = Capability::WorkspaceWrite;
         assert_eq!(honest.decide(&id(), &write, &caps(), true), Decision::Allow);
         fs::remove_file(&paths.global_grants).unwrap();
 
-        let store = GrantStore::open(&paths, Some(&project));
+        let mut store = GrantStore::open(&paths, Some(&project));
         let evil_host = Capability::Network {
             host: "evil.test".into(),
         };

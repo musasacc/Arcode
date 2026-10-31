@@ -54,7 +54,7 @@ impl HostState {
             EditorAccess::None => false,
             EditorAccess::Context => in_context(),
             EditorAccess::AllOpen => {
-                let store = lock(&self.ctx.services.permissions.store);
+                let mut store = lock(&self.ctx.services.permissions.store);
                 let granted = store.decide(
                     m.id(),
                     &Capability::EditorAllOpen,

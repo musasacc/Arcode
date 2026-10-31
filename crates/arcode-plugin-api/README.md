@@ -8,13 +8,32 @@ with every rule the host enforces, is `docs/PLUGINS.md`; the two bundled
 plugins in `plugins/http-client` and `plugins/db-viewer` are complete
 examples.
 
+## Quick start
+
+```sh
+rustup target add wasm32-wasip2           # once
+cargo new --lib acme-todo && cd acme-todo
+# Cargo.toml and src/lib.rs as in section 3, plugin.toml as in section 2
+cargo test                                # plugin logic, natively (section 7)
+cargo build --release --target wasm32-wasip2
+mkdir -p dist/acme.todo
+cp plugin.toml dist/acme.todo/
+cp target/wasm32-wasip2/release/acme_todo.wasm dist/acme.todo/plugin.wasm
+```
+
+Then in Arcode: "Plugins: Load Unpacked…" on `dist/acme.todo` to try it
+(session only), or Plugins → Installed → the folder button ("Plugins:
+Install from Folder…") to install it (section 8). Plugins with C
+dependencies (SQLite in the DB viewer) also need clang and the wasi-libc
+headers; `scripts/build-plugins.sh` shows the flags.
+
 ## 1. The folder
 
 ```
 my-plugin/
   plugin.toml     manifest (required)
   plugin.wasm     the component (required, at most 32 MiB)
-  README.md       optional, shown in the Plugins view
+  README.md       optional, copied with the plugin
   LICENSE         optional
 ```
 
@@ -219,6 +238,26 @@ the plugin stops running until the user approves it again; an update that
 asks for different capabilities is disabled until re-enabled. Grants live
 in the user's config and data directories only; nothing in a repository
 can install, enable or authorize a plugin.
+
+To install: Plugins activity → Installed → the folder button (or "Plugins:
+Install from Folder…") and pick the folder that holds `plugin.toml`. The
+host validates it (manifest, an id outside the reserved `arcode.`
+namespace, regular files only, `plugin.wasm` at most 32 MiB), copies
+`plugin.toml`, the entry, `README.md` and `LICENSE` into the user's data
+folder, records the sha256 of the copied `plugin.wasm` and compiles it
+once. The card then shows the plugin disabled; its switch shows what the
+manifest lets it ask for before enabling it. Installing the same id again
+updates it. Uninstall (installed plugins only) removes the folder, its
+`plugins.toml` entry and its grants in every project, so a plugin
+installed later with the same id is asked again. Its stored data
+(`host::kv`) is kept, as for a disabled plugin.
+
+Each card also lists the permissions the user gave (Revoke asks again next
+time) and opens the plugin's log: your `host::log` lines, stdout and
+stderr, and the network log (time, method, host, port, status; never
+bodies or paths). Consent prompts are drawn by the editor from what the
+host parsed (method, scheme, host, port) and your plugin's id; your
+display name is shown quoted and capped, so do not put instructions in it.
 
 During development use "Plugins: Load Unpacked…" (session only, no copy)
 and "Plugins: Reload".

@@ -165,6 +165,12 @@ adapters = {}
 # Example: { "lldb-dap" = "/usr/bin/lldb-dap-18" }
 adapter_paths = {}
 
+[plugins]
+# Master switch for plugin network access. Off: every plugin request is
+# refused. On: a plugin sends only when you click, and asks before it
+# contacts a host for the first time.
+network = true
+
 # Per-language settings. Built-in assignments:
 #   rust -> rust-analyzer, typescript/javascript (and their React variants)
 #   -> typescript-language-server, python -> pyright-langserver,

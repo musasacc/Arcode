@@ -1,59 +1,19 @@
-//! Requests from plugins that the workspace answers: consent prompts
-//! (interim, `plugins::consent`), quick picks, editor writes (`apply-edits`,
-//! `open-file`, `open-scratch`) and the plugin log tab.
+//! Requests from plugins that the workspace answers: quick picks, editor
+//! writes (`apply-edits`, `open-file`, `open-scratch`) and the plugin log
+//! tab. Consent prompts are in `plugins_consent.rs`.
 
 use arcode_buffer::{Buffer, Point};
 use arcode_editor::Editor;
 use arcode_plugin_host::bindings::editor::EditorError;
-use arcode_plugin_host::consent::{ConsentAnswer, ConsentRequest};
 use arcode_ui_kit::IconName;
-use gpui::{AppContext, Context, Entity, Focusable, PromptLevel, SharedString, Window};
+use gpui::{AppContext, Context, Entity, Focusable, SharedString, Window};
 
 use super::Workspace;
 use crate::list_picker::{ListPicker, ListPickerEvent, PickItem};
 use crate::pane::TabLabel;
 use crate::plugins::bridge::EditorRequest;
-use crate::plugins::consent;
 
 impl Workspace {
-    pub(super) fn plugin_consent(
-        &mut self,
-        request: ConsentRequest,
-        reply: arcode_plugin_host::cancel::ReplySender<ConsentAnswer>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(answer) = consent::scripted() {
-            self.plugins
-                .log(format!("{} -> {answer:?} (scripted)", request.message()));
-            reply.send(answer);
-            return;
-        }
-        let buttons = consent::buttons(&request.kind);
-        let detail = consent::detail(&request);
-        let answer = window.prompt(
-            PromptLevel::Warning,
-            &request.message(),
-            Some(&detail),
-            buttons,
-            cx,
-        );
-        let kind = request.kind.clone();
-        self.plugins.prompts_open += 1;
-        cx.spawn(async move |this, cx| {
-            let answer = match answer.await {
-                Ok(ix) => consent::answer_for(&kind, ix),
-                Err(_) => ConsentAnswer::Dismissed,
-            };
-            reply.send(answer);
-            this.update(cx, |ws, _| {
-                ws.plugins.prompts_open = ws.plugins.prompts_open.saturating_sub(1);
-            })
-            .ok();
-        })
-        .detach();
-    }
-
     pub(super) fn plugin_quick_pick(
         &mut self,
         title: &str,

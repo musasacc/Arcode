@@ -1,10 +1,11 @@
 //! Loading and saving buffers.
 
 use std::fs::File;
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
 use crate::buffer::Buffer;
+use crate::disk::{DiskStamp, StampingWriter};
 use crate::line_ending::LineEnding;
 
 const BOM: &str = "\u{feff}";
@@ -14,7 +15,11 @@ impl Buffer {
     /// invalid UTF-8 yields an [`io::ErrorKind::InvalidData`] error.
     pub fn from_file(path: impl AsRef<Path>) -> io::Result<Buffer> {
         let path = path.as_ref();
-        let bytes = std::fs::read(path)?;
+        let mut file = File::open(path)?;
+        let meta = file.metadata().ok();
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        let stamp = DiskStamp::of_bytes(&bytes, meta.as_ref());
         let text =
             String::from_utf8(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         let (bom, body) = match text.strip_prefix(BOM) {
@@ -24,6 +29,7 @@ impl Buffer {
         let mut buffer = Buffer::new(body);
         buffer.bom = bom;
         buffer.path = Some(path.to_path_buf());
+        buffer.disk = Some(stamp);
         Ok(buffer)
     }
 
@@ -34,7 +40,7 @@ impl Buffer {
         let path = self.path.clone().ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "buffer has no file path")
         })?;
-        self.write_to_path(&path)?;
+        self.disk = Some(self.write_to_path(&path)?);
         self.mark_saved();
         Ok(())
     }
@@ -42,7 +48,7 @@ impl Buffer {
     /// Writes the buffer to `path` and associates it with that path.
     pub fn save_as(&mut self, path: impl Into<PathBuf>) -> io::Result<()> {
         let path = path.into();
-        self.write_to_path(&path)?;
+        self.disk = Some(self.write_to_path(&path)?);
         self.path = Some(path);
         self.mark_saved();
         Ok(())
@@ -72,11 +78,29 @@ impl Buffer {
         writer.flush()
     }
 
-    fn write_to_path(&self, path: &Path) -> io::Result<()> {
+    /// Writes the file and returns the stamp of what was written.
+    fn write_to_path(&self, path: &Path) -> io::Result<DiskStamp> {
         let file = File::create(path)?;
-        let mut writer = BufWriter::new(file);
+        let mut writer = StampingWriter::new(BufWriter::new(file));
         self.write_to(&mut writer)?;
-        writer.into_inner().map_err(|e| e.into_error())?.sync_all()
+        let (writer, stamp) = writer.finish();
+        let file = writer.into_inner().map_err(|e| e.into_error())?;
+        file.sync_all()?;
+        Ok(stamp(file.metadata().ok().as_ref()))
+    }
+
+    /// The stamp of the file content this buffer was last loaded from or
+    /// saved as (`None` without a file, or after
+    /// [`Buffer::set_disk_stamp`] cleared it).
+    pub fn disk_stamp(&self) -> Option<DiskStamp> {
+        self.disk
+    }
+
+    /// Records what the file holds now (after a reload, or when the user
+    /// chose to keep their version); `None` forgets it, so nothing counts
+    /// as changed on disk.
+    pub fn set_disk_stamp(&mut self, stamp: Option<DiskStamp>) {
+        self.disk = stamp;
     }
 }
 
@@ -129,6 +153,28 @@ mod tests {
             std::fs::read(&path).expect("read"),
             "\u{feff}héllo\r\n".as_bytes()
         );
+    }
+
+    #[test]
+    fn disk_stamp_follows_loads_and_saves() {
+        use crate::DiskCheck;
+        let dir = tmp();
+        let path = dir.path().join("s.txt");
+        std::fs::write(&path, "\u{feff}a\r\n").expect("write");
+        let mut b = Buffer::from_file(&path).expect("load");
+        let stamp = b.disk_stamp().expect("stamped");
+        assert_eq!(stamp.check(&path), DiskCheck::Same);
+        std::fs::write(&path, "other").expect("write");
+        assert_eq!(stamp.check(&path), DiskCheck::Changed);
+        b.save().expect("save");
+        let saved = b.disk_stamp().expect("stamped");
+        assert_eq!(
+            saved.check(&path),
+            DiskCheck::Same,
+            "stamps the BOM and CRLF"
+        );
+        assert_eq!(saved, DiskStamp::read(&path).expect("read"));
+        assert_eq!(Buffer::new("x").disk_stamp(), None);
     }
 
     #[test]

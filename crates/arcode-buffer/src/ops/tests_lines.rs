@@ -79,6 +79,32 @@ fn duplicate_lines() {
 }
 
 #[test]
+fn duplicate_lines_up() {
+    assert_eq!(
+        run("ab|c\nx", |b, s| drop(duplicate_line_up(b, s))),
+        "ab|c\nabc\nx"
+    );
+    assert_eq!(
+        run("a\nb|", |b, s| drop(duplicate_line_up(b, s))),
+        "a\nb|\nb"
+    );
+    assert_eq!(
+        run("«a\nb»\nc", |b, s| drop(duplicate_line_up(b, s))),
+        "«a\nb»\na\nb\nc"
+    );
+    // Each block's selections stay on its upper copy, after the copies of
+    // the blocks above.
+    assert_eq!(
+        run("a|\nx\nb|\nc", |b, s| drop(duplicate_line_up(b, s))),
+        "a|\na\nx\nb|\nb\nc"
+    );
+    let (mut b, mut s) = setup("x|\ny");
+    duplicate_line_up(&mut b, &mut s);
+    b.undo();
+    assert_eq!(b.to_string(), "x\ny");
+}
+
+#[test]
 fn move_lines_up_down() {
     assert_eq!(
         run("a\nb|\nc", |b, s| drop(move_lines_up(b, s))),

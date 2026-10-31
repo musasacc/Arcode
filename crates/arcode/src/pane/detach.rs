@@ -25,6 +25,8 @@ impl Pane {
         let editor = self.items.remove(index);
         self.subscriptions
             .retain(|(id, _)| *id != editor.entity_id());
+        self.close_after_save
+            .retain(|(id, _)| *id != editor.entity_id());
         let label = self.titles.remove(&editor.entity_id());
         if self.active > index || self.active >= self.items.len() {
             self.active = self.active.saturating_sub(1);

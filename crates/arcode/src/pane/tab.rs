@@ -1,6 +1,6 @@
 //! One tab of the pane's tab strip.
 
-use arcode_editor::Editor;
+use arcode_editor::{DiskConflict, Editor};
 use arcode_ui_kit::{IconName, Tooltip, icon, kbd, theme, truncated};
 use gpui::{AnyView, Context, Entity, MouseButton, SharedString, div, prelude::*, px};
 
@@ -21,13 +21,25 @@ impl Pane {
         let title = custom
             .as_ref()
             .map_or_else(|| e.title(), |t| t.title.clone());
-        let dirty = e.is_dirty() && custom.is_none();
+        let conflict = e.disk_conflict().filter(|_| custom.is_none());
+        let changed_on_disk = conflict == Some(DiskConflict::Changed);
+        let deleted = conflict == Some(DiskConflict::Deleted);
+        // The dot marks unsaved edits, in the warning color when the file
+        // also changed on disk.
+        let dirty = (e.is_dirty() || changed_on_disk) && custom.is_none();
         let tooltip: SharedString = match &custom {
             Some(label) => label.tooltip.clone(),
-            None => e
-                .path()
-                .map(|p| p.display().to_string().into())
-                .unwrap_or_else(|| title.clone()),
+            None => {
+                let path = e
+                    .path()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| title.to_string());
+                match conflict {
+                    Some(DiskConflict::Changed) => format!("{path}\nChanged on disk").into(),
+                    Some(DiskConflict::Deleted) => format!("{path}\nDeleted on disk").into(),
+                    None => path.into(),
+                }
+            }
         };
         let active = index == self.active && self.active_page.is_none();
         let (icon_name, icon_color) = if custom.is_some() {
@@ -63,7 +75,11 @@ impl Pane {
             .items_center()
             .justify_center()
             .group_hover(group.clone(), |s| s.opacity(0.))
-            .child(div().size(px(8.)).rounded_full().bg(c.accent_alt));
+            .child(div().size(px(8.)).rounded_full().bg(if changed_on_disk {
+                c.warning
+            } else {
+                c.accent_alt
+            }));
         div()
             .id(("tab", index))
             .group(group)
@@ -88,6 +104,7 @@ impl Pane {
                     .max_w(px(220.))
                     .min_w_0()
                     .overflow_hidden()
+                    .when(deleted, |el| el.line_through().text_color(c.error))
                     .child(truncated(title)),
             )
             .child(

@@ -190,6 +190,12 @@ impl PluginManager {
         &self.runtime
     }
 
+    /// Where plugins, grants and the cache live (the installed-plugins
+    /// folder a background install copies into).
+    pub fn paths(&self) -> &PluginPaths {
+        &self.config.paths
+    }
+
     /// Re-reads every manifest ("Plugins: Reload"), with `dev_folders` as
     /// the unpacked plugins. Running instances are stopped.
     pub fn reload(&mut self, dev_folders: Vec<PathBuf>) {
@@ -235,7 +241,9 @@ impl PluginManager {
 
     /// Every stored grant of `plugin` (Plugins → plugin → Permissions).
     pub fn grants(&self, plugin: &PluginId) -> Vec<(Capability, GrantState, GrantScope)> {
-        lock(&self.permissions.store).grants().list(plugin)
+        let mut store = lock(&self.permissions.store);
+        store.refresh();
+        store.grants().list(plugin)
     }
 
     /// Revokes a grant. Revoking a file grant recycles the instance, so
@@ -254,9 +262,9 @@ impl PluginManager {
     /// True while any plugin holds a background-network grant (the
     /// status-bar dot).
     pub fn background_network_active(&self) -> bool {
-        lock(&self.permissions.store)
-            .grants()
-            .any_background_network()
+        let mut store = lock(&self.permissions.store);
+        store.refresh();
+        store.grants().any_background_network()
     }
 
     /// The instance handle of `plugin` (log, network log, counters, open

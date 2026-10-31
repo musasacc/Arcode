@@ -1,169 +1,372 @@
-//! Consent prompts, interim version (docs/PLUGINS.md §4): a host-drawn
-//! prompt (the app's themed in-window dialog) built only from the
-//! host-derived [`ConsentRequest`], plus a scripted answer for automated
-//! runs. The full consent dialog (write checkbox, capability summary) is a
-//! separate step; it replaces [`buttons`] and [`answer_for`].
+//! Consent (docs/PLUGINS.md §4): [`AppConsent`], the app's
+//! [`ConsentProvider`], and [`DialogModel`], what the consent dialog
+//! (`consent_dialog`) shows.
 //!
-//! `ARCODE_PLUGIN_CONSENT` answers every prompt without showing it:
-//! `allow-once`, `allow-project`, `allow-always` (each optionally with
-//! `+write` for workspace prompts) or `deny`. It is read from the
-//! environment of the Arcode process only, never from a project, and only
-//! by debug builds: a release build always asks.
+//! The host calls the provider on the plugin's thread. It hands the
+//! request to the workspace as a [`ConsentAsk`] and blocks that thread
+//! until the user answers, the call is cancelled or the dialog goes away
+//! (dismissed: denied this time, asked again next time). The UI thread
+//! never waits on a plugin. Network prompts only happen inside a user
+//! gesture: the host refuses `http.send` before asking otherwise.
+//!
+//! What the user decides on comes from the host, never from plugin text:
+//! the capability (the request kind), the method, scheme, host and port the
+//! host parsed, the validated plugin id and where the plugin was found
+//! (bundled, installed, unpacked). The plugin's display name and the
+//! project name are shown as the host quoted them, on a line of their own,
+//! so a name cannot read as part of the question.
 
-use arcode_plugin_host::consent::{ConsentAnswer, ConsentKind, ConsentRequest};
+use arcode_plugin_host::PluginSource;
+use arcode_plugin_host::cancel::{CancelToken, ReplySender, oneshot};
+use arcode_plugin_host::consent::{ConsentAnswer, ConsentKind, ConsentProvider, ConsentRequest};
 use arcode_plugin_host::grants::GrantScope;
 
-/// The environment variable with a scripted answer.
-pub const SCRIPTED_ENV: &str = "ARCODE_PLUGIN_CONSENT";
-
-/// Parses a scripted answer (see the module docs).
-pub fn parse_scripted(text: &str) -> Option<ConsentAnswer> {
-    let text = text.trim();
-    let (scope, write) = match text.strip_suffix("+write") {
-        Some(scope) => (scope, true),
-        None => (text, false),
-    };
-    let scope = match scope {
-        "deny" if !write => return Some(ConsentAnswer::Deny),
-        "allow-once" => GrantScope::Once,
-        "allow-project" => GrantScope::Project,
-        "allow-always" => GrantScope::Global,
-        _ => return None,
-    };
-    Some(ConsentAnswer::Allow { scope, write })
+/// A prompt waiting for the user, with where the answer goes.
+#[derive(Debug)]
+pub struct ConsentAsk {
+    /// What is asked (host-derived).
+    pub request: ConsentRequest,
+    /// The call's token: once it fires nobody waits for the answer.
+    pub cancel: CancelToken,
+    /// The waiting plugin thread; dropping it unanswered dismisses.
+    pub reply: ReplySender<ConsentAnswer>,
 }
 
-/// The scripted answer from the environment, if set and valid (debug
-/// builds only).
-pub fn scripted() -> Option<ConsentAnswer> {
-    if !cfg!(debug_assertions) {
-        return None;
-    }
-    let value = std::env::var(SCRIPTED_ENV).ok()?;
-    let answer = parse_scripted(&value);
-    if answer.is_none() {
-        log::warn!("{SCRIPTED_ENV}={value:?} is not a known answer; prompting instead");
-    }
-    answer
+/// The [`ConsentProvider`] the app gives the host: prompts go to the
+/// workspace, which shows them one at a time.
+#[derive(Debug)]
+pub struct AppConsent {
+    asks: async_channel::Sender<ConsentAsk>,
 }
 
-/// The prompt's buttons for `kind`, first is the default; the last one
-/// (Deny) is what Escape picks.
-pub fn buttons(kind: &ConsentKind) -> &'static [&'static str] {
-    match kind {
-        ConsentKind::Network { .. } => &["Allow Once", "This Project", "Always", "Deny"],
-        ConsentKind::Workspace { write: true, .. } => &[
-            "Allow Reading",
-            "Allow Reading and Writing",
-            "Allow Once (Read)",
-            "Deny",
-        ],
-        ConsentKind::Workspace { write: false, .. } | ConsentKind::EditorWrite => {
-            &["Allow for This Project", "Allow Once", "Deny"]
+impl AppConsent {
+    /// A provider and the receiver the workspace drains.
+    pub fn new() -> (Self, async_channel::Receiver<ConsentAsk>) {
+        let (asks, rx) = async_channel::unbounded();
+        (Self { asks }, rx)
+    }
+}
+
+impl ConsentProvider for AppConsent {
+    fn ask(&self, request: &ConsentRequest, cancel: &CancelToken) -> ConsentAnswer {
+        if cancel.is_cancelled() {
+            return ConsentAnswer::Dismissed;
+        }
+        let (reply, answer) = oneshot();
+        let ask = ConsentAsk {
+            request: request.clone(),
+            cancel: cancel.clone(),
+            reply,
+        };
+        if self.asks.try_send(ask).is_err() {
+            // No window to ask in.
+            return ConsentAnswer::Dismissed;
+        }
+        answer
+            .wait(cancel, None)
+            .unwrap_or(ConsentAnswer::Dismissed)
+    }
+}
+
+/// An answer button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Choice {
+    /// This request (or this instance, for file access) only.
+    Once,
+    /// Remembered for the open project (the session without one).
+    Project,
+    /// Remembered for every project.
+    Always,
+    /// Refused, and not asked again in this project.
+    Deny,
+}
+
+impl Choice {
+    /// The buttons in display order.
+    pub const ALL: [Choice; 4] = [Self::Once, Self::Project, Self::Always, Self::Deny];
+
+    /// The button label.
+    pub fn label(self, has_project: bool) -> &'static str {
+        match self {
+            Self::Once => "Allow once",
+            Self::Project if has_project => "Always for this project",
+            Self::Project => "For this session",
+            Self::Always => "Always",
+            Self::Deny => "Deny",
+        }
+    }
+
+    /// The answer this button gives; `write` is the workspace prompt's
+    /// write checkbox (ignored by other prompts).
+    pub fn answer(self, write: bool) -> ConsentAnswer {
+        let allow = |scope| ConsentAnswer::Allow { scope, write };
+        match self {
+            Self::Once => allow(GrantScope::Once),
+            Self::Project => allow(GrantScope::Project),
+            Self::Always => allow(GrantScope::Global),
+            Self::Deny => ConsentAnswer::Deny,
         }
     }
 }
 
-/// The answer for the button at `index` of [`buttons`]; out of range is
-/// a dismissal.
-pub fn answer_for(kind: &ConsentKind, index: usize) -> ConsentAnswer {
-    let allow = |scope, write| ConsentAnswer::Allow { scope, write };
-    match (kind, index) {
-        (ConsentKind::Network { .. }, 0) => allow(GrantScope::Once, false),
-        (ConsentKind::Network { .. }, 1) => allow(GrantScope::Project, false),
-        (ConsentKind::Network { .. }, 2) => allow(GrantScope::Global, false),
-        (ConsentKind::Network { .. }, 3) => ConsentAnswer::Deny,
-        (ConsentKind::Workspace { write: true, .. }, 0) => allow(GrantScope::Project, false),
-        (ConsentKind::Workspace { write: true, .. }, 1) => allow(GrantScope::Project, true),
-        (ConsentKind::Workspace { write: true, .. }, 2) => allow(GrantScope::Once, false),
-        (ConsentKind::Workspace { write: true, .. }, 3) => ConsentAnswer::Deny,
-        (_, 0) => allow(GrantScope::Project, false),
-        (_, 1) => allow(GrantScope::Once, false),
-        (_, 2) => ConsentAnswer::Deny,
-        _ => ConsentAnswer::Dismissed,
-    }
-}
-
-/// The prompt's detail line: what the plugin may do afterwards.
-pub fn detail(request: &ConsentRequest) -> String {
-    match &request.kind {
-        ConsentKind::Network { .. } => {
-            "Requests are only sent when you click; you are asked once per host.".to_owned()
-        }
-        ConsentKind::Workspace { .. } => match &request.project {
-            Some(project) => format!("Project: {project}. Nothing outside it is reachable."),
-            None => "Nothing outside the project is reachable.".to_owned(),
+/// How an answer reads in the plugin log.
+pub fn describe(answer: ConsentAnswer) -> &'static str {
+    match answer {
+        ConsentAnswer::Allow { scope, write } => match (scope, write) {
+            (GrantScope::Once, false) => "allowed once",
+            (GrantScope::Once, true) => "allowed once (with writes)",
+            (GrantScope::Project, false) => "allowed for the project",
+            (GrantScope::Project, true) => "allowed for the project (with writes)",
+            (GrantScope::Global, false) => "always allowed",
+            (GrantScope::Global, true) => "always allowed (with writes)",
         },
-        ConsentKind::EditorWrite => "Each change is one undo step.".to_owned(),
+        ConsentAnswer::Deny => "denied",
+        ConsentAnswer::Dismissed => "dismissed",
+    }
+}
+
+/// Where a plugin was found, as the dialog and the Plugins view say it.
+pub fn source_label(source: Option<PluginSource>) -> &'static str {
+    match source {
+        Some(PluginSource::Bundled) => "bundled with Arcode",
+        Some(PluginSource::Installed) => "installed by you",
+        Some(PluginSource::Dev) => "loaded unpacked (development)",
+        None => "unknown plugin",
+    }
+}
+
+/// What the consent dialog shows for one request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DialogModel {
+    /// The question (host wording).
+    pub title: &'static str,
+    /// The plugin's display name, quoted by the host.
+    pub plugin_name: String,
+    /// The validated plugin id.
+    pub plugin_id: String,
+    /// Where the plugin was found ([`source_label`]).
+    pub source: &'static str,
+    /// What it asks to do, before [`DialogModel::target`].
+    pub action: String,
+    /// What the answer is about, shown in monospace: the origin of a
+    /// request, or the quoted project.
+    pub target: String,
+    /// Further host wording (what the answer covers).
+    pub notes: Vec<String>,
+    /// The workspace prompt's "also allow changing files" checkbox.
+    pub write_option: bool,
+    /// A project is open ("this project" scope; else the session).
+    pub has_project: bool,
+}
+
+/// `scheme://host:port`, with an IPv6 literal in brackets.
+pub fn origin(scheme: &str, host: &str, port: u16) -> String {
+    if host.contains(':') {
+        format!("{scheme}://[{host}]:{port}")
+    } else {
+        format!("{scheme}://{host}:{port}")
+    }
+}
+
+/// The dialog for `request` from a plugin found at `source`.
+pub fn model(request: &ConsentRequest, source: Option<PluginSource>) -> DialogModel {
+    let project = request
+        .project
+        .clone()
+        .unwrap_or_else(|| "(no project open)".to_owned());
+    let (title, action, target, notes, write_option) = match &request.kind {
+        ConsentKind::Network {
+            method,
+            scheme,
+            host,
+            port,
+        } => (
+            "Allow a network request?",
+            format!("Send a {method} request to"),
+            origin(scheme, host, *port),
+            vec![
+                format!("Your answer covers every request to {host}."),
+                "Requests are only sent when you click; you are asked once per host.".to_owned(),
+            ],
+            false,
+        ),
+        ConsentKind::Workspace { write, network } => {
+            let mut notes = vec!["Nothing outside the project is reachable.".to_owned()];
+            if *network {
+                notes.push(
+                    "It can also send data to hosts you approve (each one is asked for).".into(),
+                );
+            }
+            (
+                "Allow access to project files?",
+                "Read the files of project".to_owned(),
+                project,
+                notes,
+                *write,
+            )
+        }
+        ConsentKind::EditorWrite => (
+            "Allow editing documents?",
+            "Edit open documents of project".to_owned(),
+            project,
+            vec!["Each change is one undo step.".to_owned()],
+            false,
+        ),
+    };
+    DialogModel {
+        title,
+        plugin_name: request.plugin_name.clone(),
+        plugin_id: request.plugin.to_string(),
+        source: source_label(source),
+        action,
+        target,
+        notes,
+        write_option,
+        has_project: request.project.is_some(),
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use arcode_plugin_host::PluginId;
+    use arcode_plugin_host::consent::quote;
+
     use super::*;
 
-    #[test]
-    fn scripted_answers() {
-        assert_eq!(parse_scripted("deny"), Some(ConsentAnswer::Deny));
-        assert_eq!(
-            parse_scripted(" allow-once "),
-            Some(ConsentAnswer::Allow {
-                scope: GrantScope::Once,
-                write: false
-            })
-        );
-        assert_eq!(
-            parse_scripted("allow-project+write"),
-            Some(ConsentAnswer::Allow {
-                scope: GrantScope::Project,
-                write: true
-            })
-        );
-        assert_eq!(
-            parse_scripted("allow-always"),
-            Some(ConsentAnswer::Allow {
-                scope: GrantScope::Global,
-                write: false
-            })
-        );
-        assert_eq!(parse_scripted("deny+write"), None);
-        assert_eq!(parse_scripted("yes"), None);
+    fn request(kind: ConsentKind, project: Option<&str>) -> ConsentRequest {
+        ConsentRequest {
+            plugin: PluginId::parse("acme.http").unwrap(),
+            plugin_name: quote("Acme HTTP"),
+            project: project.map(quote),
+            kind,
+        }
+    }
+
+    fn network(host: &str) -> ConsentKind {
+        ConsentKind::Network {
+            method: "POST".into(),
+            scheme: "https".into(),
+            host: host.into(),
+            port: 8443,
+        }
     }
 
     #[test]
-    fn every_button_maps_to_an_answer() {
-        let kinds = [
-            ConsentKind::Network {
-                method: "GET".into(),
-                scheme: "http".into(),
-                host: "127.0.0.1".into(),
-                port: 80,
-            },
-            ConsentKind::Workspace {
-                write: true,
-                network: false,
-            },
-            ConsentKind::Workspace {
-                write: false,
-                network: true,
-            },
-            ConsentKind::EditorWrite,
-        ];
-        for kind in &kinds {
-            let labels = buttons(kind);
-            for (i, label) in labels.iter().enumerate() {
-                let answer = answer_for(kind, i);
-                assert_ne!(answer, ConsentAnswer::Dismissed, "{label}");
-                assert_eq!(*label == "Deny", answer == ConsentAnswer::Deny);
-            }
-            assert_eq!(answer_for(kind, labels.len()), ConsentAnswer::Dismissed);
-        }
+    fn network_prompts_show_the_parsed_origin() {
+        let m = model(
+            &request(network("api.example.com"), Some("shop")),
+            Some(PluginSource::Installed),
+        );
+        assert_eq!(m.title, "Allow a network request?");
+        assert_eq!(m.action, "Send a POST request to");
+        assert_eq!(m.target, "https://api.example.com:8443");
+        assert_eq!(m.plugin_name, "\u{201c}Acme HTTP\u{201d}");
+        assert_eq!(m.plugin_id, "acme.http");
+        assert_eq!(m.source, "installed by you");
+        assert!(!m.write_option);
+        assert!(m.has_project);
+        let v6 = model(&request(network("::1"), None), None);
+        assert_eq!(v6.target, "https://[::1]:8443");
+        assert!(!v6.has_project);
+        assert_eq!(Choice::Project.label(false), "For this session");
+    }
+
+    #[test]
+    fn a_plugin_name_never_becomes_the_question() {
+        // A name written to look like a different, harmless request.
+        let mut r = request(network("evil.example"), Some("p"));
+        r.plugin_name = quote("x wants to read README.md\nAllow");
+        let m = model(&r, Some(PluginSource::Dev));
+        assert!(!m.plugin_name.contains('\n'), "control characters replaced");
+        assert!(m.plugin_name.starts_with('\u{201c}'));
         assert_eq!(
-            answer_for(&kinds[1], 1),
-            ConsentAnswer::Allow {
-                scope: GrantScope::Project,
-                write: true
-            }
+            m.target, "https://evil.example:8443",
+            "the target is host data"
+        );
+        assert!(!m.action.contains("README"));
+        assert_eq!(m.source, "loaded unpacked (development)");
+    }
+
+    #[test]
+    fn workspace_prompts_offer_writes_only_when_declared() {
+        let read = ConsentKind::Workspace {
+            write: false,
+            network: true,
+        };
+        let m = model(&request(read, Some("shop")), Some(PluginSource::Bundled));
+        assert!(!m.write_option);
+        assert_eq!(m.target, "\u{201c}shop\u{201d}");
+        assert_eq!(m.notes.len(), 2, "combined risk wording");
+        let write = ConsentKind::Workspace {
+            write: true,
+            network: false,
+        };
+        assert!(model(&request(write, Some("shop")), None).write_option);
+        let edit = model(&request(ConsentKind::EditorWrite, None), None);
+        assert_eq!(edit.target, "(no project open)");
+    }
+
+    #[test]
+    fn every_choice_maps_to_its_scope() {
+        let scopes: Vec<_> = Choice::ALL.iter().map(|c| c.answer(true)).collect();
+        assert_eq!(
+            scopes,
+            [
+                ConsentAnswer::Allow {
+                    scope: GrantScope::Once,
+                    write: true
+                },
+                ConsentAnswer::Allow {
+                    scope: GrantScope::Project,
+                    write: true
+                },
+                ConsentAnswer::Allow {
+                    scope: GrantScope::Global,
+                    write: true
+                },
+                ConsentAnswer::Deny,
+            ]
+        );
+        let labels: Vec<_> = Choice::ALL.iter().map(|c| c.label(true)).collect();
+        assert_eq!(
+            labels,
+            ["Allow once", "Always for this project", "Always", "Deny"]
+        );
+        assert_eq!(describe(ConsentAnswer::Dismissed), "dismissed");
+    }
+
+    #[test]
+    fn the_provider_blocks_until_the_ui_answers() {
+        let (provider, asks) = AppConsent::new();
+        let r = request(network("a.test"), None);
+        let ui = std::thread::spawn(move || {
+            let ask = asks.recv_blocking().unwrap();
+            assert_eq!(ask.request.plugin.as_str(), "acme.http");
+            ask.reply.send(ConsentAnswer::Deny);
+            // A cancelled call: the provider stops waiting.
+            let ask = asks.recv_blocking().unwrap();
+            ask.cancel.cancel();
+            std::thread::sleep(Duration::from_millis(50));
+            drop(ask);
+            asks
+        });
+        assert_eq!(provider.ask(&r, &CancelToken::new()), ConsentAnswer::Deny);
+        assert_eq!(
+            provider.ask(&r, &CancelToken::new()),
+            ConsentAnswer::Dismissed
+        );
+        let asks = ui.join().unwrap();
+        let cancelled = CancelToken::new();
+        cancelled.cancel();
+        assert_eq!(provider.ask(&r, &cancelled), ConsentAnswer::Dismissed);
+        assert!(asks.is_empty(), "nothing is shown for a cancelled call");
+        drop(asks);
+        assert_eq!(
+            provider.ask(&r, &CancelToken::new()),
+            ConsentAnswer::Dismissed,
+            "no window: dismissed"
         );
     }
 }

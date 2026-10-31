@@ -41,6 +41,10 @@ actions!(
         LoadUnpackedPlugin,
         /// Cancels the most recent running plugin task.
         CancelPluginTask,
+        /// Shows the installed plugins (Plugins activity).
+        ShowPlugins,
+        /// Installs a plugin from a folder (copied, then listed disabled).
+        InstallPluginFromFolder,
     ]
 );
 
@@ -85,6 +89,12 @@ pub fn init(cx: &mut App) {
     crate::commands::register(cx, "Plugins: Reload", Box::new(ReloadPlugins));
     crate::commands::register(cx, "Plugins: Load Unpacked…", Box::new(LoadUnpackedPlugin));
     crate::commands::register(cx, "Plugins: Cancel Task", Box::new(CancelPluginTask));
+    crate::commands::register(cx, "Plugins: Show Installed", Box::new(ShowPlugins));
+    crate::commands::register(
+        cx,
+        "Plugins: Install from Folder…",
+        Box::new(InstallPluginFromFolder),
+    );
 }
 
 /// The palette label of a plugin command: its title, or `Plugins: title`

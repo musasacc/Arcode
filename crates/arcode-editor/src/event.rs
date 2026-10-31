@@ -19,6 +19,14 @@ pub enum EditorEvent {
     },
     /// The buffer was written to disk.
     Saved,
+    /// A save was refused because the file changed on disk since the
+    /// buffer was loaded or saved (ask, then
+    /// [`Editor::save_overwriting`](crate::Editor::save_overwriting)).
+    SaveConflict,
+    /// [`Editor::disk_conflict`](crate::Editor::disk_conflict) changed.
+    DiskConflictChanged,
+    /// The editor shows another file ([`Editor::set_path`](crate::Editor::set_path)).
+    PathChanged,
     /// Cursors or selections moved.
     SelectionsChanged,
     /// The dirty flag flipped.

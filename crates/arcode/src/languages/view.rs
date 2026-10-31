@@ -30,6 +30,8 @@ pub struct LanguagesView {
     expanded: HashSet<String>,
     check_task: Option<Task<()>>,
     write_task: Option<Task<()>>,
+    /// Shown as a tab of the Plugins page, which draws the header.
+    embedded: bool,
     _settings: Subscription,
 }
 
@@ -57,8 +59,15 @@ impl LanguagesView {
             expanded: HashSet::new(),
             check_task: None,
             write_task: None,
+            embedded: false,
             _settings: sub,
         }
+    }
+
+    /// Leaves the "Plugins" header to the page this is a tab of.
+    pub fn set_embedded(&mut self, embedded: bool, cx: &mut Context<Self>) {
+        self.embedded = embedded;
+        cx.notify();
     }
 
     /// The rows shown.
@@ -348,7 +357,9 @@ impl Render for LanguagesView {
             .size_full()
             .flex()
             .flex_col()
-            .child(crate::sidebar::header("Plugins", cx))
+            .when(!self.embedded, |el| {
+                el.child(crate::sidebar::header("Plugins", cx))
+            })
             .child(
                 div()
                     .flex()

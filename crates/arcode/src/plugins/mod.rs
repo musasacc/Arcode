@@ -9,21 +9,28 @@
 //!
 //! - **Editor bridge** ([`bridge`], [`snapshot`]): document snapshots for
 //!   `editor.text`, edits and opened files as requests to the UI thread.
-//! - **Commands** ([`commands`]): contributed commands in the palette.
+//! - **Commands** ([`commands`], [`contributions`]): contributed commands in
+//!   the palette (and the sidebar panels and languages of enabled plugins).
 //! - **Lenses** ([`lenses`]): "▶ Send request" rows above lines.
 //! - **Openers and panels** ([`panel`]): `.db` files open in the DB
 //!   viewer; plugin views render as tabs, sidebar entries or panels.
 //! - **Status** ([`status`]): status items and the task chip (Esc or a
 //!   click cancels).
-//! - **Consent** ([`consent`]): interim host prompts.
+//! - **Consent** ([`consent`], [`consent_dialog`]): the app's
+//!   `ConsentProvider` and its modal dialog.
+//! - **Plugins page** ([`page`]): the Plugins activity's Installed tab
+//!   (enable, grants, install, uninstall, log) beside Languages.
 //! - **Log** ([`log`]): "Plugins: Show Log".
 
 pub mod bridge;
 pub mod client;
 pub mod commands;
 pub mod consent;
+pub mod consent_dialog;
+pub mod contributions;
 pub mod lenses;
 pub mod log;
+pub mod page;
 pub mod panel;
 pub mod paths;
 pub mod snapshot;
@@ -31,8 +38,10 @@ pub mod status;
 
 #[cfg(test)]
 mod review_tests;
+#[cfg(test)]
+mod review_ui_tests;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 
 use arcode_editor::Editor;
@@ -132,6 +141,10 @@ pub struct Plugins {
     pub esc_interceptor: Option<Subscription>,
     /// Consent prompts on screen (Esc answers those, not the task).
     pub prompts_open: usize,
+    /// Consent prompts waiting for the one on screen (shown one at a time).
+    pub consent_queue: VecDeque<consent::ConsentAsk>,
+    /// The Plugins page (created with the workspace's plugin wiring).
+    pub page: Option<Entity<page::PluginsPage>>,
 }
 
 impl Plugins {
@@ -156,6 +169,8 @@ impl Plugins {
             generation: 0,
             esc_interceptor: None,
             prompts_open: 0,
+            consent_queue: VecDeque::new(),
+            page: None,
         }
     }
 

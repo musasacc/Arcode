@@ -15,11 +15,14 @@ use crate::actions::{
 };
 use crate::find_bar::FindBar;
 
+mod close_save;
 mod detach;
+mod disk_bar;
 mod find;
 mod page;
 mod tab;
 
+pub use disk_bar::{CompareWithDisk, KeepMyChanges, ReloadFromDisk};
 pub use page::PageTab;
 
 /// Height of the tab strip.
@@ -70,6 +73,8 @@ pub struct Pane {
     /// Whether the pane may be closed (there is more than one).
     closable: bool,
     subscriptions: Vec<(EntityId, Subscription)>,
+    /// Tabs whose close waits for a save refused over a changed file.
+    close_after_save: Vec<(EntityId, Subscription)>,
     /// Tab titles for editors without a file (e.g. diff tabs).
     titles: HashMap<EntityId, TabLabel>,
     /// The find bar (created on first use) and whether it is shown.
@@ -105,6 +110,7 @@ impl Pane {
             active: 0,
             closable: false,
             subscriptions: Vec::new(),
+            close_after_save: Vec::new(),
             titles: HashMap::new(),
             find: None,
             find_open: false,
@@ -181,7 +187,13 @@ impl Pane {
         cx: &mut Context<Self>,
     ) {
         let sub = cx.subscribe(&editor, |_, _, event: &EditorEvent, cx| {
-            if matches!(event, EditorEvent::DirtyChanged(_) | EditorEvent::Saved) {
+            if matches!(
+                event,
+                EditorEvent::DirtyChanged(_)
+                    | EditorEvent::Saved
+                    | EditorEvent::DiskConflictChanged
+                    | EditorEvent::PathChanged
+            ) {
                 cx.notify();
             }
         });
@@ -246,7 +258,9 @@ impl Pane {
                 if choice == 0
                     && let Err(err) = editor.update(cx, |e, cx| e.save(cx))
                 {
-                    log::error!("save failed: {err}");
+                    if !pane.close_on_overwrite(&editor, window, cx) {
+                        log::error!("save failed: {err}");
+                    }
                     return;
                 }
                 if let Some(ix) = pane.items.iter().position(|e| e == &editor) {
@@ -269,6 +283,8 @@ impl Pane {
     fn remove(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let editor = self.items.remove(index);
         self.subscriptions
+            .retain(|(id, _)| *id != editor.entity_id());
+        self.close_after_save
             .retain(|(id, _)| *id != editor.entity_id());
         cx.emit(PaneEvent::ItemClosed(editor.clone()));
         self.titles.remove(&editor.entity_id());
@@ -368,6 +384,7 @@ impl Render for Pane {
                         .map(|(bar, _)| bar.clone()),
                     |el, bar| el.child(bar),
                 )
+                .children(self.render_disk_bar(editor, cx))
                 .child(div().flex_1().min_h_0().child(editor.clone()))
                 .into_any_element(),
             None => div()

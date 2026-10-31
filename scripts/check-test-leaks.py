@@ -74,7 +74,10 @@ def main(argv):
     def report(pid):
         line = command_line(pid)
         leaks.append(line)
-        print(f"::error::a test left this process running: {pid} {line}", flush=True)
+        # The first few are enough to find the test; a bug often leaks
+        # hundreds.
+        if len(leaks) <= 20:
+            print(f"::error::a test left this process running: {pid} {line}", flush=True)
         try:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:

@@ -99,8 +99,10 @@ actions!(
         MoveLineUp,
         /// Moves the selected lines down.
         MoveLineDown,
-        /// Duplicates the selected lines.
+        /// Duplicates the selected lines below themselves (Copy Line Down).
         DuplicateLine,
+        /// Duplicates the selected lines above themselves (Copy Line Up).
+        DuplicateLineUp,
         /// Saves the buffer to its file.
         Save,
         /// Opens the completion list at the cursor.
@@ -186,7 +188,11 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-/", ToggleLineComment, ctx),
         KeyBinding::new("alt-up", MoveLineUp, ctx),
         KeyBinding::new("alt-down", MoveLineDown, ctx),
-        KeyBinding::new("secondary-shift-d", DuplicateLine, ctx),
+        // Copy Line Down / Up. VS Code's Shift+Alt+Down / Up add cursors
+        // here (above), and the app gives Ctrl+Shift+D to Run and Debug, so
+        // these take Ctrl (Cmd on macOS) as well.
+        KeyBinding::new("secondary-alt-shift-down", DuplicateLine, ctx),
+        KeyBinding::new("secondary-alt-shift-up", DuplicateLineUp, ctx),
         KeyBinding::new("secondary-s", Save, ctx),
         // Ctrl on every platform (Cmd+Space is the system search on macOS).
         KeyBinding::new("ctrl-space", ShowCompletions, ctx),

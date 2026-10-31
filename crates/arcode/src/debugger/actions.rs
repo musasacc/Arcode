@@ -80,9 +80,9 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-shift-f5", RestartDebugging, ws),
         KeyBinding::new("f9", ToggleBreakpoint, ws),
         KeyBinding::new("secondary-shift-d", ShowRunAndDebug, ws),
-        // The editor binds the same keys to Duplicate Line in its deeper
-        // context; Run and Debug wins (like the other views' Ctrl+Shift
-        // keys). Duplicate Line stays in the palette.
+        // Also in the editor's deeper context, so Run and Debug wins there
+        // too (like the other views' Ctrl+Shift keys). Duplicate Line has
+        // Ctrl+Shift+Alt+Down / Up (Cmd on macOS).
         KeyBinding::new(
             "secondary-shift-d",
             ShowRunAndDebug,

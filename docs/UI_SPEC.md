@@ -51,7 +51,17 @@ Shared reference for the GPUI crates. Read `docs/ARCHITECTURE.md` first.
 ```
 
 - Activity bar (44px): Files, Search, Git, Debug, Plugins, Todo, Packages. The
-  Plugins view lists the language packs ("Languages"): per pack its
+  Plugins view has two tabs. "Installed" lists the WASM plugins (bundled,
+  installed, unpacked) as cards: name, version, description, state
+  (inactive / active / crashed / disabled), source, an enable switch, the
+  permissions granted (each with Revoke), Log, Restart after a crash and
+  Uninstall for installed ones; the header has "Install from Folder…" and
+  Reload. Plugin consent prompts are a window-modal dialog (plugin name
+  quoted, id and source, the exact host or project asked for; Allow once /
+  Always for this project / Always / Deny, keyboard accessible; a held key
+  never answers it; it waits while another dialog of the window is open,
+  and one pushed aside by another dialog counts as "decide later"). The
+  "Languages" tab lists the language packs: per pack its
   languages and extensions, snippets, each language server as installed
   or not installed (with the install command as text and a copy button;
   nothing is downloaded), an enable switch, and on click the comment
@@ -155,11 +165,16 @@ terminal (Ctrl+`), split right (Ctrl+\), undo/redo, copy/cut/paste,
 select all, Ctrl+D (select next occurrence).
 
 Multiple cursors (in an editor): select all occurrences (Ctrl+Shift+L),
-add a cursor above / below (Ctrl+Alt+Up / Down, Cmd+Alt on macOS),
-Alt+click adds or removes a cursor, Alt+Shift+drag or a middle-button
+add a cursor above / below (Ctrl+Alt+Up / Down, Cmd+Alt on macOS, or
+Shift+Alt+Up / Down), Alt+click adds or removes a cursor, Alt+Shift+drag or a middle-button
 drag makes a box selection, cursor undo (Ctrl+U), Escape back to one
 cursor. Vim mode (`editor.vim_mode`, or "Editor: Toggle Vim Mode") shows
 its mode, pending keys and command line at the left of the status bar.
+
+Lines (in an editor): move line up / down (Alt+Up / Down), duplicate
+line down / up, i.e. Copy Line Down / Up (Ctrl+Shift+Alt+Down / Up,
+Cmd+Shift+Alt on macOS: Shift+Alt+Up / Down add cursors and Ctrl+Shift+D
+opens Run and Debug), toggle line comment (Ctrl+/).
 
 Code navigation (in an editor): hover at the cursor (Ctrl+K Ctrl+I),
 go to definition (F12 or Ctrl+click), go to implementation (Ctrl+F12),

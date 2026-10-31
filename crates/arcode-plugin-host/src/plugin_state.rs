@@ -11,6 +11,8 @@
 //! The file lives in the user's config dir only, never in a project. A
 //! malformed file reads as empty (every installed plugin then starts
 //! disabled again); malformed entries are skipped. Writes are atomic.
+//! Every window has its own copy and other processes may write the file,
+//! so a change re-reads the file first and changes only its own entry.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -71,10 +73,31 @@ impl PluginStates {
         self.map.get(plugin.as_str())
     }
 
+    /// Re-reads the file (changes made in another window or process).
+    /// True if anything changed.
+    pub fn reload(&mut self) -> bool {
+        let Some(path) = &self.path else {
+            return false;
+        };
+        let map = read(path);
+        let changed = map != self.map;
+        self.map = map;
+        changed
+    }
+
     /// Stores `state` for `plugin` and writes the file.
     pub fn set(&mut self, plugin: &PluginId, state: PluginState) {
+        self.reload();
         self.map.insert(plugin.to_string(), state);
         self.save();
+    }
+
+    /// Forgets `plugin` (uninstalled) and writes the file.
+    pub fn remove(&mut self, plugin: &PluginId) {
+        self.reload();
+        if self.map.remove(plugin.as_str()).is_some() {
+            self.save();
+        }
     }
 
     fn save(&self) {
@@ -153,8 +176,10 @@ mod tests {
                 sha256: Some(sha.clone()),
             },
         );
-        let again = PluginStates::load(Some(path.clone()));
+        let mut again = PluginStates::load(Some(path.clone()));
         assert_eq!(again.get(&id).and_then(|s| s.sha256.clone()), Some(sha));
+        again.remove(&id);
+        assert_eq!(PluginStates::load(Some(path.clone())).get(&id), None);
         let text = "[[plugin]]\nid = \"ok.one\"\nenabled = true\n\
                     [[plugin]]\nid = \"BAD\"\nenabled = true\n\
                     [[plugin]]\nid = \"ok.two\"\nenabled = true\nsha256 = \"xyz\"\n";
@@ -163,5 +188,26 @@ mod tests {
         assert_eq!(read.map.keys().collect::<Vec<_>>(), ["ok.one"]);
         std::fs::write(&path, "not toml [").unwrap();
         assert!(PluginStates::load(Some(path)).map.is_empty());
+    }
+
+    /// Two windows: each change keeps what the other one saved.
+    #[test]
+    fn changes_keep_what_another_copy_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("plugins.toml");
+        let one = PluginId::parse("acme.one").unwrap();
+        let two = PluginId::parse("acme.two").unwrap();
+        let mut a = PluginStates::load(Some(path.clone()));
+        let mut b = PluginStates::load(Some(path.clone()));
+        let off = PluginState::default();
+        a.set(&one, off.clone());
+        assert!(b.reload() && b.get(&one) == Some(&off));
+        assert!(!b.reload());
+        let mut a2 = PluginStates::load(Some(path.clone()));
+        b.set(&two, off.clone());
+        a2.remove(&one);
+        let disk = PluginStates::load(Some(path));
+        assert_eq!(disk.get(&one), None);
+        assert_eq!(disk.get(&two), Some(&off));
     }
 }

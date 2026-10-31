@@ -1,18 +1,50 @@
 //! A themed in-window dialog used for prompts on platforms without native
 //! dialogs (Linux). Enter picks the first button, Escape the cancel one.
 
+use std::collections::HashMap;
+
 use arcode_ui_kit::Elevated;
 use arcode_ui_kit::{IconName, icon, theme};
 use gpui::{
-    App, Context, EventEmitter, FocusHandle, Focusable, KeyDownEvent, PromptButton, PromptHandle,
-    PromptLevel, PromptResponse, RenderablePromptHandle, SharedString, Window, div, prelude::*, px,
+    App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyDownEvent, PromptButton,
+    PromptHandle, PromptLevel, PromptResponse, RenderablePromptHandle, SharedString, WeakEntity,
+    Window, WindowId, div, prelude::*, px,
 };
+
+/// Marks that [`init`] chose the app's prompts (see [`restore`]).
+struct AppPrompts;
+
+impl gpui::Global for AppPrompts {}
+
+/// The app's prompt shown in each window (see [`open_in`]).
+#[derive(Default)]
+struct OpenPrompts(HashMap<WindowId, WeakEntity<PromptDialog>>);
+
+impl gpui::Global for OpenPrompts {}
+
+/// The app's prompt open in `window`, if any. The plugin consent dialog
+/// waits for it to go (GPUI shows one prompt per window; a new one would
+/// replace it).
+pub fn open_in(window: &Window, cx: &App) -> Option<Entity<PromptDialog>> {
+    let id = window.window_handle().window_id();
+    cx.try_global::<OpenPrompts>()?.0.get(&id)?.upgrade()
+}
 
 /// Installs the themed prompt (Linux and other non-macOS/Windows Unixes;
 /// macOS and Windows keep their native dialogs).
 pub fn init(cx: &mut App) {
+    cx.set_global(AppPrompts);
     if cfg!(not(any(target_os = "macos", target_os = "windows"))) {
         cx.set_prompt_builder(build);
+    }
+}
+
+/// Puts back the prompts [`init`] chose (or GPUI's default without it)
+/// after a one-off custom prompt such as the plugin consent dialog.
+pub fn restore(cx: &mut App) {
+    cx.reset_prompt_builder();
+    if cx.has_global::<AppPrompts>() {
+        init(cx);
     }
 }
 
@@ -37,6 +69,10 @@ fn build(
             .unwrap_or(buttons.len().saturating_sub(1)),
         focus: cx.focus_handle(),
     });
+    let id = window.window_handle().window_id();
+    let open = &mut cx.default_global::<OpenPrompts>().0;
+    open.retain(|_, p| p.upgrade().is_some());
+    open.insert(id, view.downgrade());
     handle.with_view(view, window, cx)
 }
 

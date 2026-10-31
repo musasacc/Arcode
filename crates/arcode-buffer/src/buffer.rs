@@ -32,6 +32,8 @@ pub struct Buffer {
     pub(crate) history: History,
     /// History state id at the last save/load.
     pub(crate) saved_state: u64,
+    /// The file content at the last load/save (see [`Buffer::disk_stamp`]).
+    pub(crate) disk: Option<crate::disk::DiskStamp>,
 }
 
 impl Default for Buffer {
@@ -67,6 +69,7 @@ impl Buffer {
             version: 0,
             history: History::default(),
             saved_state: 0,
+            disk: None,
         }
     }
 

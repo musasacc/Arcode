@@ -1,5 +1,5 @@
 //! The Settings page: a tab with sections (Appearance, Editor, Fonts,
-//! Terminal, Languages, Keymap, Advanced). Every control edits
+//! Terminal, Languages, Keymap, Plugins, Advanced). Every control edits
 //! `config.toml` in place through [`crate::prefs::store`], so comments and
 //! hand-written settings survive; the page redraws when the settings
 //! change, whatever changed them.
@@ -10,6 +10,7 @@ mod fonts;
 mod keymap;
 mod languages;
 mod other;
+mod plugins;
 mod rows;
 #[cfg(test)]
 mod tests;
@@ -46,18 +47,20 @@ pub enum Section {
     Terminal,
     Languages,
     Keymap,
+    Plugins,
     Advanced,
 }
 
 impl Section {
     /// Every section in display order.
-    pub const ALL: [Section; 7] = [
+    pub const ALL: [Section; 8] = [
         Self::Appearance,
         Self::Editor,
         Self::Fonts,
         Self::Terminal,
         Self::Languages,
         Self::Keymap,
+        Self::Plugins,
         Self::Advanced,
     ];
 
@@ -70,6 +73,7 @@ impl Section {
             Self::Terminal => "Terminal",
             Self::Languages => "Languages",
             Self::Keymap => "Keymap",
+            Self::Plugins => "Plugins",
             Self::Advanced => "Advanced",
         }
     }
@@ -82,6 +86,7 @@ impl Section {
             Self::Terminal => IconName::Terminal,
             Self::Languages => IconName::Puzzle,
             Self::Keymap => IconName::Keyboard,
+            Self::Plugins => IconName::Package,
             Self::Advanced => IconName::Settings,
         }
     }
@@ -297,6 +302,7 @@ impl SettingsPage {
             Section::Terminal => other::render_terminal(self, cx),
             Section::Languages => languages::render(self, cx),
             Section::Keymap => keymap::render(self, &self.keymap_filter, cx),
+            Section::Plugins => plugins::render(self, cx),
             Section::Advanced => other::render_advanced(self, cx),
         }
     }
