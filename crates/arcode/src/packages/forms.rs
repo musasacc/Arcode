@@ -238,16 +238,7 @@ impl PackagesView {
                     )
                 })
                 .when_some(form.error.clone(), |el, err| {
-                    // A definite width lets the message wrap to its full
-                    // height instead of being cut after the first line.
-                    el.child(
-                        div()
-                            .w_full()
-                            .flex_shrink_0()
-                            .text_xs()
-                            .text_color(c.error)
-                            .child(err),
-                    )
+                    el.child(div().text_xs().text_color(c.error).child(err))
                 })
                 .child(
                     div()

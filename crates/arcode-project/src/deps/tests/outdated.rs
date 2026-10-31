@@ -78,6 +78,13 @@ fn yarn_pip_go_composer() {
         pairs(parse_outdated(OutdatedFormat::PipJson, &notice, "", true)),
         ["certifi 2023.7.22 -> 2024.2.2", "Flask 2.3.3 -> 3.0.1"]
     );
+    // Offline: warnings per package and an empty list, status 0.
+    let offline = "WARNING: Retrying (Retry(total=0, connect=None, read=None, redirect=None, \
+        status=None)) after connection broken by 'NewConnectionError(...)': /simple/blinker/\n";
+    assert_eq!(
+        parse_outdated(OutdatedFormat::PipJson, "[]\n", offline, true),
+        None
+    );
     assert_eq!(
         pairs(parse_outdated(
             OutdatedFormat::GoJson,

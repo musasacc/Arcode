@@ -242,6 +242,16 @@ fn nested_repositories_and_commit(cx: &mut TestAppContext) {
         s.repos().iter().map(|r| r.workdir.clone()).collect()
     });
     assert_eq!(found, std::slice::from_ref(&repo.root));
+    // The parent folder has no branch; a file of the nested repository
+    // names it with its branch.
+    assert_eq!(ws.read_with(cx, |ws, cx| ws.branch_label(cx)), None);
+    let readme = repo.root.join("README.md");
+    ws.update_in(cx, |ws, window, cx| ws.open_file(&readme, window, cx));
+    settle(cx);
+    assert_eq!(
+        ws.read_with(cx, |ws, cx| ws.branch_label(cx)).as_deref(),
+        Some("repo: main")
+    );
 
     fs::write(repo.root.join("README.md"), "hello\n").unwrap();
     let panel = ws.update(cx, |ws, _| ws.git_panel().clone());
