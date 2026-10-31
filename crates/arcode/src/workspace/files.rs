@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
+use arcode_lsp::FileChange;
 use gpui::{AppContext, ClipboardItem, Context, Entity, Focusable, Window};
 
 use super::Workspace;
@@ -76,6 +77,15 @@ impl Workspace {
             .update(cx, |d, cx| d.path_renamed(from, to, cx));
         self.schedule_session_save(cx);
         self.refresh_status(cx);
+        self.report_file_change(FileChange::Renamed(from.into(), to.into()), cx);
+    }
+
+    /// Tells the language servers about a file change made in the tree,
+    /// once the editors' path events (which reopen their documents under
+    /// the new paths) were delivered.
+    fn report_file_change(&self, change: FileChange, cx: &mut Context<Self>) {
+        let lsp = self.lsp.clone();
+        cx.defer(move |cx| lsp.read(cx).files_changed(&[change]));
     }
 
     /// Closes the tabs of deleted files that have no unsaved changes (the
@@ -93,6 +103,7 @@ impl Workspace {
         }
         self.forget_file_states(path);
         self.schedule_session_save(cx);
+        self.report_file_change(FileChange::Deleted(path.into()), cx);
     }
 
     /// Registers the Explorer commands handled by the workspace.

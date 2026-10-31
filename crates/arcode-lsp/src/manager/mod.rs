@@ -4,6 +4,7 @@ mod actor;
 mod answer;
 mod changes;
 mod config;
+mod files;
 mod lifecycle;
 mod requests;
 mod text;
@@ -20,6 +21,7 @@ use tokio::sync::oneshot;
 use actor::{Command, MakeOpenText, ServerSlot};
 pub use answer::Answer;
 pub use config::{ServerConfig, find_root};
+pub use files::FileChange;
 use text::LazyText;
 
 use crate::client::LspClient;

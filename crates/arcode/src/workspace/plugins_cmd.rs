@@ -241,6 +241,8 @@ impl Workspace {
         {
             self.plugins.sidebar_active = None;
         }
+        // The status bar names a plugin language (`.http`).
+        self.refresh_status(cx);
         cx.notify();
     }
 

@@ -8,6 +8,10 @@
 //! - `ARCODE_FAKE_HOVER=null` / `error` makes hover answer `null` / fail.
 //! - `ARCODE_FAKE_DEFINITION=empty` / `here` offers `definition` and answers
 //!   `[]` / a location at line 0, character 7.
+//! - `ARCODE_FAKE_INFO=<name>` answers `initialize` with that `serverInfo`.
+//! - `workspace/didChangeWatchedFiles` publishes `"watched <type>"` on each
+//!   changed file; `rust-analyzer/rebuildProcMacros` publishes `"rebuilt"`
+//!   on every open document.
 
 use std::collections::HashMap;
 
@@ -60,6 +64,7 @@ async fn serve() {
     let encoding = std::env::var("ARCODE_FAKE_ENCODING").unwrap_or_else(|_| "utf-16".into());
     let hover_mode = std::env::var("ARCODE_FAKE_HOVER").unwrap_or_else(|_| "normal".into());
     let definition = std::env::var("ARCODE_FAKE_DEFINITION").ok();
+    let info = std::env::var("ARCODE_FAKE_INFO").ok();
     eprintln!("{name} starting");
     let mut input = BufReader::new(tokio::io::stdin());
     let mut out = tokio::io::stdout();
@@ -84,11 +89,32 @@ async fn serve() {
                 if definition.is_some() {
                     caps["definitionProvider"] = json!(true);
                 }
+                let mut result = json!({ "capabilities": caps });
+                if let Some(info) = &info {
+                    result["serverInfo"] = json!({ "name": info });
+                }
                 send(
                     &mut out,
-                    json!({ "jsonrpc": "2.0", "id": id, "result": { "capabilities": caps } }),
+                    json!({ "jsonrpc": "2.0", "id": id, "result": result }),
                 )
                 .await;
+            }
+            "workspace/didChangeWatchedFiles" => {
+                for change in params["changes"].as_array().into_iter().flatten() {
+                    let what = format!("watched {}", change["type"]);
+                    publish(&mut out, &name, &change["uri"], 0, &what).await;
+                }
+            }
+            "rust-analyzer/rebuildProcMacros" => {
+                send(
+                    &mut out,
+                    json!({ "jsonrpc": "2.0", "id": id, "result": null }),
+                )
+                .await;
+                let uris: Vec<String> = docs.keys().cloned().collect();
+                for uri in uris {
+                    publish(&mut out, &name, &json!(uri), 0, "rebuilt").await;
+                }
             }
             "textDocument/didOpen" => {
                 let version = params["textDocument"]["version"].as_i64().unwrap_or(0);

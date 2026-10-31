@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use arcode_lsp::{LspEvent, LspManager, ServerConfig, ServerStatus};
+use arcode_lsp::{FileChange, LspEvent, LspManager, ServerConfig, ServerStatus};
 
 fn fake_config() -> ServerConfig {
     let exe = std::env::current_exe().expect("current exe");
@@ -99,12 +99,56 @@ fn attached_files_skip_a_failed_server() {
     }
 }
 
+/// Waits for a diagnostic message from the fake server on `path`.
+fn wait_message(rx: &arcode_lsp::EventReceiver, path: &Path, message: &str) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        assert!(Instant::now() < deadline, "no {message:?} on {path:?}");
+        match rx.try_recv() {
+            Ok(LspEvent::Diagnostics {
+                path: p,
+                diagnostics,
+                ..
+            }) if p == path && diagnostics.iter().any(|d| d.message.ends_with(message)) => {
+                return;
+            }
+            Ok(_) => {}
+            Err(_) => std::thread::sleep(Duration::from_millis(20)),
+        }
+    }
+}
+
+/// A file renamed inside Arcode is reported to the servers of its project
+/// as a watched-file delete plus create; rust-analyzer is also asked to
+/// rebuild its crate graph (it can lose a renamed crate root otherwise).
+fn renamed_files_reach_the_project_servers() {
+    let dir = tempfile::tempdir().unwrap();
+    let ws = project(dir.path(), "ws");
+    let mut config = fake_config();
+    config
+        .env
+        .push(("ARCODE_FAKE_INFO".into(), "rust-analyzer".into()));
+    let languages = HashMap::from([("fake".to_string(), vec!["alpha".to_string()])]);
+    let (manager, rx) = LspManager::new(vec![config], languages);
+    manager.set_workspace_root(Some(ws.clone()));
+    let (from, to) = (ws.join("main.rs"), ws.join("app.rs"));
+    manager.open_document(&from, "fake", 1, "x".to_string());
+    wait_message(&rx, &from, "opened v1");
+    manager.close_document(&from);
+    manager.open_document(&to, "fake", 1, "x".to_string());
+    manager.files_changed(&[FileChange::Renamed(from.clone(), to.clone())]);
+    wait_message(&rx, &from, "watched 3");
+    wait_message(&rx, &to, "watched 1");
+    wait_message(&rx, &to, "rebuilt");
+    manager.shutdown_all();
+}
+
 fn main() {
     if std::env::var_os("ARCODE_FAKE_LSP").is_some() {
         fake_lsp::run();
         return;
     }
-    let tests: [(&str, fn()); 2] = [
+    let tests: [(&str, fn()); 3] = [
         (
             "only_attached_files_join_the_workspace_server",
             only_attached_files_join_the_workspace_server,
@@ -112,6 +156,10 @@ fn main() {
         (
             "attached_files_skip_a_failed_server",
             attached_files_skip_a_failed_server,
+        ),
+        (
+            "renamed_files_reach_the_project_servers",
+            renamed_files_reach_the_project_servers,
         ),
     ];
     let filters: Vec<String> = std::env::args()

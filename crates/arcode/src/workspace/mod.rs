@@ -71,6 +71,8 @@ mod render;
 #[cfg(test)]
 mod review_debug;
 #[cfg(test)]
+mod review_disk_conflict;
+#[cfg(test)]
 mod review_git;
 #[cfg(test)]
 mod review_lang_packs;
@@ -80,8 +82,6 @@ mod review_palette;
 mod review_plugins;
 #[cfg(all(test, feature = "plugins"))]
 mod review_plugins_ui;
-#[cfg(test)]
-mod review_disk_conflict;
 #[cfg(test)]
 mod review_prefs;
 mod run_menu;

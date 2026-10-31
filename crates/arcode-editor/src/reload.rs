@@ -81,6 +81,7 @@ impl Editor {
         self.buffer.set_disk_stamp(stamp);
         self.set_disk_conflict(None, cx);
         self.check_dirty(cx);
+        cx.emit(EditorEvent::Reloaded);
         cx.notify();
         true
     }

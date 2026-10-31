@@ -1,7 +1,7 @@
 //! Fuzzy ranking of completion candidates with nucleo-matcher.
 
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry as Slot;
 
 use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
@@ -77,8 +77,8 @@ impl Ranker {
     /// preselected first, then `sort_text` order (server items with equal
     /// `sort_text` by label). Duplicates (same label and kind) are dropped,
     /// keeping the best-ranked one, except items of one server: those can
-    /// differ only in what they import (`HashMap` from two crates), so all
-    /// of them are kept.
+    /// differ only in what they import (`HashMap` from two crates), so they
+    /// are kept unless their detail and inserted text are the same too.
     pub fn rank(
         &mut self,
         query: &str,
@@ -204,14 +204,17 @@ fn rank_empty(candidates: &[CompletionCandidate], limit: usize) -> Vec<RankedCan
 /// and kind; a server item duplicates an earlier local candidate with the
 /// same label and kind, or an item of *another* server with the same label
 /// and inserted text (servers disagree on kinds). Items of one server are
-/// never duplicates of each other (they can differ only in what they
-/// import).
+/// duplicates only when everything shown and inserted is the same (e.g.
+/// rust-analyzer's `len()` of `String` and of `str` through `Deref`);
+/// otherwise they can differ in what they import.
 #[derive(Default)]
 struct Seen<'a> {
     /// (label, kind) -> whether the first was local.
     by_kind: HashMap<(&'a str, CandidateKind), bool>,
     /// (label, inserted text) -> server of the first server item.
     by_edit: HashMap<(&'a str, &'a str), &'a str>,
+    /// Server items as shown: (label, kind, detail, inserted text).
+    shown: HashSet<(&'a str, CandidateKind, Option<&'a str>, &'a str)>,
 }
 
 impl<'a> Seen<'a> {
@@ -228,6 +231,10 @@ impl<'a> Seen<'a> {
             };
         };
         if self.by_kind.get(&key) == Some(&true) {
+            return false;
+        }
+        let shown = (key.0, key.1, cand.detail.as_deref(), cand.insert.text());
+        if !self.shown.insert(shown) {
             return false;
         }
         match self

@@ -81,3 +81,32 @@ fn add_form_checks_versions_per_manager() {
     assert!(check(Manager::Cargo, "1;x").is_err());
     assert!(check_add_input(Some(Manager::Cargo), "-rf", "", true).is_err());
 }
+
+/// Tab moves from the name to the version field (and Shift+Tab back), so
+/// typing `ryu`, Tab, `^1.0` fills both instead of `ryu^1.0`.
+#[gpui::test]
+fn tab_moves_between_the_add_form_fields(cx: &mut gpui::TestAppContext) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = std::fs::canonicalize(dir.path()).expect("canonical");
+    write(&root, "Cargo.toml", "[package]\nname = \"a\"\n");
+    let (view, cx) = view_for(&root, cx);
+    let manifest = root.join("Cargo.toml");
+    view.update_in(cx, |v, window, cx| v.open_add(&manifest, window, cx));
+    cx.run_until_parked();
+    cx.simulate_input("ryu");
+    cx.simulate_keystrokes("tab");
+    cx.simulate_input("^1.0");
+    let texts = |cx: &mut gpui::VisualTestContext| {
+        view.read_with(cx, |v, cx| {
+            let form = v.add_form().expect("form");
+            (
+                form.name.read(cx).text().to_string(),
+                form.version.read(cx).text().to_string(),
+            )
+        })
+    };
+    assert_eq!(texts(cx), ("ryu".to_string(), "^1.0".to_string()));
+    cx.simulate_keystrokes("shift-tab");
+    cx.simulate_input("-x");
+    assert_eq!(texts(cx).0, "ryu-x");
+}

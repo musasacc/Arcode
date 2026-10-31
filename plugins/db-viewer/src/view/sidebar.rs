@@ -42,6 +42,15 @@ pub struct Sidebar {
     pub columns: BTreeMap<(usize, usize), Result<Vec<ColumnInfo>, String>>,
 }
 
+/// "1 file", "3 files".
+fn file_count(n: usize) -> String {
+    if n == 1 {
+        "1 file".to_owned()
+    } else {
+        format!("{n} files")
+    }
+}
+
 /// Lists the project's database files (sorted, at most [`MAX_FILES`]).
 pub fn find_databases() -> Result<Vec<String>, String> {
     workspace::find_files(DB_GLOB, MAX_FILES)
@@ -161,7 +170,7 @@ impl Sidebar {
             Ok(files) => ui::tree(self.items(files)),
         };
         let bar = ui::hstack([
-            ui::text(format!("{} files", self.files.as_ref().map_or(0, Vec::len)))
+            ui::text(file_count(self.files.as_ref().map_or(0, Vec::len)))
                 .tone(Tone::Muted)
                 .key("count"),
             ui::spacer(),
@@ -249,7 +258,14 @@ impl Sidebar {
 
 #[cfg(test)]
 mod tests {
-    use super::parse;
+    use super::{file_count, parse};
+
+    #[test]
+    fn file_count_is_singular_for_one() {
+        assert_eq!(file_count(1), "1 file");
+        assert_eq!(file_count(0), "0 files");
+        assert_eq!(file_count(3), "3 files");
+    }
 
     #[test]
     fn keys_parse() {

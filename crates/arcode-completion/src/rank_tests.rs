@@ -293,3 +293,18 @@ fn match_indices_non_ascii_label() {
     let r = rank("ex", &cands, 10);
     assert_eq!(r[0].match_indices, [4, 6]);
 }
+
+#[test]
+fn same_server_items_that_look_the_same_are_one_row() {
+    // rust-analyzer offers `len()` of `String` and of `str` (Deref) with
+    // the same detail and text: one row. A different detail (another
+    // import path) keeps both.
+    let mut a = lsp("len()");
+    a.detail = Some("const fn(&self) -> usize".into());
+    let b = a.clone();
+    let mut c = a.clone();
+    c.detail = Some("fn(&self) -> usize".into());
+    let cands = vec![a, b, c];
+    assert_eq!(rank("le", &cands, 10).len(), 2);
+    assert_eq!(rank("", &cands, 10).len(), 2);
+}

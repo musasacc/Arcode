@@ -88,6 +88,7 @@ impl Workspace {
         }
         self.plugin_refresh_visible(cx);
         self.plugin_update_command_context(cx);
+        self.refresh_status(cx);
         cx.notify();
     }
 

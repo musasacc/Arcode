@@ -156,3 +156,41 @@ fn parameter_hints_open_with_a_selected_placeholder(cx: &mut TestAppContext) {
     assert_eq!(text(&editor, cx), "add(a)");
     assert!(editor.read_with(cx, |e, _| e.signature_help_visible()));
 }
+
+/// A request scheduled while typing a word is dropped when the cursor left
+/// that word before the delay ended: typing `u8 = "q";` fast must not ask
+/// for (and show) every item in scope after the `;`, where Enter would
+/// accept one instead of breaking the line.
+#[gpui::test]
+fn request_scheduled_for_a_word_is_dropped_after_fast_typing(cx: &mut TestAppContext) {
+    let mut config = config();
+    config.editor.completion.delay_ms = 50;
+    let (editor, cx) = open_at(cx, "", "test.rs", config);
+    let fake = Fake::new(|_, _, _| {
+        let items = ["None", "Some", "u8"].map(lsp_item).to_vec();
+        (
+            CompletionList {
+                items,
+                is_incomplete: false,
+            },
+            Duration::ZERO,
+        )
+    });
+    let calls = fake.calls.clone();
+    install(&editor, fake, cx);
+    for c in ["l", "e", "t", " ", "z", ":", " ", "u", "8", ";"] {
+        cx.simulate_input(c);
+    }
+    cx.executor().advance_clock(Duration::from_millis(500));
+    cx.run_until_parked();
+    assert!(calls.borrow().is_empty(), "sent {:?}", calls.borrow());
+    assert!(!visible(&editor, cx));
+    cx.simulate_keystrokes("enter");
+    assert_eq!(text(&editor, cx), "let z: u8;\n");
+    // Pausing inside a word still asks.
+    cx.simulate_input("S");
+    cx.executor().advance_clock(Duration::from_millis(500));
+    cx.run_until_parked();
+    assert_eq!(calls.borrow().len(), 1);
+    assert_eq!(labels(&editor, cx), vec!["Some"]);
+}

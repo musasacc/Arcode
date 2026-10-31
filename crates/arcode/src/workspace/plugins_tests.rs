@@ -233,3 +233,29 @@ fn no_scratch_tab_for_a_plugin_that_gave_up(cx: &mut TestAppContext) {
     });
     assert_eq!(editors(&ws, cx), before);
 }
+
+/// The status bar names the plugin language of a `.http` file (the editor
+/// itself only knows plain text).
+#[gpui::test]
+fn status_bar_names_a_plugin_language(cx: &mut TestAppContext) {
+    let (_dir, _plugins, ws, _editor, cx) = http_project("GET /a\n", cx);
+    ws.update(cx, |ws, cx| ws.refresh_status(cx));
+    let language = ws.read_with(cx, |ws, cx| ws.status_bar.read(cx).info().language.clone());
+    assert_eq!(language.as_ref().map(|l| l.as_ref()), Some("HTTP Request"));
+}
+
+/// A panel opened beside the editor gets its own split; closing it (the
+/// plugin was disabled or reloaded) closes that split too, while a split
+/// that still has tabs stays.
+#[gpui::test]
+fn closing_a_side_panel_closes_its_empty_split(cx: &mut TestAppContext) {
+    let (_dir, _plugins, ws, _editor, cx) = http_project("GET /a\n", cx);
+    let key = (PluginId::parse("acme.tools").expect("id"), 1);
+    ws.update_in(cx, |ws, window, cx| {
+        ws.plugin_add_page(&key, "Acme".into(), IconName::Rows, true, window, cx)
+    });
+    assert_eq!(ws.read_with(cx, |ws, _| ws.panes.len()), 2);
+    ws.update_in(cx, |ws, window, cx| ws.plugin_close_panel(&key, window, cx));
+    cx.run_until_parked();
+    assert_eq!(ws.read_with(cx, |ws, _| ws.panes.len()), 1);
+}

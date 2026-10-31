@@ -337,7 +337,10 @@ impl LspBridge {
                     move || rope.to_string(),
                 );
             }
-            EditorEvent::Saved => manager.save_document(&doc.path),
+            // A reload makes the buffer match the file as a save does:
+            // servers that check on save (rust-analyzer's cargo check)
+            // must not keep reporting the discarded text.
+            EditorEvent::Saved | EditorEvent::Reloaded => manager.save_document(&doc.path),
             EditorEvent::SelectionsChanged => self.schedule_highlights(editor, cx),
             EditorEvent::DirtyChanged(_)
             | EditorEvent::PathChanged

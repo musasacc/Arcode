@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use arcode_editor::Editor;
+use arcode_lsp::FileChange;
 use gpui::{Context, Entity};
 
 use super::{LspBridge, LspBridgeEvent};
@@ -31,6 +32,17 @@ impl LspBridge {
             return;
         }
         self.follow(editor, false, cx);
+    }
+
+    /// Files the user renamed or deleted in Arcode: the servers of their
+    /// project are told (see [`arcode_lsp::LspManager::files_changed`]).
+    /// Call it after the editors of those files followed them, so their
+    /// documents are already open under the new paths. Nothing happens
+    /// while no server was ever needed.
+    pub fn files_changed(&self, changes: &[FileChange]) {
+        if let Some(manager) = &self.manager {
+            manager.files_changed(changes);
+        }
     }
 
     /// The editor's language changed (language picker, file association):

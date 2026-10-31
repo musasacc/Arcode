@@ -21,6 +21,7 @@ mod form;
 mod layout;
 mod select;
 mod table;
+mod table_scroll;
 mod tree;
 
 use std::collections::{HashMap, HashSet};
@@ -359,7 +360,10 @@ impl Render for PanelView {
             .key_context("PluginPanel")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|view, e: &gpui::KeyDownEvent, _, cx| {
-                if !e.keystroke.modifiers.modified() && view.table_key(&e.keystroke.key, cx) {
+                let (m, key) = (&e.keystroke.modifiers, e.keystroke.key.as_str());
+                // Ctrl+Home / Ctrl+End (Cmd on macOS) jump like Home / End.
+                let jump = m.secondary() && !m.shift && !m.alt && matches!(key, "home" | "end");
+                if (!m.modified() || jump) && view.table_key(key, cx) {
                     cx.stop_propagation();
                 }
             }))

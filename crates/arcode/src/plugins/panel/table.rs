@@ -60,6 +60,23 @@ impl TableState {
     }
 }
 
+impl TableState {
+    pub(super) fn scroll_handle(&self) -> UniformListScrollHandle {
+        self.scroll.clone()
+    }
+
+    pub(super) fn selected(&self) -> Option<u64> {
+        self.selected
+    }
+
+    /// Selects `row` and scrolls it into the middle of the view.
+    pub(super) fn select_and_reveal(&mut self, row: u64) {
+        self.selected = Some(row);
+        let ix = usize::try_from(row).unwrap_or(usize::MAX);
+        self.scroll.scroll_to_item(ix, ScrollStrategy::Center);
+    }
+}
+
 #[cfg(test)]
 impl TableState {
     pub(super) fn new_for_test(row_count: Option<u64>) -> Self {
@@ -225,46 +242,6 @@ impl PanelView {
             .collect()
     }
 
-    /// Keyboard navigation of the table last clicked: arrows, Page Up /
-    /// Page Down, Home / End move the selection (fetching rows as needed),
-    /// Enter activates it. Returns whether the key was used.
-    pub(super) fn table_key(&mut self, key: &str, cx: &mut Context<Self>) -> bool {
-        let Some(id) = self.key_table else {
-            return false;
-        };
-        let Some(state) = self.tables.get_mut(&id) else {
-            return false;
-        };
-        let count = state.item_count();
-        let selected = state.selected;
-        if count == 0 {
-            return false;
-        }
-        let current = selected.unwrap_or(0);
-        let page = 20;
-        let target = match key {
-            "home" => 0,
-            "end" => count - 1,
-            "pageup" => current.saturating_sub(page),
-            "pagedown" => (current + page).min(count - 1),
-            "up" => current.saturating_sub(1),
-            "down" => (current + 1).min(count - 1),
-            "enter" => {
-                let Some(row) = selected else {
-                    return false;
-                };
-                self.send(id, EventKind::RowActivate(row), cx);
-                return true;
-            }
-            _ => return false,
-        };
-        state.selected = Some(target);
-        let ix = usize::try_from(target).unwrap_or(usize::MAX);
-        state.scroll.scroll_to_item(ix, ScrollStrategy::Center);
-        cx.notify();
-        true
-    }
-
     fn sort_clicked(&mut self, id: NodeId, column: u32, cx: &mut Context<Self>) {
         let Some(state) = self.tables.get_mut(&id) else {
             return;
@@ -289,7 +266,8 @@ impl PanelView {
             .tables
             .entry(id)
             .or_insert_with(|| TableState::new(p.row_count));
-        let count = usize::try_from(state.item_count()).unwrap_or(usize::MAX);
+        let rows = state.item_count();
+        let count = usize::try_from(rows).unwrap_or(usize::MAX);
         let scroll = state.scroll.clone();
         let sort = state.sort;
         let error = state.error.clone();
@@ -336,6 +314,9 @@ impl PanelView {
                         )
                     })
             }));
+        // Keys go to the only (or first) table until another is clicked.
+        self.key_table.get_or_insert(id);
+        let scrollbar = self.render_table_scrollbar(id, &scroll, rows, cx);
         let weak = cx.entity().downgrade();
         let list = uniform_list(("table", id), count, move |range, _, cx| {
             weak.update(cx, |view, cx| view.table_rows(id, range, cx))
@@ -344,17 +325,19 @@ impl PanelView {
         .track_scroll(scroll)
         .size_full();
         // Vertical wheel scrolls the rows only; the horizontal scroller
-        // around them would otherwise turn it into sideways scrolling.
+        // around them would otherwise turn it into sideways scrolling. The
+        // scrollbar follows.
         let list = div()
             .flex_1()
             .min_h_0()
             .w(px(width))
-            .on_scroll_wheel(|e: &ScrollWheelEvent, _, cx| {
+            .on_scroll_wheel(cx.listener(|_, e: &ScrollWheelEvent, _, cx| {
                 let d = e.delta.pixel_delta(px(ROW_HEIGHT));
                 if d.y.abs() > d.x.abs() {
                     cx.stop_propagation();
+                    cx.notify();
                 }
-            })
+            }))
             .child(list);
         div()
             .size_full()
@@ -372,20 +355,26 @@ impl PanelView {
             })
             .child(
                 div()
-                    .id(("table-h", id))
+                    .relative()
                     .flex_1()
                     .min_h_0()
                     .w_full()
-                    .overflow_x_scroll()
                     .child(
                         div()
-                            .h_full()
-                            .w(px(width))
-                            .flex()
-                            .flex_col()
-                            .child(header)
-                            .child(list),
-                    ),
+                            .id(("table-h", id))
+                            .size_full()
+                            .overflow_x_scroll()
+                            .child(
+                                div()
+                                    .h_full()
+                                    .w(px(width))
+                                    .flex()
+                                    .flex_col()
+                                    .child(header)
+                                    .child(list),
+                            ),
+                    )
+                    .children(scrollbar),
             )
             .into_any_element()
     }
