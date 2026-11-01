@@ -16,8 +16,16 @@
 # natively): cargo test --manifest-path plugins/Cargo.toml -p <crate>
 #
 # C dependencies (SQLite via rusqlite/bundled for the DB viewer) are compiled
-# with clang and the wasi-libc headers. The flags below come from the
-# toolchain tests in docs/SPIKE.md, "Plugin engine":
+# with clang, llvm-ar and the wasi-libc headers. They are needed only when a
+# plugin being built has C code (rusqlite, libsqlite3-sys or cc in its
+# Cargo.toml); pure Rust plugins such as http-client build without them.
+# When they are installed, they are set up for every build, so C code that
+# comes in through another dependency is compiled the same way.
+# The headers are found where the distributions put them (Debian's
+# /usr/include/wasm32-wasi, /usr/share/wasi-sysroot/include/<triple> on Arch
+# and openSUSE, Fedora's /usr/wasm32-wasi/include/wasm32-wasi) and in
+# /opt/wasi-sdk; see the list below.
+# The flags below come from the toolchain tests in docs/SPIKE.md, "Plugin engine":
 #   - clang 18 accepts `--target=wasm32-wasip2` but does not know where the
 #     wasi-libc headers live for that triple and silently falls back to the
 #     host's glibc headers, so we pass -nostdlibinc plus an explicit
@@ -27,7 +35,9 @@
 #     wasm32-wasi*; we add the rest from §10 through LIBSQLITE3_FLAGS.
 #
 # Environment overrides:
-#   WASI_INCLUDE           wasi-libc include dir (auto-detected)
+#   WASI_INCLUDE           wasi-libc include dir, the folder with stdio.h
+#                          (auto-detected; set it for the WASI SDK or an
+#                          unusual layout)
 #   CC_wasm32_wasip2       C compiler (default: clang-18 or clang)
 #   AR_wasm32_wasip2       archiver   (default: llvm-ar-18 or llvm-ar)
 #   ARCODE_PLUGINS_DIR     cargo workspace to build (default: plugins/)
@@ -54,11 +64,21 @@ fi
 
 first_of() { for c in "$@"; do if command -v "$c" >/dev/null 2>&1; then echo "$c"; return; fi; done; }
 
-if [ -z "${WASI_INCLUDE:-}" ]; then
+# A WASI_INCLUDE set by hand is used as given, but it has to hold
+# wasi-libc's stdio.h like the auto-detected folders do.
+wasi_include_bad=""
+if [ -n "${WASI_INCLUDE:-}" ]; then
+    if [ ! -f "$WASI_INCLUDE/stdio.h" ]; then
+        wasi_include_bad="$WASI_INCLUDE"
+        WASI_INCLUDE=""
+    fi
+else
     for dir in \
         /usr/share/wasi-sysroot/include/wasm32-wasip2 \
+        /usr/share/wasi-sysroot/include/wasm32-wasip1 \
         /usr/share/wasi-sysroot/include/wasm32-wasi \
         /usr/share/wasi-sysroot/include \
+        /usr/wasm32-wasi/include/wasm32-wasi \
         /usr/include/wasm32-wasi \
         /opt/homebrew/share/wasi-sysroot/include/wasm32-wasi \
         /opt/wasi-sdk/share/wasi-sysroot/include/wasm32-wasip2 \
@@ -66,15 +86,6 @@ if [ -z "${WASI_INCLUDE:-}" ]; then
         if [ -f "$dir/stdio.h" ]; then WASI_INCLUDE="$dir"; break; fi
     done
 fi
-if [ -z "${WASI_INCLUDE:-}" ]; then
-    echo "error: wasi-libc headers not found; install wasi-libc (apt install wasi-libc) or set WASI_INCLUDE" >&2
-    exit 1
-fi
-
-export CC_wasm32_wasip2="${CC_wasm32_wasip2:-$(first_of clang-18 clang)}"
-export AR_wasm32_wasip2="${AR_wasm32_wasip2:-$(first_of llvm-ar-18 llvm-ar)}"
-export CFLAGS_wasm32_wasip2="${CFLAGS_wasm32_wasip2:--nostdlibinc -isystem $WASI_INCLUDE}"
-export LIBSQLITE3_FLAGS="${LIBSQLITE3_FLAGS:--DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_OMIT_SHARED_CACHE}"
 
 plugin_id() { sed -n 's/^id[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$1" | head -n 1; }
 
@@ -95,6 +106,48 @@ if [ "${#crates[@]}" -eq 0 ]; then
     echo "no plugins in $plugins; nothing to build"
     exit 0
 fi
+# Plugins with C code (SQLite in the DB viewer) need clang and the
+# wasi-libc headers; pure Rust plugins build without them. A plugin counts
+# as having C code when its Cargo.toml depends on rusqlite, libsqlite3-sys
+# or cc, either as `name = ...` / `name.workspace = true` or as a
+# [dependencies.name] table.
+c_deps='(rusqlite|libsqlite3-sys|cc)'
+needs_c=()
+for c in "${crates[@]}"; do
+    if grep -qE "^${c_deps}[.[:space:]=]|^\[(target\..+\.)?(build-)?dependencies\.${c_deps}\]" \
+        "$plugins/$c/Cargo.toml" 2>/dev/null; then
+        needs_c+=("$c")
+    fi
+done
+cc_bin="${CC_wasm32_wasip2:-$(first_of clang-18 clang)}"
+ar_bin="${AR_wasm32_wasip2:-$(first_of llvm-ar-18 llvm-ar)}"
+if [ "${#needs_c[@]}" -gt 0 ]; then
+    missing=()
+    if [ -z "${WASI_INCLUDE:-}" ]; then missing+=("wasi-libc headers"); fi
+    if [ -z "$cc_bin" ]; then missing+=("clang"); fi
+    if [ -z "$ar_bin" ]; then missing+=("llvm-ar"); fi
+    if [ "${#missing[@]}" -gt 0 ]; then
+        list="$(printf '%s, ' "${missing[@]}")"
+        echo "error: ${list%, } not found; needed to compile the C code in ${needs_c[*]}." >&2
+        if [ -n "$wasi_include_bad" ]; then
+            echo "WASI_INCLUDE is set to $wasi_include_bad, but that folder has no stdio.h." >&2
+        fi
+        echo "Install clang, llvm and wasi-libc (Fedora: wasi-libc-devel). If the headers are" >&2
+        echo "elsewhere, set WASI_INCLUDE to the folder that holds their stdio.h." >&2
+        echo "See docs/guide/installation.md." >&2
+        exit 1
+    fi
+fi
+# Set up the C toolchain whenever all of it is there, not only for the
+# plugins found above, so C code that a plugin pulls in through another
+# dependency is also compiled against the wasi-libc headers.
+if [ -n "${WASI_INCLUDE:-}" ] && [ -n "$cc_bin" ] && [ -n "$ar_bin" ]; then
+    export CC_wasm32_wasip2="$cc_bin"
+    export AR_wasm32_wasip2="$ar_bin"
+    export CFLAGS_wasm32_wasip2="${CFLAGS_wasm32_wasip2:--nostdlibinc -isystem $WASI_INCLUDE}"
+    export LIBSQLITE3_FLAGS="${LIBSQLITE3_FLAGS:--DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_OMIT_SHARED_CACHE}"
+fi
+
 packages=()
 for c in "${crates[@]}"; do packages+=(-p "$c"); done
 

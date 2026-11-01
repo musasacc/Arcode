@@ -34,13 +34,16 @@ larger change.
 You need [rustup](https://rustup.rs) and `git`, plus the platform
 libraries listed in [Installation](docs/guide/installation.md#what-you-need)
 (on Debian/Ubuntu: the X11, Wayland, Vulkan and font development
-packages). `rust-toolchain.toml` pins the Rust version, the `clippy` and
+packages; the guide has the commands for Fedora, Arch, openSUSE, Void,
+Alpine and NixOS). `rust-toolchain.toml` pins the Rust version, the `clippy` and
 `rustfmt` components and the `wasm32-wasip2` target; rustup installs
 them on the first `cargo` command.
 
-For the plugin parts you also need, on Debian/Ubuntu,
-`sudo apt-get install clang llvm wasi-libc` (only the Database Viewer
-needs them, because it compiles SQLite), or the
+For the Database Viewer plugin you also need, on Debian/Ubuntu,
+`sudo apt-get install clang llvm wasi-libc` (it compiles SQLite with
+them; the other plugins are pure Rust and build without them), the
+matching packages on other distributions (see
+[Installation](docs/guide/installation.md#linux)), or the
 [WASI SDK](https://github.com/WebAssembly/wasi-sdk/releases) elsewhere;
 see the header of `scripts/build-plugins.sh`.
 

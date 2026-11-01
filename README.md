@@ -175,21 +175,83 @@ All platforms:
 - [rustup](https://rustup.rs). The repository pins its Rust toolchain in
   `rust-toolchain.toml` (currently Rust 1.97.0 with the `wasm32-wasip2`
   target), and rustup installs it on the first `cargo` command.
-- `git`, which Arcode uses for its git features.
+- `git`, which Arcode uses for its git features, and `curl` for the
+  rustup script. The Linux commands below install both.
 
-**Linux (Debian / Ubuntu):**
+**Linux:** a C compiler, pkg-config and the development packages of a
+few system libraries. Install them first:
 
 ```sh
-sudo apt-get install build-essential pkg-config \
+# Debian / Ubuntu
+sudo apt-get update
+sudo apt-get install build-essential pkg-config git curl \
   libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
   libx11-xcb-dev libxcb1-dev libfontconfig-dev libfreetype-dev \
   libssl-dev libzstd-dev
+
+# Fedora
+sudo dnf install gcc pkgconf-pkg-config git curl libxkbcommon-devel \
+  libxkbcommon-x11-devel wayland-devel vulkan-loader-devel libX11-devel \
+  libxcb-devel fontconfig-devel freetype-devel openssl-devel libzstd-devel
+
+# Arch Linux
+sudo pacman -Syu --needed base-devel git curl libxkbcommon libxkbcommon-x11 \
+  wayland vulkan-icd-loader libx11 libxcb fontconfig freetype2 openssl zstd
+
+# openSUSE Tumbleweed
+sudo zypper install gcc pkgconf-pkg-config git curl libxkbcommon-devel \
+  libxkbcommon-x11-devel wayland-devel vulkan-devel libX11-devel \
+  libxcb-devel fontconfig-devel freetype2-devel libopenssl-devel libzstd-devel
+
+# Void Linux (glibc)
+sudo xbps-install -S base-devel git curl libxkbcommon-devel wayland-devel \
+  vulkan-loader-devel libX11-devel libxcb-devel fontconfig-devel \
+  freetype-devel openssl-devel libzstd-devel
+
+# Alpine Linux (also needs one Cargo setting, see the installation guide)
+sudo apk add build-base pkgconf git curl libxkbcommon-dev wayland-dev \
+  vulkan-loader-dev libx11-dev libxcb-dev fontconfig-dev freetype-dev \
+  openssl-dev zstd-dev
+
+# NixOS: no packages to install; build and run Arcode inside the
+# repository's shell.nix, which also brings rustup and git
+nix-shell
 ```
 
-Arcode draws with Vulkan, so you also need a Vulkan driver. Mesa's drivers
-cover Intel and AMD GPUs (`sudo apt-get install mesa-vulkan-drivers`).
-Other distributions ship the same libraries under similar names. Both X11
-and Wayland are supported.
+Then install rustup (not needed on NixOS) and load it into the current
+shell, or open a new terminal:
+
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+. "$HOME/.cargo/env"
+```
+
+On other distributions, look for the packages of xkbcommon (with its X11
+part), Wayland, the Vulkan loader, xcb (with X11-xcb), fontconfig,
+FreeType, OpenSSL and zstd, plus pkg-config and a C compiler.
+
+Arcode draws with Vulkan, so you also need a Vulkan driver. Mesa's
+drivers cover Intel and AMD GPUs and NVIDIA's open driver, and its
+software driver (lavapipe) works on machines without a usable GPU;
+NVIDIA's own driver ships its own Vulkan driver.
+
+| Distribution | Mesa Vulkan driver | Software driver | Vulkan loader |
+|---|---|---|---|
+| Debian / Ubuntu | `mesa-vulkan-drivers` | included | pulled in by the driver |
+| Fedora | `mesa-vulkan-drivers` | included | pulled in by the driver |
+| Arch Linux | `vulkan-intel`, `vulkan-radeon` or `vulkan-nouveau` | `vulkan-swrast` | `vulkan-icd-loader` |
+| openSUSE Tumbleweed | `libvulkan_intel`, `libvulkan_radeon` or `libvulkan_nouveau` | `libvulkan_lvp` | `libvulkan1` |
+| Void Linux | `mesa-vulkan-intel`, `-radeon` or `-nouveau` | `mesa-vulkan-lavapipe` | `vulkan-loader` |
+| Alpine Linux | `mesa-vulkan-intel`, `-ati` or `-nouveau` | `mesa-vulkan-swrast` | `vulkan-loader` |
+| NixOS | `hardware.graphics.enable = true;` | included | in `shell.nix` |
+
+The build packages above already bring the Vulkan loader. If you run
+Arcode on a machine where you did not build it, install the loader named
+in the last column together with the driver.
+
+Both X11 and Wayland are supported. The
+[installation guide](docs/guide/installation.md#linux) has the details
+for each distribution and the versions they were tested on.
 
 **macOS:** install Xcode from the App Store, not only the Command Line
 Tools. GPUI compiles its Metal shaders with `xcrun metal` during the
@@ -227,11 +289,18 @@ cargo build --release -p arcode
 
 Arcode runs fine without its plugins. To build the HTTP Client and the
 Database Viewer you need the `wasm32-wasip2` target (rustup adds it from
-`rust-toolchain.toml`), plus clang and the wasi-libc headers for the
-Database Viewer, which compiles SQLite from C:
+`rust-toolchain.toml`). The Database Viewer compiles SQLite from C, so it
+also needs clang, `llvm-ar` and the wasi-libc headers; the HTTP Client is
+pure Rust and builds without them. Install them from your distribution
+(the script finds them on its own) or use the WASI SDK:
 
-- Debian / Ubuntu: `sudo apt-get install clang llvm wasi-libc`. The
-  script finds them on its own.
+- Debian / Ubuntu: `sudo apt-get install clang llvm wasi-libc`
+- Fedora: `sudo dnf install clang llvm wasi-libc-devel`
+- Arch Linux: `sudo pacman -Syu --needed clang llvm wasi-libc`
+- openSUSE Tumbleweed: `sudo zypper install clang llvm wasi-libc`
+- Void Linux: `sudo xbps-install -S clang llvm wasi-libc`
+- Alpine Linux: `sudo apk add clang llvm wasi-libc bash`
+- NixOS: `nix-shell --arg withPlugins true` sets everything up.
 - macOS, Windows or anywhere else: unpack the
   [WASI SDK](https://github.com/WebAssembly/wasi-sdk/releases) (CI uses
   version 25) and point the script at it:

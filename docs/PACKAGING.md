@@ -18,10 +18,11 @@ arcode`, then `scripts/build-plugins.sh` with `ARCODE_WASM_PLUGINS` set to
 leaves the plugins out (the app runs fine without them).
 
 Building the plugins needs the `wasm32-wasip2` Rust target, and for the DB
-viewer (SQLite is C) clang and the wasi-libc headers (`apt install
-wasi-libc clang`, Homebrew `wasi-libc`, or the WASI SDK); see the header of
-`scripts/build-plugins.sh`. The plugins are platform-independent: one build
-serves every target.
+viewer (SQLite is C) clang, `llvm-ar` and the wasi-libc headers (`apt install
+clang llvm wasi-libc`, `dnf install clang llvm wasi-libc-devel`, Homebrew
+`wasi-libc`, or the WASI SDK); see the header of `scripts/build-plugins.sh`.
+The HTTP Client is pure Rust and builds without them. The plugins are
+platform-independent: one build serves every target.
 
 ## How the app finds the bundled plugins
 

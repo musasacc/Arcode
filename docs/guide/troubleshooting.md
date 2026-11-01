@@ -39,12 +39,89 @@ Two more logs are inside Arcode:
 ### The window is black, or Arcode does not start
 
 Arcode draws with Vulkan on Linux and Windows. Make sure a Vulkan driver
-is installed: on Debian/Ubuntu, `sudo apt-get install mesa-vulkan-drivers`
-for Intel and AMD; NVIDIA's driver brings its own. `vulkaninfo` (package
-`vulkan-tools`) shows whether Vulkan works at all. In a virtual machine
-without GPU support, Mesa's software driver (lavapipe, part of
-`mesa-vulkan-drivers`) works; turn on [low-end mode](low-end-mode.md)
-there.
+is installed: on Debian/Ubuntu and Fedora, `mesa-vulkan-drivers` has
+Mesa's Intel, AMD and nouveau drivers; NVIDIA's own driver brings its
+own. The [installation guide](installation.md#linux) names the packages
+for other distributions. `vulkaninfo` shows whether Vulkan works at all;
+it is in the package `vulkan-tools` (`Vulkan-Tools` on Void Linux). In a
+virtual machine without GPU support, Mesa's software driver, lavapipe,
+works; turn on [low-end mode](low-end-mode.md) there. Its package is
+named in the installation guide for each distribution (on Debian/Ubuntu
+and Fedora it is part of `mesa-vulkan-drivers`).
+
+When Arcode stops right at startup on Linux with
+`Unable to init GPU context` in the log (after
+`Failed to initialize X11 client` in an X11 session), the rest of the
+message tells you what is missing:
+
+- It names `libvulkan.so.1`: the Vulkan loader is missing. On Void Linux
+  and Alpine Linux the Mesa driver packages do not pull it in; install
+  `vulkan-loader`. On NixOS, start Arcode from inside `nix-shell`.
+- It ends in `NoSupportedDeviceFound`: the loader is there, but no Vulkan
+  driver is installed for your GPU. Install one, or Mesa's software
+  driver.
+
+### `not found; needed to compile the C code in db-viewer`
+
+`scripts/build-plugins.sh` stops with an error that ends this way when it
+is about to build the Database Viewer (`db-viewer`, which compiles SQLite
+from C) and cannot find what that needs: clang, `llvm-ar` and the
+wasi-libc headers. The start of the first line lists the pieces it did not
+find, for example:
+
+```text
+error: wasi-libc headers not found; needed to compile the C code in db-viewer.
+error: clang, llvm-ar not found; needed to compile the C code in db-viewer.
+error: wasi-libc headers, clang, llvm-ar not found; needed to compile the C code in db-viewer.
+```
+
+Running the script without arguments builds the Database Viewer too. The
+HTTP Client is pure Rust and builds without them:
+`scripts/build-plugins.sh http-client`.
+
+If `WASI_INCLUDE` is set to a folder without wasi-libc's `stdio.h`, for
+example a mistyped path or one from an older setup, the script reports the
+headers as not found and adds a line naming that folder. Correct the path,
+or unset `WASI_INCLUDE` so the script looks in the usual places.
+
+Install the packages named for your distribution under
+[Linux](installation.md#linux), for example on Fedora:
+
+```sh
+sudo dnf install clang llvm wasi-libc-devel
+```
+
+The script finds the headers where the distributions in the installation
+guide put them. If yours keeps them somewhere else, look for wasi-libc's
+`stdio.h` and set `WASI_INCLUDE` to the folder that contains it:
+
+```sh
+find / -path '*wasm32*' -name stdio.h 2>/dev/null
+WASI_INCLUDE=/path/to/that/folder scripts/build-plugins.sh
+```
+
+With the WASI SDK instead of distribution packages, set `WASI_INCLUDE`,
+`CC_wasm32_wasip2` and `AR_wasm32_wasip2` as described under
+[The bundled plugins](installation.md#the-bundled-plugins).
+
+### Alpine Linux: the build fails at the end with `cannot find -lfreetype`
+
+The final link step fails with `-static-pie` in the command line and
+`ld: cannot find -lfreetype`, although `freetype-dev` is installed.
+rustup's Rust for musl links statically by default; Arcode has to be
+linked dynamically. Add the setting from
+[Alpine Linux](installation.md#alpine-linux) to `~/.cargo/config.toml`
+and build again.
+
+### NixOS: Arcode does not start outside `nix-shell`
+
+Arcode loads the Vulkan and Wayland libraries at run time and finds them
+through the shell's `LD_LIBRARY_PATH`. Outside the shell it does not find
+them; in a Wayland session it stops with `NoWaylandLib`. Start it from
+inside `nix-shell`. If it then stops with `NoSupportedDeviceFound`,
+check that `hardware.graphics.enable = true;` is set and that Arcode was
+built with the same nixpkgs channel as your system (see
+[NixOS](installation.md#nixos)).
 
 ### My settings are ignored
 
