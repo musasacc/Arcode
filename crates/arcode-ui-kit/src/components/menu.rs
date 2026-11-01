@@ -15,6 +15,18 @@ pub const MENU_ROW_H: f32 = 26.;
 /// hover and `pill` fill when `selected` (the keyboard highlight). Append
 /// an icon (14, muted), the label, a [`crate::spacer`] and a [`crate::kbd`].
 pub fn menu_row(id: impl Into<ElementId>, selected: bool, cx: &App) -> Stateful<Div> {
+    menu_row_with(id, selected, true, cx)
+}
+
+/// [`menu_row`] with control over the hover fill. gpui panics if a div's
+/// hover style is set twice, so a disabled row (no hover) must opt out here
+/// rather than call `.hover` again on the result.
+pub fn menu_row_with(
+    id: impl Into<ElementId>,
+    selected: bool,
+    hoverable: bool,
+    cx: &App,
+) -> Stateful<Div> {
     let c = &theme(cx).colors;
     let hover = c.hover;
     div()
@@ -30,7 +42,7 @@ pub fn menu_row(id: impl Into<ElementId>, selected: bool, cx: &App) -> Stateful<
         .text_color(c.text)
         .cursor_pointer()
         .when(selected, |el| el.bg(c.pill))
-        .when(!selected, |el| el.hover(move |s| s.bg(hover)))
+        .when(!selected && hoverable, |el| el.hover(move |s| s.bg(hover)))
 }
 
 /// A 1 px `border` line between groups of a menu, edge to edge across the

@@ -5,7 +5,7 @@
 use arcode_editor::{Editor, IndentOverride};
 use arcode_syntax::Language;
 use arcode_ui_kit::settings;
-use gpui::{AppContext, Context, Entity, Subscription};
+use gpui::{AppContext, Context, Entity, Subscription, Window};
 
 use super::Workspace;
 use crate::activity_bar::Activity;
@@ -43,12 +43,23 @@ pub(super) fn apply_detected_indent(editor: &mut Editor, cx: &mut Context<Editor
 
 impl Workspace {
     /// The Languages page and the language state of a new workspace.
-    pub(super) fn new_lang_parts(cx: &mut Context<Self>) -> (LangParts, Vec<Subscription>) {
+    pub(super) fn new_lang_parts(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> (LangParts, Vec<Subscription>) {
         let view = cx.new(LanguagesView::new);
         let subs = vec![
-            cx.subscribe(&view, |ws, _, event: &LanguagesEvent, cx| {
-                let LanguagesEvent::Message(text) = event;
-                ws.show_toast(text.clone(), cx);
+            cx.subscribe_in(&view, window, |ws, _, event: &LanguagesEvent, window, cx| {
+                match event {
+                    LanguagesEvent::Message(text) => ws.show_toast(text.clone(), cx),
+                    LanguagesEvent::RunInstall(line) => {
+                        ws.bottom_panel_visible = true;
+                        ws.bottom_panel.update(cx, |p, cx| {
+                            p.run_named("Install language server", line, None, None, window, cx)
+                        });
+                        cx.notify();
+                    }
+                }
             }),
             cx.observe_global::<arcode_ui_kit::Settings>(|ws, cx| {
                 ws.languages_settings_changed(cx)

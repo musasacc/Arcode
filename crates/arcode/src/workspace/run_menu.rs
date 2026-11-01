@@ -75,8 +75,26 @@ impl Workspace {
             (Some(line), _) => (line.clone(), line.clone(), root),
             (None, Some(cmd)) => (cmd.label.clone(), cmd.command_line(), cmd.cwd.clone()),
             (None, None) => {
-                self.show_toast("No run command detected. Use the Run menu to type one.", cx);
-                return;
+                // No project file to take a command from: run the open file
+                // (building it first when the language needs that).
+                let file = self
+                    .active_editor(cx)
+                    .and_then(|e| e.read(cx).path().map(Path::to_path_buf))
+                    .and_then(|path| {
+                        let run = arcode_project::run_file_command(&path)?;
+                        let cwd = path.parent().map_or_else(|| root.clone(), Path::to_path_buf);
+                        Some((run.label, run.line, cwd))
+                    });
+                match file {
+                    Some(found) => found,
+                    None => {
+                        self.show_toast(
+                            "Nothing to run: open a source file or use the Run menu to type a command.",
+                            cx,
+                        );
+                        return;
+                    }
+                }
             }
         };
         self.bottom_panel_visible = true;

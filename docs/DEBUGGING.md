@@ -29,6 +29,12 @@ every detected run, test and build command; picking one makes it the Run
 button's command for this project (kept with the session). **Edit Run
 Command…** lets you type any command line.
 
+When the folder has no project file to take a command from, Run falls back
+to the open file (`arcode_project::run_file_command`): by extension it runs
+`python3 f.py`, `node f.js`, `go run f.go`, `bash f.sh`, and for compiled
+languages (`.rs` via `rustc`, `.c`, `.cpp`) builds into a temporary file,
+runs it, and deletes it.
+
 ## Debug adapters
 
 | language | adapters tried in order |

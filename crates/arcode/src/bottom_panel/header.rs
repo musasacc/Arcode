@@ -79,15 +79,15 @@ impl BottomPanel {
                 .child(spacer())
                 .child(gives_way_first(status))
                 .child(header_rule(c.border)),
+            // Terminal: the sessions sit right after the tabs, grouped with
+            // the Terminal tab they belong to; the run readout stays right.
             None => header
-                .child(spacer())
-                .when_some(readout, |el, readout| {
-                    el.child(gives_way_first(readout))
-                        .when(terminal, |el| el.child(header_rule(c.border)))
-                })
                 .when(terminal, |el| {
-                    el.child(terminal_panel::render_strip(&self.terminals, cx))
-                }),
+                    el.child(header_rule(c.border))
+                        .child(terminal_panel::render_strip(&self.terminals, cx))
+                })
+                .child(spacer())
+                .when_some(readout, |el, readout| el.child(gives_way_first(readout))),
         };
         header.child(
             icon_button("close-panel", IconName::X)

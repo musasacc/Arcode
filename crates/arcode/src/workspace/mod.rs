@@ -257,7 +257,7 @@ impl Workspace {
         let (debug, debug_subs) = debug::DebugParts::new(&bottom_panel, window, cx);
         subscriptions.extend(debug_subs);
         let shell = frame::Shell::new(&debug.debugger, &status_bar, &bottom_panel, cx);
-        let (langs, lang_subs) = Self::new_lang_parts(cx);
+        let (langs, lang_subs) = Self::new_lang_parts(window, cx);
         let (pkgs, pkg_subs) = packages_ui::PackagesParts::new(window, cx);
         subscriptions.extend(pkg_subs);
         subscriptions.extend(lang_subs);

@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use arcode_buffer::Point;
 use arcode_ui_kit::{
-    kbd, menu_row, menu_section, menu_separator, popover, theme, truncated, type_scale,
+    kbd, menu_row_with, menu_section, menu_separator, popover, theme, truncated, type_scale,
     ui_font_family,
 };
 use gpui::{
@@ -197,10 +197,10 @@ impl PopupMenu {
             MenuRow::Item(item) => {
                 let selected = self.selected == Some(ix);
                 let enabled = item.enabled;
-                menu_row(("menu-row", ix), selected, cx)
+                menu_row_with(("menu-row", ix), selected, enabled, cx)
                     .gap(px(16.))
                     // Disabled items do not react to the mouse.
-                    .when(!enabled, |d| d.hover(|s| s).cursor_default())
+                    .when(!enabled, |d| d.cursor_default())
                     .text_color(if enabled {
                         colors.text
                     } else {

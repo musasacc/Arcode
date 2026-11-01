@@ -47,6 +47,7 @@ pub mod packs;
 pub mod proc_group;
 pub mod procs;
 mod run_commands;
+mod run_file;
 mod runnables;
 pub mod templates;
 pub mod toolchain;
@@ -72,6 +73,7 @@ pub use packs::{
     ToolState, check_installed, install_plan, pack_by_id, pack_for_language, packs,
 };
 pub use run_commands::{default_run_command, detect_run_commands};
+pub use run_file::{FileRun, run_file_command};
 pub use runnables::{RUNNABLE_LANGUAGES, Runnable, RunnableKind, command_for_runnable};
 pub use toolchain::{
     PythonVenv, detect_node_version_file, detect_python_venv, rust_toolchain_channel,

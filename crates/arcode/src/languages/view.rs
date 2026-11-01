@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use arcode_ui_kit::{IconName, icon, icon_button, section_header, settings, spacer, switch, theme};
+use arcode_ui_kit::{ButtonStyle, IconName, button, icon, icon_button, section_header, settings, spacer, switch, theme};
 use gpui::{
     App, ClipboardItem, Context, EventEmitter, IntoElement, SharedString, Subscription, Task,
     Window, div, prelude::*, px,
@@ -18,6 +18,8 @@ use super::bundle::{PackRow, ServerRow, installed_commands, pack_rows};
 pub enum LanguagesEvent {
     /// A short status message.
     Message(SharedString),
+    /// Run this install command in the terminal (the user clicked Install).
+    RunInstall(SharedString),
 }
 
 /// The Languages page.
@@ -144,7 +146,13 @@ impl LanguagesView {
         cx.notify();
     }
 
-    fn render_server(&self, pack: &str, ix: usize, server: &ServerRow, cx: &App) -> gpui::Div {
+    fn render_server(
+        &self,
+        pack: &str,
+        ix: usize,
+        server: &ServerRow,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
         let c = theme(cx).colors.clone();
         let state = self.is_installed(&server.command);
         let (glyph, color, label) = match state {
@@ -193,6 +201,21 @@ impl LanguagesView {
                                     })
                                     .child(hint),
                             )
+                            .when(server.install_command.is_some(), |el| {
+                                let run = copy.clone();
+                                el.child(
+                                    button(
+                                        SharedString::from(format!("install-{pack}-{ix}")),
+                                        "Install",
+                                    )
+                                    .compact()
+                                    .style(ButtonStyle::Primary)
+                                    .tooltip("Run this command in the terminal")
+                                    .on_click(cx.listener(move |_, _, _, cx| {
+                                        cx.emit(LanguagesEvent::RunInstall(run.clone()))
+                                    })),
+                                )
+                            })
                             .child(
                                 icon_button(
                                     SharedString::from(format!("copy-{pack}-{ix}")),
