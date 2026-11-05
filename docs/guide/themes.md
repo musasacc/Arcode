@@ -27,6 +27,38 @@ dark mode and switches when it changes.
 Plugins' panels, the terminal and every built-in view use the active
 theme; there is nothing else to configure.
 
+## Text rendering
+
+On Linux, Arcode draws text with grayscale anti-aliasing. Two settings
+change how the edges of glyphs are blended, which is what makes text look
+thin, heavy or soft. Both are in **Settings > Fonts > Text rendering**,
+with a sample of light text on Ember and dark text on Chalk, and in
+`config.toml`:
+
+```toml
+[ui]
+text_gamma = 1.8      # 1.0 - 2.2
+text_contrast = 1.0   # 0 - 8
+```
+
+- **Gamma** works on all text. Raising it (2.0, 2.2) makes light text on a
+  dark theme heavier and dark text on a light theme thinner; lowering it
+  does the opposite.
+- **Contrast** thickens dark and mid-tone text only: text on a light
+  theme, muted labels and syntax colours. Light text on a dark theme does
+  not change.
+
+So for thin text on a dark theme, raise the gamma; on a light theme, raise
+the contrast (2 to 4). The renderer reads both when Arcode starts, so a
+change takes effect after a restart; the Settings page says when one is
+needed. While a setting is at its default, `ZED_FONTS_GAMMA` or
+`ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST` set in your environment applies
+instead, and the Settings page shows it. macOS and Windows draw text with
+the system's own settings (on Windows, the ClearType Text Tuner), so the
+two settings are not shown there.
+
+The editor font weight is `editor.font_weight` (Settings > Fonts > Weight).
+
 ## Writing your own theme
 
 A theme is a TOML file in the `themes` folder next to `config.toml`

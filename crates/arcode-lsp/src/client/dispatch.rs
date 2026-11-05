@@ -14,7 +14,7 @@ use tokio::io::{AsyncBufRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
 
 use super::shared::Shared;
-use crate::error::{INVALID_PARAMS, METHOD_NOT_FOUND};
+use crate::error::{INVALID_PARAMS, METHOD_NOT_FOUND, REQUEST_FAILED};
 use crate::event::{EditOutcome, EditReply, LspEvent};
 use crate::rpc::{self, Incoming};
 use crate::transport;
@@ -179,6 +179,10 @@ fn handle_plain_request(shared: &Shared, method: &str, params: Value) -> ReplyRe
                 .collect();
             Ok(Value::Array(items))
         }
+        "vscode/content" => Err((
+            REQUEST_FAILED,
+            super::offline::CONTENT_REQUEST_ERROR.to_string(),
+        )),
         "window/workDoneProgress/create"
         | "client/registerCapability"
         | "client/unregisterCapability" => Ok(Value::Null),

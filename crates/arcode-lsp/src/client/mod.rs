@@ -2,6 +2,7 @@
 
 mod dispatch;
 mod group;
+mod offline;
 mod process;
 mod resolve;
 mod shared;
@@ -179,7 +180,10 @@ impl LspClient {
             shared: shared.clone(),
             kill: Mutex::new(kill),
         });
-        let params = initialize_params(&shared.root, shared.initialization_options.clone());
+        let mut params = initialize_params(&shared.root, shared.initialization_options.clone());
+        if !offline::sends_workspace_folders(&shared.name) {
+            params.workspace_folders = None;
+        }
         let result = async {
             let params = serde_json::to_value(params)?;
             let value = shared
@@ -188,6 +192,10 @@ impl LspClient {
             let result: InitializeResult = serde_json::from_value(value)?;
             let initialized = serde_json::to_value(InitializedParams {})?;
             shared.notify_value(Initialized::METHOD, initialized)?;
+            let options = shared.initialization_options.as_ref();
+            for (method, params) in offline::after_initialized(&shared.name, options) {
+                shared.notify_value(method, params)?;
+            }
             Ok::<_, LspError>(result)
         }
         .await;

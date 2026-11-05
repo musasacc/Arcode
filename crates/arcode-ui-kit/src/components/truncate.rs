@@ -5,6 +5,11 @@
 //! element measures the full text once per layout, reports a tiny
 //! min-content width so flex parents can shrink it, and truncates to the
 //! width it is actually given when painting.
+//!
+//! The text style is read once, while laying out, and kept for painting:
+//! GPUI 0.2.2 paints `deferred` elements (popovers, menus) without the
+//! text style of their ancestors, so reading it again in `paint` gave a
+//! label in a popover GPUI's default black system font.
 
 use std::ops::Range;
 
@@ -79,7 +84,7 @@ pub fn truncate_to_width(
 }
 
 /// A one-line label that truncates with an ellipsis to its laid-out width.
-/// Uses the inherited text style (font, size, color).
+/// Uses the inherited text style (font, size, color) as it is at layout.
 pub struct Truncated {
     text: SharedString,
     mode: TruncateMode,
@@ -149,8 +154,7 @@ fn runs_for(
     runs
 }
 
-fn measure_text(text: &str, window: &mut Window) -> Pixels {
-    let style = window.text_style();
+fn measure_text(text: &str, style: &TextStyle, window: &mut Window) -> Pixels {
     let font_size = style.font_size.to_pixels(window.rem_size());
     let run = style.to_run(text.len());
     window
@@ -172,8 +176,14 @@ impl IntoElement for Truncated {
     }
 }
 
+/// The text style a label had at layout, kept for painting.
+pub struct LabelStyle {
+    style: TextStyle,
+    line_height: Pixels,
+}
+
 impl Element for Truncated {
-    type RequestLayoutState = ();
+    type RequestLayoutState = LabelStyle;
     type PrepaintState = ();
 
     fn id(&self) -> Option<ElementId> {
@@ -190,16 +200,17 @@ impl Element for Truncated {
         _inspector_id: Option<&InspectorElementId>,
         window: &mut Window,
         _cx: &mut App,
-    ) -> (LayoutId, ()) {
-        let full = measure_text(&self.text, window);
-        let ellipsis = measure_text(ELLIPSIS, window);
+    ) -> (LayoutId, LabelStyle) {
+        let style = window.text_style();
+        let full = measure_text(&self.text, &style, window);
+        let ellipsis = measure_text(ELLIPSIS, &style, window);
         let line_height = window.line_height();
-        let mut style = Style {
+        let mut layout_style = Style {
             flex_shrink: 1.,
             ..Default::default()
         };
-        style.min_size.width = px(0.).into();
-        let layout = window.request_measured_layout(style, move |known, available, _, _| {
+        layout_style.min_size.width = px(0.).into();
+        let layout = window.request_measured_layout(layout_style, move |known, available, _, _| {
             let width = known.width.unwrap_or(match available.width {
                 AvailableSpace::Definite(w) => full.min(w),
                 AvailableSpace::MinContent => ellipsis,
@@ -207,7 +218,7 @@ impl Element for Truncated {
             });
             size(width, known.height.unwrap_or(line_height))
         });
-        (layout, ())
+        (layout, LabelStyle { style, line_height })
     }
 
     fn prepaint(
@@ -215,7 +226,7 @@ impl Element for Truncated {
         _id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
         _bounds: Bounds<Pixels>,
-        _request_layout: &mut (),
+        _request_layout: &mut LabelStyle,
         _window: &mut Window,
         _cx: &mut App,
     ) {
@@ -226,7 +237,7 @@ impl Element for Truncated {
         _id: Option<&GlobalElementId>,
         _inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
-        _request_layout: &mut (),
+        label: &mut LabelStyle,
         _prepaint: &mut (),
         window: &mut Window,
         cx: &mut App,
@@ -236,8 +247,10 @@ impl Element for Truncated {
         // that much slack keeps a label that was given its full width from
         // being cut (`topic` drawn as `to…`).
         let max = bounds.size.width + px(1.0 / window.scale_factor().max(1.0)) + px(0.01);
-        let text = truncate_to_width(&self.text, max, self.mode, |t| measure_text(t, window));
-        let style = window.text_style();
+        let style = &label.style;
+        let text = truncate_to_width(&self.text, max, self.mode, |t| {
+            measure_text(t, style, window)
+        });
         let font_size = style.font_size.to_pixels(window.rem_size());
         // Highlights hold on the untouched text, or on the head an end
         // ellipsis keeps.
@@ -248,16 +261,72 @@ impl Element for Truncated {
         } else {
             0
         };
-        let runs = runs_for(&text, kept, &style, &self.highlights);
+        let runs = runs_for(&text, kept, style, &self.highlights);
+        #[cfg(any(debug_assertions, feature = "test-support"))]
+        paint_log::record(&text, &runs, bounds);
         let line =
             window
                 .text_system()
                 .shape_line(SharedString::from(text), font_size, &runs, None);
-        let line_height = window.line_height();
+        let line_height = label.line_height;
         let y = bounds.top() + (bounds.size.height - line_height) * 0.5;
         if let Err(err) = line.paint(gpui::point(bounds.left(), y), line_height, window, cx) {
             log::debug!("failed to paint truncated label: {err}");
         }
+    }
+}
+
+/// What [`Truncated`] labels painted, for tests that check the colours
+/// people actually see. Debug builds and the `test-support` feature only
+/// (which the `arcode` crate's tests turn on, so they also run in release
+/// builds), and off until a test calls
+/// [`paint_log::start`], so drawing pays one thread-local read per label.
+#[cfg(any(debug_assertions, feature = "test-support"))]
+pub mod paint_log {
+    use std::cell::{Cell, RefCell};
+
+    use gpui::{Bounds, Hsla, Pixels, TextRun};
+
+    /// One painted label.
+    #[derive(Debug, Clone)]
+    pub struct PaintedLabel {
+        /// The text drawn (with an ellipsis when cut).
+        pub text: String,
+        /// The colour of its first run.
+        pub color: Hsla,
+        /// Where it was drawn, in window coordinates.
+        pub bounds: Bounds<Pixels>,
+    }
+
+    thread_local! {
+        static ON: Cell<bool> = const { Cell::new(false) };
+        static LOG: RefCell<Vec<PaintedLabel>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// Starts recording on this thread (GPUI tests draw on it), dropping
+    /// anything recorded before.
+    pub fn start() {
+        ON.with(|on| on.set(true));
+        take();
+    }
+
+    pub(super) fn record(text: &str, runs: &[TextRun], bounds: Bounds<Pixels>) {
+        if !ON.with(Cell::get) {
+            return;
+        }
+        let Some(run) = runs.first() else { return };
+        LOG.with(|log| {
+            log.borrow_mut().push(PaintedLabel {
+                text: text.to_string(),
+                color: run.color,
+                bounds,
+            })
+        });
+    }
+
+    /// The labels painted on this thread since the last call.
+    pub fn take() -> Vec<PaintedLabel> {
+        LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
     }
 }
 

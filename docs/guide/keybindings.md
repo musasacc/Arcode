@@ -46,6 +46,36 @@ Every command is in the palette, with or without a shortcut.
 | Reveal active file in the file tree | Ctrl+K Ctrl+R | Cmd+K Cmd+R | File: Reveal Active File in Explorer |
 | Quit | Ctrl+Q | Cmd+Q | Application: Quit |
 
+## Menu bar
+
+On Linux and Windows the menus (File, Edit, Selection, View, Go, Run,
+Terminal, Git, Help) sit in the title bar after the logo; every item
+shows its shortcut. On macOS they are in the system menu bar and these
+keys do not apply.
+
+| Action | Keys |
+|---|---|
+| Activate the menu bar | Alt (press and release) |
+| Open a menu | Alt + its underlined letter: Alt+F File, Alt+E Edit, Alt+S Selection, Alt+V View, Alt+G Go, Alt+R Run, Alt+T Terminal, Alt+I Git, Alt+H Help |
+| Move between items / menus | Up / Down, Left / Right |
+| Open a submenu | Right or Enter |
+| Run the selected item | Enter or Space |
+| Run an item | its underlined letter |
+| Close a submenu, then the menu | Esc |
+
+An Alt+letter key that the focused view uses keeps working there: in
+the terminal Alt+F and Alt+B still move by word, and in the find bar
+Alt+C, Alt+W and Alt+R still toggle its options. A tap on Alt opens the
+menus from anywhere, except while a dialog or picker (such as the command
+palette) is open. Alt used with the mouse is not a tap: Alt+click (add a
+cursor), Alt+Shift+drag (column selection) and moving the window with
+Alt+drag leave the menu bar alone.
+
+Items that do not apply right now are greyed: Step Over without a paused
+debug session, Go to Definition and Reload from Disk without an open
+file, Back and Forward with nowhere to go. Editor items show the editor's
+shortcut even while another part of the window has focus.
+
 ## Editing
 
 | Action | Linux / Windows | macOS |
@@ -143,9 +173,10 @@ Other keys go to the program running in the terminal.
 
 | Action | Linux / Windows | macOS | Command |
 |---|---|---|---|
-| Run project | Ctrl+F5 | Cmd+F5 | Run: Run Project |
+| Run project (the current file when nothing was detected) | Ctrl+F5 | Cmd+F5 | Run: Run Project |
+| Run / debug the current file | | | Run: Run Current File, Debug: Debug Current File |
 | Run and Debug view | Ctrl+Shift+D | Cmd+Shift+D | Debug: Show Run and Debug |
-| Start / continue | F5 | F5 | Debug: Start / Continue |
+| Start / continue (the current file without a launch configuration) | F5 | F5 | Debug: Start / Continue |
 | Pause | F6 | F6 | Debug: Pause |
 | Step over / into / out | F10 / F11 / Shift+F11 | F10 / F11 / Shift+F11 | |
 | Stop | Shift+F5 | Shift+F5 | Debug: Stop |

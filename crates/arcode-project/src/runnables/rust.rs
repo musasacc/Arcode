@@ -83,6 +83,21 @@ pub(super) fn command(
     )
 }
 
+/// `cargo run` for a file that belongs to a target of its Cargo package
+/// or is its build script (which only runs inside a cargo build, with the
+/// environment cargo gives it); `None` outside any package, or for a file
+/// no target builds (a loose script next to `Cargo.toml`), which is
+/// compiled on its own instead.
+pub(crate) fn package_run_command(file: &Path, root: &Path) -> Option<RunCommand> {
+    let pkg = cargo::package_for(&fsutil::start_dir(file), Some(root))?;
+    let rel = fsutil::rel_slash(file, &pkg.dir);
+    let (target, _) = locate(&pkg, &rel);
+    if target == Target::Unknown && pkg.build_script.as_deref() != Some(rel.as_str()) {
+        return None;
+    }
+    command(file, root, RunnableKind::Main, "")
+}
+
 /// `prefix::name`, skipping empty parts.
 fn join_path(prefix: &str, name: &str) -> String {
     match (prefix.is_empty(), name.is_empty()) {

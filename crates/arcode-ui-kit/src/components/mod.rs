@@ -27,4 +27,6 @@ pub use surface::{
 };
 pub use switch::{Switch, switch};
 pub use tab_layout::{TabMetrics, TabSize, TabTrailing, tab_trailing};
+#[cfg(any(debug_assertions, feature = "test-support"))]
+pub use truncate::paint_log;
 pub use truncate::{ELLIPSIS, TruncateMode, Truncated, truncate_to_width, truncated};

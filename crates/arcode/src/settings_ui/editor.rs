@@ -79,6 +79,30 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             cx,
         ))
         .child(page.bool_row(
+            "Minimap",
+            if low_end {
+                "The minimap is hidden in low-end mode."
+            } else {
+                "The file scaled down at the right edge; click or drag it to scroll."
+            },
+            "editor.minimap",
+            e.minimap,
+            cx,
+        ))
+        .child(page.number_row(
+            "Minimap width",
+            "In pixels.",
+            "editor.minimap_width",
+            e.minimap_width as f32,
+            Steps {
+                step: 8.,
+                min: *arcode_config::EditorSettings::MINIMAP_WIDTHS.start() as f32,
+                max: *arcode_config::EditorSettings::MINIMAP_WIDTHS.end() as f32,
+                int: true,
+            },
+            cx,
+        ))
+        .child(page.bool_row(
             "Cursor blink",
             if low_end {
                 "The cursor never blinks in low-end mode."

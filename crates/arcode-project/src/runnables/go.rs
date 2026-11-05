@@ -6,17 +6,18 @@ use super::{RunnableKind, label};
 use crate::command::{RunCommand, RunKind, RunSource, args};
 use crate::{fsutil, gofile};
 
-pub(super) fn command(
+pub(crate) fn command(
     file: &Path,
     root: &Path,
     kind: RunnableKind,
     name: &str,
 ) -> Option<RunCommand> {
     let dir = fsutil::start_dir(file);
-    let module = fsutil::ancestors(&dir, Some(root))
+    let found = fsutil::ancestors(&dir, Some(root))
         .into_iter()
-        .find(|d| d.join("go.mod").is_file())
-        .unwrap_or_else(|| root.to_path_buf());
+        .find(|d| d.join("go.mod").is_file());
+    let in_module = found.is_some();
+    let module = found.unwrap_or_else(|| root.to_path_buf());
     let rel = fsutil::rel_slash(&dir, &module);
     let pkg = if rel == "." {
         ".".to_string()
@@ -25,8 +26,9 @@ pub(super) fn command(
     };
     let pattern = anchored(name);
     let (list, run_kind) = match kind {
-        // `go run .` skips `//go:build ignore` files; name the file instead.
-        RunnableKind::Main if is_ignored_file(file) => (
+        // `go run .` skips `//go:build ignore` files and needs a module;
+        // name the file instead.
+        RunnableKind::Main if !in_module || is_ignored_file(file) => (
             args(&["run", &fsutil::rel_slash(file, &module)]),
             RunKind::Run,
         ),

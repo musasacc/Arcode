@@ -266,8 +266,33 @@ pub fn builtin_servers() -> BTreeMap<String, LspServerSettings> {
         LspServerSettings::with("intelephense", &["--stdio"], &["composer.json"]),
     ]
     .into_iter()
-    .map(|server| (server.command.clone(), server))
+    .map(|mut server| {
+        server.initialization_options = offline_options(&server.command);
+        (server.command.clone(), server)
+    })
     .collect()
+}
+
+/// Built-in settings that keep servers from downloading on their own:
+/// the schema catalog (yaml-language-server), schemas altogether (taplo
+/// can load them only from the network), schemas a JSON or YAML file links
+/// to (the server asks Arcode instead, which does not fetch them; for
+/// YAML, `arcode-lsp` arranges that while the store is off) and npm type
+/// packages (typescript-language-server). taplo is also started without
+/// workspace folders, for which it would load its catalog before reading
+/// any setting. Setting `initialization_options` for one of these servers
+/// replaces them.
+fn offline_options(server: &str) -> Option<toml::Value> {
+    let text = match server {
+        "yaml-language-server" => "yaml = { schemaStore = { enable = false } }",
+        "taplo" => "evenBetterToml = { schema = { enabled = false } }",
+        "vscode-json-language-server" => "handledSchemaProtocols = [\"file\"]",
+        "typescript-language-server" => "disableAutomaticTypingAcquisition = true",
+        _ => return None,
+    };
+    toml::from_str::<toml::Table>(text)
+        .ok()
+        .map(toml::Value::Table)
 }
 
 /// Built-in language → server assignments, merged under `[language.*]`.
@@ -310,6 +335,23 @@ pub fn builtin_languages() -> BTreeMap<String, LanguageSettings> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn builtin_servers_stay_offline() {
+        let servers = builtin_servers();
+        let options = |name: &str| {
+            servers[name]
+                .initialization_options
+                .clone()
+                .map(|v| v.to_string())
+                .unwrap_or_default()
+        };
+        assert!(options("yaml-language-server").contains("enable = false"));
+        assert!(options("taplo").contains("enabled = false"));
+        assert!(options("vscode-json-language-server").contains("[\"file\"]"));
+        assert!(options("typescript-language-server").contains("= true"));
+        assert_eq!(servers["rust-analyzer"].initialization_options, None);
+    }
 
     #[test]
     fn every_builtin_language_references_a_builtin_server() {

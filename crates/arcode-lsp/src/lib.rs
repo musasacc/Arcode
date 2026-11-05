@@ -33,14 +33,15 @@ pub use client::{
 };
 pub use diagnostics::{DiagnosticCounts, DiagnosticStore, source_label};
 pub use error::{
-    CONTENT_MODIFIED, INVALID_PARAMS, LspError, METHOD_NOT_FOUND, REQUEST_CANCELLED, Result,
+    CONTENT_MODIFIED, INVALID_PARAMS, LspError, METHOD_NOT_FOUND, REQUEST_CANCELLED,
+    REQUEST_FAILED, Result,
 };
 pub use event::{
     EditOutcome, EditReply, EventReceiver, EventSink, LspEvent, PositionEncoding, ServerStatus,
 };
 pub use features::Features;
 pub use lsp_types;
-pub use manager::{Answer, FileChange, LspManager, ServerConfig, find_root};
+pub use manager::{Answer, FileChange, LaunchHook, LspManager, ServerConfig, find_root};
 pub use sync::{DocumentSync, TextChange};
 pub use uri::{path_to_uri, uri_to_path};
 

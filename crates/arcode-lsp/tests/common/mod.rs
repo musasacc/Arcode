@@ -75,6 +75,17 @@ pub async fn connect(
     capabilities: Value,
     init_options: Option<Value>,
 ) -> (LspClient, Peer, EventReceiver, Value) {
+    let (client, peer, events, init, _) = connect_named("fake", capabilities, init_options).await;
+    (client, peer, events, init)
+}
+
+/// Like [`connect`] for a server called `name`; also returns the
+/// `initialized` notification.
+pub async fn connect_named(
+    name: &str,
+    capabilities: Value,
+    init_options: Option<Value>,
+) -> (LspClient, Peer, EventReceiver, Value, Value) {
     let (client_w, server_r) = tokio::io::duplex(64 * 1024);
     let (server_w, client_r) = tokio::io::duplex(64 * 1024);
     let mut peer = Peer {
@@ -83,7 +94,7 @@ pub async fn connect(
     };
     let (events, rx) = EventSink::channel();
     let client = tokio::spawn(LspClient::from_transport(
-        "fake",
+        name.to_string(),
         root(),
         client_r,
         client_w,
@@ -96,9 +107,9 @@ pub async fn connect(
         json!({ "capabilities": capabilities, "serverInfo": { "name": "fake", "version": "1" } }),
     )
     .await;
-    peer.expect("initialized").await;
+    let initialized = peer.expect("initialized").await;
     let client = client.await.expect("join").expect("initialize failed");
-    (client, peer, rx, init)
+    (client, peer, rx, init, initialized)
 }
 
 /// Waits for the first event matching `pred`, skipping others.

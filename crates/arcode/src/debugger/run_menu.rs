@@ -112,20 +112,47 @@ pub fn runnable_title(runnable: &Runnable, file: Option<&Path>) -> String {
     }
 }
 
+impl Debugger {
+    /// Runs or debugs a run button's runnable of `editor`, saving the
+    /// file first so what runs is what the editor shows.
+    pub fn run_runnable_of(
+        &mut self,
+        editor: &Entity<Editor>,
+        runnable: &Runnable,
+        debug: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let (file, dirty) = {
+            let e = editor.read(cx);
+            (e.path().map(Path::to_path_buf), e.is_dirty())
+        };
+        if dirty
+            && file.is_some()
+            && let Err(e) = editor.update(cx, |e, cx| e.save(cx))
+        {
+            let name = file
+                .as_deref()
+                .and_then(Path::file_name)
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            cx.emit(DebuggerEvent::Message(format!("Cannot save {name}: {e}")));
+            return;
+        }
+        self.run_runnable(runnable, debug, file.as_deref(), cx);
+    }
+}
+
 impl RunMenu {
     fn pick(&mut self, debug: bool, cx: &mut Context<Self>) {
         let runnable = self.runnable.clone();
-        let editor = self.editor.upgrade();
-        if let Some(editor) = &editor {
-            editor.update(cx, |e, cx| {
-                e.hide_popover(RUN_MENU, cx);
-            });
-        }
-        let file = editor.and_then(|e| e.read(cx).path().map(Path::to_path_buf));
+        let Some(editor) = self.editor.upgrade() else {
+            return;
+        };
+        editor.update(cx, |e, cx| {
+            e.hide_popover(RUN_MENU, cx);
+        });
         self.debugger
-            .update(cx, |d, cx| {
-                d.run_runnable(&runnable, debug, file.as_deref(), cx)
-            })
+            .update(cx, |d, cx| d.run_runnable_of(&editor, &runnable, debug, cx))
             .ok();
     }
 
@@ -152,7 +179,7 @@ impl RunMenu {
 impl Render for RunMenu {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let c = theme(cx).colors.clone();
-        let label = self.runnable.command.command_line();
+        let label = self.runnable.command.display_line();
         let row = |ix: usize, glyph: IconName, verb: &'static str, cx: &mut Context<Self>| {
             let selected = self.selected == ix;
             // Rows 26, radius 6; the keyboard selection is a `pill` fill.

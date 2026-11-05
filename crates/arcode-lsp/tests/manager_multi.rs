@@ -341,6 +341,45 @@ fn restart_server_reopens_documents() {
     manager.shutdown_all();
 }
 
+/// The launch hook picks the program each time an instance starts, off
+/// the caller's thread; the configuration keeps the configured command.
+fn launch_hook_runs_at_every_start() {
+    let (_dir, file) = project();
+    let exe = std::env::current_exe().expect("current exe");
+    let configured = ServerConfig {
+        command: "fake-server-not-on-path".into(),
+        ..config("alpha", "utf-16", "normal")
+    };
+    let (manager, rx) = LspManager::new(vec![configured], languages(&["alpha"]));
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = calls.clone();
+    manager.set_launch_hook(Arc::new(move |spec| {
+        seen.lock()
+            .unwrap()
+            .push((spec.command.clone(), std::thread::current().id()));
+        spec.command = exe.to_string_lossy().into_owned();
+    }));
+    let mut rx = Events {
+        rx,
+        seen: Vec::new(),
+    };
+    manager.open_document(&file, "fake", 1, "x".to_string());
+    rx.wait_diag("alpha: opened v1");
+    assert!(manager.restart_server("alpha"));
+    rx.wait_diag("alpha: opened v1");
+    let calls = calls.lock().unwrap().clone();
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    for (command, thread) in calls {
+        assert_eq!(command, "fake-server-not-on-path");
+        assert_ne!(thread, std::thread::current().id());
+    }
+    assert_eq!(
+        manager.server_config("alpha").map(|c| c.command),
+        Some("fake-server-not-on-path".into())
+    );
+    manager.shutdown_all();
+}
+
 /// Closing the last document of an instance lets `stop_idle_servers`
 /// shut it down; a server still serving a document keeps running, and
 /// opening a file again starts a fresh instance.
@@ -385,7 +424,7 @@ fn main() {
         fake_lsp::run();
         return;
     }
-    let tests: [(&str, fn()); 5] = [
+    let tests: [(&str, fn()); 6] = [
         (
             "single_answers_fall_back_down_the_list",
             single_answers_fall_back_down_the_list,
@@ -401,6 +440,10 @@ fn main() {
         (
             "restart_server_reopens_documents",
             restart_server_reopens_documents,
+        ),
+        (
+            "launch_hook_runs_at_every_start",
+            launch_hook_runs_at_every_start,
         ),
         (
             "idle_servers_stop_after_their_last_document_closes",

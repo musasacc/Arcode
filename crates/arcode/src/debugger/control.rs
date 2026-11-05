@@ -42,9 +42,14 @@ impl Debugger {
     }
 
     /// Prepares (finds the adapter, builds) and starts `choice`. A running
-    /// session is stopped first.
+    /// session is stopped first. Without a project, the folder of `file`
+    /// stands in for it.
     pub fn start(&mut self, choice: LaunchChoice, file: Option<PathBuf>, cx: &mut Context<Self>) {
-        let Some(root) = self.root.clone() else {
+        let folder = file
+            .as_deref()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf);
+        let Some(root) = self.root.clone().or(folder) else {
             cx.emit(DebuggerEvent::Message("Open a project to debug it".into()));
             return;
         };

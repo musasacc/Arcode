@@ -11,6 +11,8 @@ pub const INVALID_PARAMS: i64 = -32602;
 pub const REQUEST_CANCELLED: i64 = -32800;
 /// LSP error code: the document changed while the request was processed.
 pub const CONTENT_MODIFIED: i64 = -32801;
+/// LSP error code: the request was valid but could not be carried out.
+pub const REQUEST_FAILED: i64 = -32803;
 
 /// Everything that can go wrong while talking to a language server.
 #[derive(Debug, Clone, PartialEq, Eq)]

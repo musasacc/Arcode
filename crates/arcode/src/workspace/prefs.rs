@@ -45,7 +45,7 @@ impl Workspace {
             write_and_report(low_end_edits(on), cx.weak_entity(), cx);
             ws.show_toast(
                 if on {
-                    "Low-end mode on: no animations, inlay hints or inline blame"
+                    "Low-end mode on: no animations, minimap, inlay hints or inline blame"
                 } else {
                     "Low-end mode off"
                 },

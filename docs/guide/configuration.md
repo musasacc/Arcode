@@ -70,6 +70,7 @@ ask for it (**Debug: Open launch.toml**).
 | `font_family` | `"JetBrains Mono"` | Code font. JetBrains Mono ships with Arcode. |
 | `font_fallbacks` | `["Noto Sans CJK SC", "Noto Color Emoji", "Segoe UI Emoji", "Apple Color Emoji"]` | Fonts tried, in order, for characters missing from `font_family` (CJK, emoji, ...). |
 | `font_size` | `14.0` | Font size in points, 4 to 200. |
+| `font_weight` | `400` | Font weight, 100 to 900: 400 is regular, 700 bold. A font without that weight uses its nearest one; the bundled JetBrains Mono has 400 and 700, so try a value like 500 with a font that has more weights. |
 | `line_height` | `1.5` | Line height as a multiple of the font size, 0.5 to 4.0. |
 | `ligatures` | `true` | Programming ligatures such as `->` and `!=`. |
 | `tab_size` | `4` | Width of a tab stop in columns, 1 to 32. |
@@ -92,6 +93,8 @@ ask for it (**Debug: Open launch.toml**).
 | `inlay_hints` | `true` | Type and parameter hints from the language server inside the code. **Editor: Toggle Inlay Hints** switches them for the session. Off in low-end mode unless set here. |
 | `code_action_lightbulb` | `true` | A light bulb in the gutter when code actions exist on the cursor line. |
 | `inline_diagnostics` | `"errors"` | Show diagnostics after the end of their line: `"errors"`, `"all"` or `"off"`. |
+| `minimap` | `true` | A minimap at the right edge of file editors: the file scaled down in its syntax colours, with the visible part, selections, search matches, git changes, errors and warnings marked. Click a line to center it, drag to scroll. It is hidden when it would leave the text less than three times its width, in diffs, and always in low-end mode. |
+| `minimap_width` | `96` | Width of the minimap in pixels, 40 to 240 (one pixel per column, so this is about the number of columns shown). |
 
 ### `[editor.completion]`
 
@@ -115,6 +118,9 @@ ask for it (**Debug: Open launch.toml**).
 | `animations` | `true` | Animations. Always off in low-end mode. |
 | `animation_ms` | `120` | Animation duration in milliseconds. |
 | `show_perf_stats` | `true` | Show frame time and memory use in the status bar. |
+| `menu_bar` | `true` | Show the menus (File, Edit, ...) in the title bar. When `false`, and in a narrow window, one menu button holds them; Alt opens them either way. No effect on macOS, which uses its system menu bar. |
+| `text_gamma` | `1.8` | How text edges are blended, 1.0 to 2.2 in steps of 0.1. Higher draws light text on dark themes heavier (and dark text on light themes thinner). Linux only; takes effect after a restart. See [Text rendering](themes.md#text-rendering). |
+| `text_contrast` | `1.0` | Extra contrast for text edges, 0 to 8. Higher thickens dark and mid-tone text: light themes, muted text, syntax colours. Light text on dark themes is not affected. Linux only; takes effect after a restart. |
 
 Built-in themes: **Arcode Ember** (dark) and **Arcode Chalk** (light),
 plus the classic **Arcode Dark**, **Arcode Light** and **Arcode Midnight**.
@@ -258,11 +264,11 @@ built-in table override just those keys.
 
 | Key | Meaning |
 |---|---|
-| `command` | Executable name or path. Defaults to the table name. Names are looked up on `PATH`. |
-| `args` | Command-line arguments. |
+| `command` | Executable name or path. Defaults to the table name. Names are looked up on `PATH`, then in the [bundled language servers](languages.md#bundled-language-servers); a path is used as given. |
+| `args` | Command-line arguments. `${workspaceFolder}` is replaced by the folder the server starts in, `${workspaceFolderHash}` by a short hash of it. |
 | `env` | Extra environment variables for the server. |
 | `root_markers` | Files whose presence marks a workspace root, searched upwards from the file. |
-| `initialization_options` | Passed to the server when it starts (`initializationOptions`). |
+| `initialization_options` | Passed to the server when it starts (`initializationOptions`). The built-in YAML, TOML, JSON and TypeScript servers have values that turn off their schema and type downloads; setting this replaces them. |
 | `features` | Features to use from this server, all on by default: `diagnostics`, `completion`, `hover`, `signature_help`, `definition`, `references`, `symbols`, `highlights`, `rename`, `formatting`, `code_actions`, `inlay_hints`. |
 
 ```toml
@@ -314,4 +320,6 @@ up in the completion list when `editor.completion.snippets` is on.
 | `ARCODE_DATA_DIR` | Use this folder instead of the data folder (and for the plugin cache). |
 | `ARCODE_PLUGIN_DEV` | Plugin folders to load for this session, separated like `PATH` (for plugin development). |
 | `ARCODE_SKIP_FIRST_RUN` | Set to a non-empty value other than `0` to skip the first-run dialog (for automation). |
+| `ZED_FONTS_GAMMA`, `ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST` | Read by the renderer on Linux. `ui.text_gamma` and `ui.text_contrast` set them when they differ from their defaults; otherwise a value set in the environment applies, and Settings > Fonts says so. Programs started from Arcode inherit them; an Arcode started from Arcode's terminal uses its own settings, not those of the first one. |
+| `ARCODE_TEXT_RENDERING_OUTER` | Set by Arcode for the programs it starts: which of the two variables above it set, and what they were before. Not meant to be set by hand. |
 | `RUST_LOG` | Log level of Arcode's log on stderr, for example `RUST_LOG=info`. Default: warnings and errors. |

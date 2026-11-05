@@ -206,6 +206,31 @@ fn run_buttons_run_their_command_in_a_named_terminal(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_run_button_saves_the_file_before_it_runs(cx: &mut TestAppContext) {
+    let (_dir, root) = project();
+    let (debugger, editor, events) = setup(cx, &root);
+    let path = root.join("src/main.rs");
+    editor.update(cx, |e, cx| {
+        e.apply_edits(
+            vec![(Point::new(0, 0)..Point::new(0, 0), "// x\n".into())],
+            cx,
+        );
+    });
+    assert!(editor.read_with(cx, |e, _| e.is_dirty()));
+    let runnable = debugger.read_with(cx, |d, _| d.runnable(&editor, 0).expect("main"));
+    debugger.update(cx, |d, cx| d.run_runnable_of(&editor, &runnable, false, cx));
+    assert!(!editor.read_with(cx, |e, _| e.is_dirty()));
+    let on_disk = std::fs::read_to_string(&path).expect("read");
+    assert!(on_disk.starts_with("// x\nfn add"), "{on_disk}");
+    assert!(
+        events
+            .borrow()
+            .iter()
+            .any(|e| matches!(e, DebuggerEvent::RunCommand { .. }))
+    );
+}
+
+#[gpui::test]
 fn a_missing_adapter_is_reported_with_what_to_install(cx: &mut TestAppContext) {
     let (_dir, root) = project();
     let (debugger, _editor, events) = setup(cx, &root);

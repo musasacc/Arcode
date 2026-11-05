@@ -23,6 +23,7 @@ machines with slow integrated graphics, and remote desktops.
 |---|---|---|
 | Animations | on (`ui.animations`, `ui.animation_ms`) | off |
 | Cursor blinking | `editor.cursor_blink` | never blinks |
+| Minimap | `editor.minimap` | hidden |
 | Popups, menus, dialogs, toasts | soft shadow | flat, with a border |
 | Inlay hints | on | off, unless you set `editor.inlay_hints` yourself |
 | Inline git blame | on | off, unless you set `git.inline_blame` yourself |

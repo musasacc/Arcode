@@ -15,7 +15,8 @@ const LOW_END_OFF: [&str; 2] = ["editor.inlay_hints", "git.inline_blame"];
 /// hints and inline blame where the file turns them on, tagging each value
 /// it changes with [`super::PRESET_MARK`]; off turns back on only the
 /// values it tagged, so a setting the user turned off stays off. (The
-/// cursor never blinks in low-end mode; the file is not changed for it.)
+/// cursor never blinks and the minimap is hidden in low-end mode; the file
+/// is not changed for them.)
 pub fn low_end_edits(on: bool) -> Vec<SettingEdit> {
     let mut edits = vec![SettingEdit::set("ui.low_end_mode", on)];
     for key in LOW_END_OFF {
@@ -41,13 +42,14 @@ pub fn keymap_edits(keymap: Keymap) -> Vec<SettingEdit> {
 }
 
 /// Applies what low-end mode implies after a file is loaded: the cursor
-/// never blinks, and inlay hints and inline blame are off unless the file
-/// turns them on itself.
+/// never blinks, there is no minimap, and inlay hints and inline blame are
+/// off unless the file turns them on itself.
 pub(super) fn apply_low_end_defaults(config: &mut Config, table: &Table) {
     if !config.ui.low_end_mode {
         return;
     }
     config.editor.cursor_blink = false;
+    config.editor.minimap = false;
     let set = |section: &str, key: &str| {
         table
             .get(section)
@@ -160,6 +162,23 @@ mod tests {
         assert!(config.editor.inlay_hints, "set explicitly");
         assert!(!config.editor.cursor_blink, "never blinks in low-end mode");
         assert!(!config.git.inline_blame);
+    }
+
+    #[test]
+    fn low_end_mode_forces_the_minimap_off() {
+        let (config, _) = Config::from_toml_str("[editor]\nminimap = true\n");
+        assert!(config.editor.minimap);
+        let (config, _) = Config::from_toml_str("[ui]\nlow_end_mode = true\n");
+        assert!(!config.editor.minimap);
+        let (config, _) =
+            Config::from_toml_str("[ui]\nlow_end_mode = true\n[editor]\nminimap = true\n");
+        assert!(!config.editor.minimap, "set explicitly, still off");
+        // The file keeps the user's value: turning low-end mode off shows
+        // the minimap again.
+        let on = apply_edits("[editor]\nminimap = true\n", &low_end_edits(true)).unwrap();
+        assert!(on.contains("minimap = true"), "{on}");
+        let off = apply_edits(&on, &low_end_edits(false)).unwrap();
+        assert!(Config::from_toml_str(&off).0.editor.minimap);
     }
 
     #[test]

@@ -22,7 +22,9 @@ pub struct ServerSpec {
     /// Executable name or path; looked up on `PATH` (on Windows also with
     /// the `PATHEXT` extensions, so `.cmd`/`.bat` shims are found).
     pub command: String,
-    /// Command-line arguments.
+    /// Command-line arguments. `${workspaceFolder}` is replaced by the
+    /// server's root folder and `${workspaceFolderHash}` by a short, stable
+    /// hash of it (for per-workspace state folders).
     pub args: Vec<String>,
     /// Extra environment variables.
     pub env: Vec<(String, String)>,
@@ -63,7 +65,7 @@ pub(crate) fn spawn(spec: &ServerSpec, root: &Path) -> Result<Spawned> {
     #[cfg(not(windows))]
     let program = std::ffi::OsString::from(&spec.command);
     let mut cmd = Command::new(&program);
-    cmd.args(&spec.args)
+    cmd.args(spec.args.iter().map(|arg| expand_root_vars(arg, root)))
         .envs(spec.env.iter().map(|(k, v)| (k, v)))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -102,6 +104,27 @@ pub(crate) fn spawn(spec: &ServerSpec, root: &Path) -> Result<Spawned> {
         }),
         _ => Err(LspError::Io("server stdio was not captured".into())),
     }
+}
+
+/// Replaces `${workspaceFolder}` and `${workspaceFolderHash}` in `arg`.
+pub(crate) fn expand_root_vars(arg: &str, root: &Path) -> String {
+    if !arg.contains("${workspaceFolder") {
+        return arg.to_string();
+    }
+    let root_text = root.to_string_lossy();
+    arg.replace("${workspaceFolderHash}", &root_hash(&root_text))
+        .replace("${workspaceFolder}", &root_text)
+}
+
+/// 16 hex digits of the FNV-1a hash of `root`: the same on every run and
+/// every platform, unlike `std`'s hasher.
+fn root_hash(root: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in root.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{hash:016x}")
 }
 
 /// Longest stderr chunk forwarded as one `Log` event; longer lines are split.
@@ -207,5 +230,32 @@ mod tests {
     #[tokio::test]
     async fn empty_stream_emits_nothing() {
         assert!(lines_of(b"").await.is_empty());
+    }
+
+    #[test]
+    fn workspace_folder_variables() {
+        let root = Path::new("/home/me/project");
+        assert_eq!(expand_root_vars("--stdio", root), "--stdio");
+        assert_eq!(
+            expand_root_vars("--root=${workspaceFolder}", root),
+            "--root=/home/me/project"
+        );
+        let data = expand_root_vars("/state/jdtls/${workspaceFolderHash}", root);
+        let hash = data.strip_prefix("/state/jdtls/").unwrap();
+        assert_eq!(hash.len(), 16);
+        assert!(hash.bytes().all(|b| b.is_ascii_hexdigit()));
+        // Stable for a root, different for another.
+        assert_eq!(
+            data,
+            expand_root_vars("/state/jdtls/${workspaceFolderHash}", root)
+        );
+        assert_ne!(
+            data,
+            expand_root_vars(
+                "/state/jdtls/${workspaceFolderHash}",
+                Path::new("/home/me/other")
+            )
+        );
+        assert_eq!(root_hash(""), "cbf29ce484222325");
     }
 }

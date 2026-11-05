@@ -16,6 +16,7 @@ mod plugins;
 mod rows;
 #[cfg(test)]
 mod tests;
+mod text_rendering;
 pub mod theme_card;
 pub mod widgets;
 

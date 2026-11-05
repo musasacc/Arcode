@@ -23,6 +23,9 @@ pub struct EditorStyle {
     pub show_line_numbers: bool,
     /// Blink the cursor while focused.
     pub cursor_blink: bool,
+    /// Width of the minimap when one is shown (`None`: minimaps are off,
+    /// as always in low-end mode).
+    pub minimap_width: Option<Pixels>,
 }
 
 impl EditorStyle {
@@ -45,7 +48,7 @@ impl EditorStyle {
                 FontFeatures::disable_ligatures()
             },
             fallbacks: (!fallbacks.is_empty()).then(|| FontFallbacks::from_fonts(fallbacks)),
-            weight: FontWeight::NORMAL,
+            weight: FontWeight(f32::from(ed.font_weight.clamp(100, 900))),
             style: FontStyle::Normal,
         };
         EditorStyle {
@@ -56,6 +59,8 @@ impl EditorStyle {
             highlight_current_line: ed.highlight_current_line,
             show_line_numbers: ed.show_line_numbers,
             cursor_blink: ed.cursor_blink,
+            minimap_width: (ed.minimap && !config.ui.low_end_mode)
+                .then(|| px(ed.minimap_width.clamp(40, 240) as f32)),
         }
     }
 }

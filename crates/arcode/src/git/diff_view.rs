@@ -75,6 +75,8 @@ pub fn diff_editor<T: 'static>(old: &str, new: &str, cx: &mut Context<T>) -> Ent
     cx.new(|cx| {
         let mut editor = Editor::new(buffer, cx);
         editor.set_read_only(true, cx);
+        // Deleted and added lines interleave: a minimap of that says little.
+        editor.set_minimap_allowed(false, cx);
         editor.set_background_highlights(DIFF_SET, highlights, cx);
         editor.set_gutter_decorations(DIFF_SET, marks, cx);
         if let Some(line) = first_change {

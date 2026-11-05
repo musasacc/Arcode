@@ -25,13 +25,64 @@ Sources are checked in this order, and the Run button uses the first
 `install`, `deploy`, `publish`, `lint`, `format`, ...) are listed but
 never chosen on their own.
 
+When the project has no detected command (a folder of loose files, a
+single file opened on its own), the Run button runs the current file
+instead; the button shows its name.
+
 The arrow next to Run lists every detected run, test and build command.
 The one you pick becomes the Run button's command for this project
-(remembered with the session). **Edit Run Command…** lets you type any
-command line. **Run: Pick Run Command** does the same from the palette.
+(remembered with the session). **Run current file** and **Debug current
+file** are always listed below them. **Edit Run Command…** lets you type
+any command line. **Run: Pick Run Command** does the same from the
+palette.
 
 The terminal tab shows whether the command is still running, its exit
 code and how long it took. Running again reuses the tab when it is idle.
+
+## Run Current File
+
+**Run: Run Current File** (in the palette and the Run menu) runs the
+active editor's file on its own, in a terminal tab named `run file`
+(every file runs in that tab; a second one opens only while the last
+run is still going), so its output and any compile errors show there. It uses the toolchain
+found on `PATH`:
+
+| Language | Command |
+|---|---|
+| Python | `python3 file.py` (the project's `.venv`, `venv` or `env` interpreter when there is one) |
+| Rust | `rustc --edition 2024 -g file.rs -o <build folder>/file`, then the program; `cargo run` for a file of a Cargo package (its `build.rs` too, which only runs inside a cargo build) |
+| C / C++ | `cc -g` / `c++ -g` (else `gcc`, `clang` / `g++`, `clang++`), then the program |
+| Go | `go run file.go`; the file's package inside a Go module |
+| JavaScript | `node file.js` (else Bun or `deno run`) |
+| TypeScript | `node --experimental-strip-types file.ts` with Node.js 22.6 or newer, else Bun or `deno run` |
+| Java | `java File.java` (JDK 11 or newer) |
+| Ruby, PHP, Lua | `ruby`, `php`, `lua` |
+| Shell | the shell its `#!` line names, else `bash` |
+
+C and C++ headers (`.h`, `.hpp`, ...) do not run on their own: run the
+source file that includes them.
+
+Compiled programs go to a build folder in Arcode's cache folder (one per
+source file, `~/.cache/arcode/run` on Linux), never next to your source.
+The file is saved first when it has unsaved changes. The working
+directory is the project folder (the file's own folder when it is
+outside the project or no folder is open); a reused tab whose shell was
+moved with `cd` goes back there first. A compiled file's build and run
+steps are joined for the terminal's shell (`[terminal] shell`): `&&` in
+POSIX shells and `cmd.exe`, `if ($?)` in PowerShell, `LAST_EXIT_CODE` in
+Nushell.
+
+**Debug: Debug Current File** builds and debugs the file the same way:
+Python with debugpy, Rust, C and C++ compiled with `-g` and debugged with
+the native adapter (see below), Go with Delve. Other languages cannot be
+debugged yet; Arcode says so.
+
+When nothing can run, a notice says why and what to do, for example
+"Install Python 3 to run test.py", or "Nothing to run: open a file to
+run it, or set a run command" with a **Set run command** button (for
+Debug: a button that creates `.arcode/launch.toml`; the file it creates
+holds commented examples only, so F5 keeps debugging the current file
+until you add a configuration). Run and Debug never do nothing silently.
 
 ## Run buttons in the gutter
 
@@ -44,7 +95,10 @@ A play icon in the gutter marks every runnable item Arcode finds:
 
 Click it and choose **Run** (runs just that item, for example
 `cargo test ... -- tests::adds --exact`, in a terminal tab named after
-it) or **Debug**. Turn the buttons off with `[debug] run_buttons = false`.
+it) or **Debug**. A `fn main` in a loose Rust file (no `Cargo.toml`) and
+a Go `func main` outside a module run the file on its own, as Run Current
+File does. Run and Debug save the file first when it has unsaved
+changes. Turn the buttons off with `[debug] run_buttons = false`.
 
 ## Debug adapters
 
@@ -68,13 +122,16 @@ When no adapter is found, Arcode says which one to install.
 
 ## Starting a debug session
 
-- Press **F5**, or click **Debug** on a run button.
+- Press **F5**, or click **Debug** on a run button. When the project has
+  no launch configuration, F5 debugs the current file.
 - The **Run and Debug** view (bug icon in the activity bar, Ctrl+Shift+D)
   lists configurations. Arcode generates them from the project (each
   Cargo binary, `main.py`, a Go main package) and builds the program
   first when needed (`cargo build`, `cargo test --no-run` for tests).
 - Your own configurations go in `.arcode/launch.toml` in the project.
-  **Debug: Open launch.toml** creates it from a commented template. Your
+  **Debug: Open launch.toml** creates it from a commented template (with
+  a configuration for the program of a Cargo project, examples only
+  otherwise). Your
   configurations are listed first and reloaded whenever the file
   changes.
 

@@ -4,7 +4,11 @@ Arcode does not connect to the internet on its own. It has no telemetry,
 no crash reporting, no usage statistics, no update check, no account and
 no plugin store. Fonts and icons are bundled; nothing is fetched at
 startup. It never downloads language servers, debug adapters or packages
-for you.
+for you; the language servers of a release come inside the package you
+installed (see [Languages](languages.md#bundled-language-servers)), and
+their built-in settings turn off the schema and type downloads some of
+them would otherwise make, including schemas a YAML, JSON or TOML file
+links to (see [Server settings](languages.md#server-settings)).
 
 Everything that can use the network does so only as a direct result of
 something you do. This page lists all of it.

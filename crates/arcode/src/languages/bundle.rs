@@ -170,9 +170,42 @@ fn server_row(pack: &LanguagePack, config: &Config, name: &str) -> ServerRow {
     }
 }
 
-/// Whether each server command is on `PATH` (blocks: a `PATH` walk per
-/// command; call it off the UI thread).
-pub fn installed_commands(rows: &[PackRow]) -> Vec<(String, bool)> {
+/// Whether a server can be started.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Availability {
+    /// The user installed it (on `PATH`, or the configured path exists).
+    Installed,
+    /// Not installed, but Arcode's bundled copy is used.
+    Bundled,
+    /// The bundled copy needs a runtime that is missing or too old (jdtls
+    /// and Java); says what to do.
+    NeedsRuntime(String),
+    /// Not found.
+    Missing,
+}
+
+/// The availability of each server command: the configured path, `PATH`,
+/// then the bundled servers (blocks: a `PATH` walk per command and a
+/// look for Java; call it off the UI thread).
+pub fn installed_commands(rows: &[PackRow]) -> Vec<(String, Availability)> {
+    let cx = crate::lsp_bridge::bundled::launch_context();
+    availability(rows, &|command| {
+        let launch = crate::lsp_bridge::bundled::launch(command, &cx)?;
+        Some(
+            launch
+                .missing_runtime
+                .map_or(Availability::Bundled, Availability::NeedsRuntime),
+        )
+    })
+}
+
+/// [`installed_commands`] with an explicit bundle lookup, which returns
+/// [`Availability::Bundled`] or [`Availability::NeedsRuntime`] for
+/// commands the bundle has.
+pub fn availability(
+    rows: &[PackRow],
+    bundled: &dyn Fn(&str) -> Option<Availability>,
+) -> Vec<(String, Availability)> {
     let commands: BTreeSet<&str> = rows
         .iter()
         .flat_map(|r| r.servers.iter().map(|s| s.command.as_str()))
@@ -180,12 +213,19 @@ pub fn installed_commands(rows: &[PackRow]) -> Vec<(String, bool)> {
     commands
         .into_iter()
         .map(|c| {
-            let found = if std::path::Path::new(c).is_absolute() {
-                std::path::Path::new(c).is_file()
+            let path = std::path::Path::new(c);
+            let state = if path.is_absolute() || c.contains(['/', '\\']) {
+                if path.is_file() {
+                    Availability::Installed
+                } else {
+                    Availability::Missing
+                }
+            } else if arcode_project::packs::find_executable(c).is_some() {
+                Availability::Installed
             } else {
-                arcode_project::packs::find_executable(c).is_some()
+                bundled(c).unwrap_or(Availability::Missing)
             };
-            (c.to_string(), found)
+            (c.to_string(), state)
         })
         .collect()
 }
@@ -251,5 +291,34 @@ mod tests {
                 "vscode-json-language-server"
             ]
         );
+    }
+
+    #[test]
+    fn bundled_servers_count_as_available() {
+        let rows = pack_rows(&Config::default());
+        let found = availability(&rows, &|c| match c {
+            "marksman" | "taplo" => Some(Availability::Bundled),
+            "jdtls" => Some(Availability::NeedsRuntime("needs Java".into())),
+            _ => None,
+        });
+        let state = |command: &str| {
+            found
+                .iter()
+                .find(|(c, _)| c == command)
+                .map(|(_, s)| s.clone())
+                .unwrap()
+        };
+        // Whatever is installed on this machine is "installed"; the rest
+        // of the bundled commands are "bundled", never "missing".
+        for command in ["marksman", "taplo"] {
+            assert_ne!(state(command), Availability::Missing, "{command}");
+        }
+        assert_ne!(state("intelephense"), Availability::Bundled);
+        // A bundled server whose runtime is missing says so, unless the
+        // machine has its own jdtls.
+        assert!(matches!(
+            state("jdtls"),
+            Availability::Installed | Availability::NeedsRuntime(_)
+        ));
     }
 }

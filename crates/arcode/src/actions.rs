@@ -357,6 +357,7 @@ pub fn bind_keys(cx: &mut App) {
     crate::languages::actions::bind_keys(cx);
     crate::prefs::bind_keys(cx);
     crate::packages::bind_keys(cx);
+    crate::menu_bar::bind_keys(cx);
 }
 
 /// Navigation bindings. They live in the editor (and empty pane) contexts

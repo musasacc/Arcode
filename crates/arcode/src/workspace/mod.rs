@@ -40,6 +40,9 @@ mod disk_conflict_regression_tests;
 mod git_regression_tests;
 #[cfg(test)]
 mod lang_packs_tests;
+mod menu_bar;
+#[cfg(test)]
+mod menu_bar_tests;
 mod packages;
 #[cfg(test)]
 mod packages_tests;
@@ -88,11 +91,16 @@ mod project_menu;
 mod projects;
 mod reload;
 mod render;
+mod run_file;
+#[cfg(test)]
+mod run_file_tests;
 mod run_menu;
 mod session;
 mod snippets_notice;
 mod status;
 mod subs;
+#[cfg(test)]
+mod tab_menu_tests;
 #[cfg(test)]
 mod tests;
 mod tour;
@@ -180,10 +188,14 @@ pub struct Workspace {
     path_prompt: Option<Entity<PathPrompt>>,
     path_prompt_then: Option<FolderCallback>,
     project_menu_open: bool,
+    /// The menus in the title bar.
+    menu_bar: Entity<crate::menu_bar::MenuBar>,
     resizing: Option<Resize>,
     toast: Option<SharedString>,
     /// The status icon of `toast`.
     toast_level: ToastLevel,
+    /// The toast's ghost button: its label and the action it dispatches.
+    toast_action: Option<(SharedString, Box<dyn gpui::Action>)>,
     toast_task: Option<Task<()>>,
     /// Toasts shown so far: a new toast fades in even over the last one.
     toast_seq: usize,
@@ -262,8 +274,13 @@ impl Workspace {
         subscriptions.extend(pkg_subs);
         subscriptions.extend(lang_subs);
         subscriptions.push(Self::watch_snippet_errors(cx));
+        let focus_handle = cx.focus_handle();
+        let menu_bar = {
+            let (weak, root) = (cx.weak_entity(), focus_handle.clone());
+            cx.new(|cx| crate::menu_bar::MenuBar::new(weak, root, window, cx))
+        };
         let workspace = Self {
-            focus_handle: cx.focus_handle(),
+            focus_handle,
             project: None,
             project_files: Arc::default(),
             files_loading: false,
@@ -289,9 +306,11 @@ impl Workspace {
             path_prompt: None,
             path_prompt_then: None,
             project_menu_open: false,
+            menu_bar,
             resizing: None,
             toast: None,
             toast_level: ToastLevel::Info,
+            toast_action: None,
             toast_task: None,
             toast_seq: 0,
             active_editor_sub: None,
@@ -386,11 +405,38 @@ impl Workspace {
         level: ToastLevel,
         cx: &mut Context<Self>,
     ) {
-        self.toast = Some(message.into());
+        self.show_toast_for(message.into(), level, None, TOAST_DURATION, cx);
+    }
+
+    /// Shows a transient message with a button (`label`) that dispatches
+    /// `action` and closes the toast. It stays twice as long, so there is
+    /// time to reach the button.
+    pub fn show_toast_with_action(
+        &mut self,
+        message: impl Into<SharedString>,
+        level: ToastLevel,
+        label: impl Into<SharedString>,
+        action: Box<dyn gpui::Action>,
+        cx: &mut Context<Self>,
+    ) {
+        let button = Some((label.into(), action));
+        self.show_toast_for(message.into(), level, button, TOAST_DURATION * 2, cx);
+    }
+
+    fn show_toast_for(
+        &mut self,
+        message: SharedString,
+        level: ToastLevel,
+        action: Option<(SharedString, Box<dyn gpui::Action>)>,
+        duration: Duration,
+        cx: &mut Context<Self>,
+    ) {
+        self.toast = Some(message);
         self.toast_level = level;
+        self.toast_action = action;
         self.toast_seq += 1;
         self.toast_task = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(TOAST_DURATION).await;
+            cx.background_executor().timer(duration).await;
             this.update(cx, |ws, cx| {
                 ws.toast = None;
                 cx.notify();

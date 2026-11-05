@@ -6,6 +6,7 @@
 //! The manager (and with it every server) is created lazily, the first time
 //! a file whose language has servers is opened.
 
+pub mod bundled;
 pub mod completion;
 pub mod completion_convert;
 pub mod convert;
@@ -91,6 +92,8 @@ pub struct LspBridge {
     log_feed: Entity<servers::LogFeed>,
     /// Servers whose missing executable was already reported.
     hinted: HashSet<String>,
+    /// Per server, why its bundled copy may not start (a missing runtime).
+    runtime_notes: bundled::RuntimeNotes,
     /// Language id of the active editor (for the status bar).
     active_language: Option<String>,
     docs: HashMap<EntityId, Doc>,
@@ -129,6 +132,7 @@ impl LspBridge {
             logs_dirty: false,
             log_feed: cx.new(|_| servers::LogFeed),
             hinted: HashSet::new(),
+            runtime_notes: bundled::RuntimeNotes::default(),
             active_language: None,
             docs: HashMap::new(),
             highlight_tasks: HashMap::new(),
@@ -370,6 +374,8 @@ impl LspBridge {
             }
         };
         manager.set_workspace_root(self.root.clone());
+        // Bundled servers are looked up as each one starts, off this thread.
+        manager.set_launch_hook(bundled::launch_hook(self.runtime_notes.clone()));
         let manager = Arc::new(manager);
         self.manager = Some(manager.clone());
         self._events = Some(Self::poll_events(events, cx));

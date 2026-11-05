@@ -42,6 +42,8 @@ pub(crate) struct Decorations {
     pub gutter_paths: Vec<(Path<Pixels>, Hsla)>,
     pub gutter_icons: Vec<GutterIcon>,
     pub scrollbar: Vec<PaintQuad>,
+    /// The minimap's quads besides its blocks.
+    pub minimap: crate::minimap::MinimapPaint,
 }
 
 /// Inner corner radius of a rounded panel (its radius minus the 1 px
@@ -106,6 +108,7 @@ pub(crate) fn decorations(
     crate::decorate::text_decorations(editor, layout, focused, &colors, &mut d);
     crate::decorate_ext::ext_decorations(editor, layout, &colors, &mut d);
     crate::gutter::paint_gutter(editor, layout, &colors, window, &mut d);
+    crate::minimap::minimap_decorations(editor, layout, focused, &colors, &mut d.minimap);
     scrollbar(editor, layout, &colors, &mut d);
     d
 }
@@ -245,6 +248,9 @@ impl Decorations {
                 }
             }
         });
+        if let Some(minimap) = &layout.minimap {
+            crate::minimap::paint_minimap(minimap, &layout.blocks, &mut self.minimap, window);
+        }
         for q in self.scrollbar.drain(..) {
             window.paint_quad(q);
         }

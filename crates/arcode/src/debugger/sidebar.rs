@@ -146,6 +146,8 @@ impl DebugSidebar {
                     .icon_color(c.success)
                     .tooltip(if stopped {
                         format!("Continue ({})", shortcut_label("f5"))
+                    } else if d.choices().is_empty() {
+                        format!("Debug the current file ({})", shortcut_label("f5"))
                     } else {
                         format!(
                             "Start the selected configuration ({})",
@@ -266,7 +268,7 @@ impl DebugSidebar {
                     .px(px(6.))
                     .text_size(scale.meta)
                     .text_color(c.text_muted)
-                    .child("No launch configurations found. Add one to .arcode/launch.toml, or use the run buttons next to main and tests."),
+                    .child("No launch configurations found: start debugs the current file. Add configurations to .arcode/launch.toml, or use the run buttons next to main and tests."),
             );
         }
         for warning in d.warnings() {

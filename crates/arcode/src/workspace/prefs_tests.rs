@@ -259,6 +259,10 @@ fn panel_toggles_slide_only_with_animations(cx: &mut TestAppContext) {
     cx.run_until_parked();
     let text = fs::read_to_string(&path).expect("read");
     assert!(text.contains("low_end_mode = true"), "{text}");
+    // The toast names what it turned off, the minimap included.
+    let toast = ws.read_with(cx, |ws, _| ws.toast.as_ref().map(|t| t.to_string()));
+    let toast = toast.unwrap_or_default();
+    assert!(toast.contains("minimap"), "{toast}");
     cx.dispatch_action(ToggleSidebar);
     ws.read_with(cx, |ws, _| {
         assert!(ws.sidebar_visible);

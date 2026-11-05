@@ -19,6 +19,7 @@ use crate::ext::{BlockMap, RowKind};
 use crate::gutter::{GutterGeometry, number_font_size};
 use crate::inline_lens::LensPill;
 use crate::layout_extras::{ExtraItem, ExtraRow, LensHit};
+use crate::minimap::{MinimapLayout, ScrollState, lines_for_rows};
 use crate::scroll::{scrollbar_layout, vertical_autoscroll};
 use crate::style::EditorStyle;
 
@@ -70,6 +71,8 @@ pub(crate) struct LayoutSnapshot {
     pub lens_hits: Vec<LensHit>,
     pub tab_size: usize,
     pub scrollbar: Option<ScrollbarLayout>,
+    /// The minimap, when one is shown.
+    pub minimap: Option<MinimapLayout>,
     pub style: EditorStyle,
 }
 
@@ -96,6 +99,19 @@ impl LayoutSnapshot {
         match (self.lines.first(), self.lines.last()) {
             (Some(a), Some(b)) => a.line..b.line + 1,
             _ => 0..0,
+        }
+    }
+
+    /// Buffer lines that need syntax highlights: those in view and those in
+    /// the minimap's view.
+    pub fn highlighted_range(&self) -> Range<usize> {
+        let visible = self.visible_range();
+        match &self.minimap {
+            Some(m) if !m.lines.is_empty() && !visible.is_empty() => {
+                visible.start.min(m.lines.start)..visible.end.max(m.lines.end)
+            }
+            Some(m) if !m.lines.is_empty() => m.lines.clone(),
+            _ => visible,
         }
     }
 
@@ -161,10 +177,11 @@ impl Editor {
             digits,
         );
         let gutter_width = gutter.width;
+        let minimap_width = self.minimap_width(bounds.size.width, gutter_width, &style);
         let text_bounds = Bounds::new(
             point(bounds.left() + gutter_width, bounds.top()),
             size(
-                (bounds.size.width - gutter_width - SCROLLBAR_WIDTH).max(px(1.)),
+                (bounds.size.width - gutter_width - minimap_width - SCROLLBAR_WIDTH).max(px(1.)),
                 (bounds.size.height - BOTTOM_PAD).max(px(1.)),
             ),
         );
@@ -197,8 +214,23 @@ impl Editor {
         let last_row = first_row + (viewport_h / lh).ceil() as usize + 1;
         let first = blocks.row_kind(first_row, line_count).line();
         let last = (blocks.row_kind(last_row, line_count).line() + 1).min(line_count);
-        self.ensure_highlights(first..last, cx);
+        let minimap = (minimap_width > Pixels::ZERO).then(|| {
+            let scroll = ScrollState {
+                scroll_y: self.scroll_y,
+                max_scroll_y,
+                viewport_h,
+                line_height: lh,
+            };
+            let total_rows = blocks.total_rows(line_count);
+            let geometry = Self::minimap_geometry(bounds, minimap_width, total_rows, scroll);
+            let lines = lines_for_rows(&blocks, geometry.rows_in_view(), line_count);
+            (geometry, lines)
+        });
+        let minimap_lines = minimap.as_ref().map(|(_, lines)| lines.clone());
+        self.ensure_view_highlights(first..last, minimap_lines, cx);
         let lines = self.shape_lines(first..last, &style, window, cx);
+        let minimap =
+            minimap.map(|(geometry, lines)| self.minimap_layout(geometry, lines, &style, cx));
 
         let mut max_width = lines
             .iter()
@@ -241,6 +273,7 @@ impl Editor {
             lens_hits: Vec::new(),
             tab_size: style.tab_size,
             scrollbar,
+            minimap,
             style,
         };
         self.layout_extras(&mut snapshot, window, cx);

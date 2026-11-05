@@ -1,0 +1,15 @@
+{
+  "name": "arcode-language-servers",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The JavaScript language servers bundled with Arcode releases (installed by scripts/fetch-language-servers.sh).",
+  "license": "MIT OR Apache-2.0",
+  "dependencies": {
+    "bash-language-server": "5.8.1",
+    "pyright": "1.1.414",
+    "typescript": "6.0.3",
+    "typescript-language-server": "6.0.3",
+    "vscode-langservers-extracted": "4.10.0",
+    "yaml-language-server": "2.0.0"
+  }
+}

@@ -343,8 +343,10 @@ Arcode never downloads tools for you. These make it more useful, and the
 Languages page tells you which ones are missing:
 
 - **Language servers** for code intelligence, such as `rust-analyzer`,
-  `pyright`, `typescript-language-server`, `gopls` or `clangd`. See
-  [Languages](languages.md).
+  `pyright`, `typescript-language-server`, `gopls` or `clangd`. Release
+  packages bundle them; a build from source can get the same bundle with
+  `scripts/fetch-language-servers.sh`. See
+  [Languages](languages.md#bundled-language-servers).
 - **Debug adapters** for debugging: CodeLLDB or `lldb-dap` (Rust, C,
   C++), GDB 14 or newer, `debugpy` (Python), Delve (Go). See
   [Run and debug](run-and-debug.md).

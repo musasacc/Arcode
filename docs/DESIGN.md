@@ -548,6 +548,18 @@ canvas ────────────────────────�
 
 - **Logo:** the spark, 22 px, centred in the rail column. Arc in `text`,
   diamond in `accent`. No tile.
+- **Menu bar** (Linux and Windows; macOS uses its system menu bar):
+  right after the logo, the titles File, Edit, Selection, View, Go, Run,
+  Terminal, Git and Help as quiet chips: Inter 13 `text_muted`, 28 tall,
+  padding 0 8, radius 7, no fill; hover and the open menu take the
+  `hover` fill and `text`. A 16 px `border` hairline separates them from
+  the project chip. The menus are popovers (6.12) 2 px under the title
+  bar, rows with the shortcut as kbd chips, disabled rows in
+  `text_disabled`, submenus at the row's right edge with a
+  `chevron-right`; in the theme list the theme in use carries the ember
+  diamond. Mnemonics are underlined only once the keyboard opened the
+  bar (Alt). Below 1180 px (at UI size 13) or with `ui.menu_bar = false`
+  the titles fold into one 28 px `menu` icon button. Nothing animates.
 - **Project chip:** "demo" Inter 14 SemiBold plus `chevron-down` 14 muted;
   28 tall, radius 8, hover fill. Opens the project menu as today.
 - **Branch chip:** `git-branch` 14 muted, "master" 13 muted, then mono 12
@@ -665,6 +677,13 @@ canvas ────────────────────────�
 - Scrollbar: 6 px thumb, radius 3, inset 3, `scrollbar_thumb`. Overview
   ticks at the right: error 8x3, warning 4x3 (right-aligned, half width),
   paused/breakpoint 6x3 in `accent`.
+- Minimap (`editor.minimap_width`, default 96) left of the scrollbar, on
+  the `panel` fill (the current-line band stops at it). Rows 2 px, one
+  2 px tall block per run of same-coloured chars, 1 px per column, syntax
+  colours at 60 % opacity, starting 8 px in. Behind the blocks: the
+  viewport slider in `hover` (`pill` while hovered or dragged), selections
+  in `selection`, background highlights and errors / warnings in their own
+  colours. At the left edge, 2 px change bars and the deleted triangle.
 
 ### 6.8 Bottom panel
 
@@ -913,6 +932,8 @@ renderer is involved.
 - `title_bar.rs` and `debugger/run_menu.rs`: the 40 px title bar of 6.2
   with the logo, chips, search, the Paused chip and the Run / Continue
   buttons.
+- `menu_bar/`: the menu bar of 6.2 (`model.rs` the menus, `view.rs` the
+  titles and popovers, `native.rs` the macOS menus).
 - `status_bar.rs`: the footer of 6.10 (the type keeps its old name): no
   fill or border, item pills, mono readouts, and the run readout only
   while the bottom panel is hidden.
@@ -1245,13 +1266,18 @@ abbreviated: `Str` is `impl Into<SharedString>`, `Id` is
   append `badge(..)`, a muted suffix, `spacer()`, buttons.
 - `spacer() -> Div`: `flex_1`, pushes later children right.
 - `list_row(id: Id, selected: bool, cx) -> Stateful<Div>`: 24 tall row chip
-  inset 6, radius 6, solid hover, `pill` + Medium when selected; override
-  with `.h(..)` / `.mx(..)` (22 in debugger columns, 26 in menus, 32 in the
-  palette with `.rounded(px(8.))`).
+  inset 6, radius 6, `text` colour, solid hover, `pill` + Medium when
+  selected; override with `.h(..)` / `.mx(..)` (22 in debugger columns, 26
+  in menus, 32 in the palette with `.rounded(px(8.))`).
 - `overlay(cx) -> Div`: palette and dialogs (`panel_raised`,
   `border_strong`, radius 12, `elevated_lg`).
 - `popover(cx) -> Div`: popovers and menus (radius 10, padding 4,
   `elevated`).
+- Both start their text in the UI font, body size, `text` colour. GPUI
+  0.2.2 paints `deferred` elements without their ancestors' text style,
+  so anything drawn deferred must set its own (these frames, `menu_row`
+  and `list_row` do), and a custom element must read
+  `window.text_style()` during layout, not paint (`truncated` does).
 - `input_frame(focused: bool, on_raised: bool, cx) -> Div`: 28 tall input
   frame, `border_strong`, `accent` edge when focused, `canvas` fill on
   raised surfaces.

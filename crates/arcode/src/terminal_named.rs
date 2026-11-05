@@ -1,7 +1,8 @@
 //! Terminals with a fixed name, started for a run command or a debuggee.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use arcode_project::{Shell, quote_arg_in};
 use arcode_terminal_view::TerminalView;
 use gpui::{App, AppContext, Context, Entity, SharedString, Window};
 
@@ -14,9 +15,10 @@ pub type OnStarted = Box<dyn FnOnce(Option<&Entity<TerminalView>>, &mut App)>;
 impl TerminalPanel {
     /// Runs `command` in the terminal tab named `title` (started in `cwd`
     /// if there is none, or if every one is busy running something) and
-    /// shows it. Whether a tab is busy is checked in the background (it
-    /// can spawn `ps`), so the command may start a moment later;
-    /// `on_started` gets the terminal then.
+    /// shows it. An idle tab whose shell has moved to another folder
+    /// (`cd`) goes back to `cwd` first. Whether a tab is busy is checked in
+    /// the background (it can spawn `ps`), so the command may start a
+    /// moment later; `on_started` gets the terminal then.
     pub fn run_in_named(
         &mut self,
         title: &str,
@@ -42,24 +44,36 @@ impl TerminalPanel {
             return;
         }
         let pids: Vec<u32> = candidates.iter().map(|(_, pid)| *pid).collect();
+        let want = cwd.clone();
         let check = cx.background_spawn(async move {
+            let want = want.map(|dir| std::fs::canonicalize(&dir).unwrap_or(dir));
             pids.into_iter()
-                .map(arcode_project::procs::is_running_command)
-                .collect::<Vec<bool>>()
+                .map(|pid| {
+                    let busy = arcode_project::procs::is_running_command(pid);
+                    let moved = want.as_deref().is_some_and(|want| {
+                        arcode_project::procs::current_dir(pid).as_deref() != Some(want)
+                    });
+                    (busy, moved)
+                })
+                .collect::<Vec<(bool, bool)>>()
         });
+        let shell = configured_shell(cx);
         cx.spawn_in(window, async move |this, cx| {
-            let busy = check.await;
+            let states = check.await;
             this.update_in(cx, |panel, window, cx| {
                 let idle = candidates
                     .into_iter()
-                    .zip(busy)
-                    .filter(|(_, busy)| !busy)
-                    .map(|((t, _), _)| t)
-                    .find(|t| t.read(cx).is_alive() && panel.terminals.contains(t));
+                    .zip(states)
+                    .filter(|(_, (busy, _))| !busy)
+                    .map(|((t, _), (_, moved))| (t, moved))
+                    .find(|(t, _)| t.read(cx).is_alive() && panel.terminals.contains(t));
                 match idle {
-                    Some(terminal) => {
+                    Some((terminal, moved)) => {
                         if let Some(ix) = panel.terminals.iter().position(|t| *t == terminal) {
                             panel.active = ix;
+                        }
+                        if moved && let Some(dir) = &cwd {
+                            terminal.read(cx).run_command(&cd_line(shell, dir));
                         }
                         terminal.read(cx).run_command(&command);
                         panel.track_run(&title, &terminal, false, false, cx);
@@ -95,6 +109,26 @@ impl TerminalPanel {
         if let Some(f) = on_started {
             f(terminal.as_ref(), cx);
         }
+    }
+}
+
+/// The kind of shell the terminal starts (`[terminal] shell`, else the
+/// platform default), for lines typed into it.
+pub fn configured_shell(cx: &App) -> Shell {
+    match &arcode_ui_kit::settings(cx).terminal.shell {
+        Some(shell) => Shell::of_program(shell),
+        None => Shell::of_program(&arcode_terminal::default_shell()),
+    }
+}
+
+/// The line that changes `shell`'s directory to `dir`.
+pub(crate) fn cd_line(shell: Shell, dir: &Path) -> String {
+    let dir = arcode_project::files::external_path(dir);
+    let dir = dir.to_string_lossy();
+    let quoted = quote_arg_in(shell, &dir);
+    match shell {
+        Shell::Cmd => format!("cd /d {quoted}"),
+        _ => format!("cd {quoted}"),
     }
 }
 

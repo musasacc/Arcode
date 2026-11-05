@@ -83,7 +83,7 @@ impl Editor {
         }
         if self.uses_async_syntax() {
             let lines = 0..self.buffer.line_count().min(100);
-            self.spawn_job(JobInput::Parse(self.language), lines, cx);
+            self.spawn_job(JobInput::Parse(self.language), lines.clone(), lines, cx);
         } else {
             self.syntax = Syntax::new(self.language, self.buffer.text());
         }
@@ -115,7 +115,7 @@ impl Editor {
                     syntax,
                     reparse: true,
                 };
-                self.spawn_job(input, range, cx);
+                self.spawn_job(input, range.clone(), range, cx);
             }
         } else {
             syntax.reparse(self.buffer.text());
@@ -123,8 +123,11 @@ impl Editor {
         }
     }
 
-    /// Makes sure highlights cover `range` (visible lines), synchronously for
-    /// small buffers and via a background job for large ones.
+    /// Makes sure highlights cover `range`, synchronously for small buffers
+    /// and via a background job for large ones. When the highlights of this
+    /// version already cover part of the wanted lines, only the rest is
+    /// highlighted and joined to them, so scrolling costs the lines that
+    /// came into view rather than the whole view again.
     pub(crate) fn ensure_highlights(&mut self, range: Range<usize>, cx: &mut Context<Self>) {
         let version = self.buffer.version();
         let covered = self.highlights.as_ref().is_some_and(|c| {
@@ -135,8 +138,13 @@ impl Editor {
         }
         let start = range.start.saturating_sub(HIGHLIGHT_MARGIN);
         let end = (range.end + HIGHLIGHT_MARGIN).min(self.buffer.line_count());
+        let keep = start..end;
+        let todo = missing_lines(self.highlights.as_ref(), version, &keep);
+        if todo.is_empty() {
+            return;
+        }
         if self.large_file {
-            self.spawn_excerpt_job(start..end, cx);
+            self.spawn_excerpt_job(todo, keep, cx);
             return;
         }
         if self.uses_async_syntax() {
@@ -145,7 +153,7 @@ impl Editor {
                     syntax,
                     reparse: false,
                 };
-                self.spawn_job(input, start..end, cx);
+                self.spawn_job(input, todo, keep, cx);
             }
             return;
         }
@@ -153,24 +161,48 @@ impl Editor {
             self.highlights = None;
             return;
         };
-        let spans = syntax.highlight_lines(self.buffer.text(), start..end);
-        self.highlights = Some(HighlightCache {
-            version,
-            lines: start..end,
-            spans,
-        });
+        let spans = syntax.highlight_lines(self.buffer.text(), todo.clone());
+        let cache = HighlightCache::new(version, todo, spans);
+        self.highlights = Some(join_highlights(self.highlights.take(), cache, &keep));
     }
 
-    /// Lines to highlight around the last visible range.
+    /// Makes sure highlights cover the visible lines and, when a minimap is
+    /// shown, the lines in its view, in one pass: highlights that cover only
+    /// the visible lines would leave the rest of the minimap uncoloured
+    /// until a second pass.
+    pub(crate) fn ensure_view_highlights(
+        &mut self,
+        visible: Range<usize>,
+        minimap: Option<Range<usize>>,
+        cx: &mut Context<Self>,
+    ) {
+        let range = match minimap.filter(|m| !m.is_empty()) {
+            Some(m) => visible.start.min(m.start)..visible.end.max(m.end),
+            None => visible,
+        };
+        self.ensure_highlights(range, cx);
+    }
+
+    /// Lines to highlight around the last drawn view: the visible lines and
+    /// the lines in the minimap's view.
     fn wanted_highlight_range(&self) -> Range<usize> {
-        let visible = self.visible_line_range();
-        let start = visible.start.saturating_sub(HIGHLIGHT_MARGIN);
-        let end = (visible.end + HIGHLIGHT_MARGIN).min(self.buffer.line_count());
+        let view = self
+            .layout
+            .as_ref()
+            .map_or(0..0, |layout| layout.highlighted_range());
+        let start = view.start.saturating_sub(HIGHLIGHT_MARGIN);
+        let end = (view.end + HIGHLIGHT_MARGIN).min(self.buffer.line_count());
         start..end
     }
 
-    /// Highlights `range` of a large file from an excerpt parse.
-    fn spawn_excerpt_job(&mut self, range: Range<usize>, cx: &mut Context<Self>) {
+    /// Highlights `range` of a large file from an excerpt parse and joins
+    /// the result to the highlights kept for `keep`.
+    fn spawn_excerpt_job(
+        &mut self,
+        range: Range<usize>,
+        keep: Range<usize>,
+        cx: &mut Context<Self>,
+    ) {
         let rope = self.buffer.text().clone();
         let version = self.buffer.version();
         let language = self.language;
@@ -181,23 +213,27 @@ impl Editor {
                 "excerpt highlight of {range:?} took {:?}",
                 started.elapsed()
             );
-            HighlightCache {
-                version,
-                lines: range,
-                spans,
-            }
+            HighlightCache::new(version, range, spans)
         });
         self.syntax_task = Some(cx.spawn(async move |this, cx| {
             let cache = job.await;
             let _ = this.update(cx, |editor, cx| {
                 editor.syntax_task = None;
-                editor.highlights = Some(cache);
+                editor.highlights = Some(join_highlights(editor.highlights.take(), cache, &keep));
                 cx.notify();
             });
         }));
     }
 
-    fn spawn_job(&mut self, input: JobInput, range: Range<usize>, cx: &mut Context<Self>) {
+    /// Runs `input` in the background, highlights `range` with the result
+    /// and joins that to the highlights kept for `keep`.
+    fn spawn_job(
+        &mut self,
+        input: JobInput,
+        range: Range<usize>,
+        keep: Range<usize>,
+        cx: &mut Context<Self>,
+    ) {
         let rope = self.buffer.text().clone();
         let version = self.buffer.version();
         let job = cx.background_spawn(async move {
@@ -223,16 +259,12 @@ impl Editor {
                 "syntax job: parse {parsed:?}, highlight {:?}",
                 started.elapsed() - parsed
             );
-            let cache = HighlightCache {
-                version,
-                lines: range,
-                spans,
-            };
+            let cache = HighlightCache::new(version, range, spans);
             (syntax, cache)
         });
         self.syntax_task = Some(cx.spawn(async move |this, cx| {
             let (syntax, cache) = job.await;
-            let _ = this.update(cx, |editor, cx| editor.finish_job(syntax, cache, cx));
+            let _ = this.update(cx, |editor, cx| editor.finish_job(syntax, cache, &keep, cx));
         }));
     }
 
@@ -240,6 +272,7 @@ impl Editor {
         &mut self,
         syntax: Option<Syntax>,
         cache: HighlightCache,
+        keep: &Range<usize>,
         cx: &mut Context<Self>,
     ) {
         self.syntax_task = None;
@@ -248,7 +281,7 @@ impl Editor {
             return;
         };
         if !cache.lines.is_empty() {
-            self.highlights = Some(cache);
+            self.highlights = Some(join_highlights(self.highlights.take(), cache, keep));
         }
         if pending.is_empty() {
             self.syntax = Some(syntax);
@@ -261,8 +294,137 @@ impl Editor {
                 syntax,
                 reparse: true,
             };
-            self.spawn_job(input, range, cx);
+            self.spawn_job(input, range.clone(), range, cx);
         }
         cx.notify();
+    }
+}
+
+/// The part of `wanted` still to highlight, given highlights `cache` of the
+/// buffer at `version`: all of it, unless the cache covers its top or its
+/// bottom (or touches it there), in which case only the rest.
+fn missing_lines(
+    cache: Option<&HighlightCache>,
+    version: u64,
+    wanted: &Range<usize>,
+) -> Range<usize> {
+    let Some(have) = cache
+        .filter(|c| c.version == version && !c.lines.is_empty())
+        .map(|c| &c.lines)
+    else {
+        return wanted.clone();
+    };
+    if have.start <= wanted.start && wanted.start <= have.end {
+        have.end.max(wanted.start).min(wanted.end)..wanted.end
+    } else if have.start <= wanted.end && wanted.end <= have.end {
+        wanted.start..have.start.max(wanted.start)
+    } else {
+        wanted.clone()
+    }
+}
+
+/// Joins highlights `new` to `old` when both are of the same buffer version
+/// and their lines touch, keeping the lines of `keep` (and all of `new`);
+/// otherwise `new` replaces `old`.
+fn join_highlights(
+    old: Option<HighlightCache>,
+    new: HighlightCache,
+    keep: &Range<usize>,
+) -> HighlightCache {
+    let Some(mut old) = old.filter(|o| {
+        o.version == new.version && o.lines.start <= new.lines.end && new.lines.start <= o.lines.end
+    }) else {
+        return new;
+    };
+    let start = old.lines.start.max(keep.start).min(new.lines.start);
+    let end = old.lines.end.min(keep.end).max(new.lines.end);
+    if start == new.lines.start && end == new.lines.end {
+        return new;
+    }
+    let mut new_spans = new.spans;
+    let spans = (start..end)
+        .map(|line| {
+            let (lines, spans) = if new.lines.contains(&line) {
+                (&new.lines, &mut new_spans)
+            } else {
+                (&old.lines, &mut old.spans)
+            };
+            spans
+                .get_mut(line - lines.start)
+                .map(std::mem::take)
+                .unwrap_or_default()
+        })
+        .collect();
+    HighlightCache::new(new.version, start..end, spans)
+}
+
+#[cfg(test)]
+mod tests {
+    use arcode_syntax::HighlightSpan;
+
+    use super::*;
+
+    /// A cache whose line `l` holds one span named after it.
+    fn cache(version: u64, lines: Range<usize>) -> HighlightCache {
+        const NAMES: [&str; 4] = ["a", "b", "c", "d"];
+        let spans = lines
+            .clone()
+            .map(|l| {
+                vec![HighlightSpan {
+                    range: l..l + 1,
+                    name: NAMES[l % 4],
+                }]
+            })
+            .collect();
+        HighlightCache::new(version, lines, spans)
+    }
+
+    #[test]
+    fn only_lines_not_yet_highlighted_are_asked_for() {
+        let c = cache(3, 100..200);
+        // Scrolling down: only the lines below the cache.
+        assert_eq!(missing_lines(Some(&c), 3, &(150..260)), 200..260);
+        // Scrolling up: only the lines above it.
+        assert_eq!(missing_lines(Some(&c), 3, &(40..160)), 40..100);
+        // Touching counts as next to it.
+        assert_eq!(missing_lines(Some(&c), 3, &(200..230)), 200..230);
+        // Far away, around it on both sides, another version or none: all.
+        assert_eq!(missing_lines(Some(&c), 3, &(500..600)), 500..600);
+        assert_eq!(missing_lines(Some(&c), 3, &(50..250)), 50..250);
+        assert_eq!(missing_lines(Some(&c), 4, &(150..260)), 150..260);
+        assert_eq!(missing_lines(None, 3, &(150..260)), 150..260);
+        // Already covered.
+        assert!(missing_lines(Some(&c), 3, &(120..180)).is_empty());
+    }
+
+    #[test]
+    fn joined_highlights_keep_every_line_in_its_place() {
+        let joined = join_highlights(Some(cache(3, 100..200)), cache(3, 200..260), &(150..260));
+        assert_eq!(joined.lines, 150..260);
+        assert_eq!(joined.spans.len(), 110);
+        for (ix, spans) in joined.spans.iter().enumerate() {
+            let line = 150 + ix;
+            assert_eq!(spans[0].range, line..line + 1, "line {line}");
+        }
+
+        let up = join_highlights(Some(cache(3, 100..200)), cache(3, 40..100), &(40..160));
+        assert_eq!(up.lines, 40..160);
+        assert_eq!(up.spans[70][0].range, 110..111);
+
+        // Lines the view no longer needs are dropped, those of `new` never.
+        let old = cache(3, 0..300);
+        let joined = join_highlights(Some(old), cache(3, 290..400), &(350..400));
+        assert_eq!(joined.lines, 290..400);
+
+        // Another version, or lines that do not touch: replaced.
+        let joined = join_highlights(Some(cache(2, 100..200)), cache(3, 200..260), &(150..260));
+        assert_eq!(joined.lines, 200..260);
+        let joined = join_highlights(Some(cache(3, 100..200)), cache(3, 300..360), &(300..360));
+        assert_eq!(joined.lines, 300..360);
+        // A join is a new cache, so views built from the old one rebuild.
+        let old = cache(3, 100..200);
+        let old_id = old.id;
+        let joined = join_highlights(Some(old), cache(3, 200..260), &(150..260));
+        assert_ne!(joined.id, old_id);
     }
 }

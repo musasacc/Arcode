@@ -21,7 +21,7 @@ mod program;
 #[path = "terminal_run.rs"]
 mod run;
 
-pub use named::OnStarted;
+pub use named::{OnStarted, configured_shell};
 pub use program::OnExit;
 pub use run::{LastRun, RunStatus, render_run_readout};
 

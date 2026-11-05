@@ -15,7 +15,9 @@ use arcode_dap::{
     AdapterChoice, AdapterTransport, DebugConfig, KnownAdapter, LaunchOptions, LaunchVars,
     detect_adapter, locate_adapter, missing_adapter_message, spec_with_executable,
 };
-use arcode_project::{DebugTarget, cargo_message_text, executables_from_cargo_json};
+use arcode_project::{
+    DebugTarget, RunCommand, RunSource, cargo_message_text, executables_from_cargo_json,
+};
 use serde_json::json;
 
 use super::launch::LaunchKind;
@@ -186,7 +188,14 @@ fn target_config(
 ) -> Result<DebugConfig, String> {
     let (adapter, spec) = find(target.language, &input.settings)?;
     let program = match &target.build {
-        Some(build) => cargo_build(&build.args, &build.cwd, cancel, log)?,
+        Some(build) if build.source == RunSource::Cargo => {
+            cargo_build(&build.args, &build.cwd, cancel, log)?
+        }
+        Some(compile) => {
+            let program = target.program.clone().unwrap_or_default();
+            compile_file(compile, &program, cancel, log)?;
+            program
+        }
         None => target.program.clone().unwrap_or_default(),
     };
     let options = LaunchOptions {
@@ -237,6 +246,23 @@ fn cargo_build(
         ));
     }
     Ok(pick.path.clone())
+}
+
+/// Compiles a single source file into `program` (Debug Current File).
+fn compile_file(
+    compile: &RunCommand,
+    program: &Path,
+    cancel: &Cancel,
+    log: Log<'_>,
+) -> Result<(), String> {
+    if let Some(dir) = program.parent() {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+    }
+    log(format!("> {}", compile.command_line()));
+    let mut command = Command::new(&compile.program);
+    command.args(&compile.args).current_dir(&compile.cwd);
+    run_streaming(command, cancel, log, false).map(|_| ())
 }
 
 /// Runs a configured build command line in the platform shell.

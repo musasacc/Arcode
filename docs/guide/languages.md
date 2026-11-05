@@ -2,8 +2,11 @@
 
 Arcode has syntax highlighting built in for the languages below. Smarter
 features (completion, go to definition, diagnostics, rename, formatting,
-...) come from **language servers**, separate programs that you install
-and Arcode starts for you. Arcode never downloads or installs them.
+...) come from **language servers**, separate programs that Arcode starts
+for you. Release packages bundle them (see
+[Bundled language servers](#bundled-language-servers)); a server you
+install yourself is used instead. Arcode never downloads or installs
+servers on its own.
 
 ## Built-in languages
 
@@ -69,18 +72,29 @@ files and from file paths, run buttons and snippets.
 
 ### How servers are found
 
-Arcode starts the command configured for the language and looks it up on
-your `PATH`. On Windows it also tries the extensions in `PATHEXT`, so the
-`.cmd` and `.bat` files npm installs are found by their bare name.
+Arcode starts the command configured for the language, looking for it in
+this order:
+
+1. **A path you configured.** `command = "/opt/rust-analyzer/bin/rust-analyzer"`
+   under `[lsp.<name>]` is run as given.
+2. **Your `PATH`.** A server you installed (with rustup, npm, pipx, your
+   package manager, ...) is used. On Windows Arcode also tries the
+   extensions in `PATHEXT`, so the `.cmd` and `.bat` files npm installs
+   are found by their bare name.
+3. **The bundled servers.** Otherwise the copy that came with Arcode.
+
+So installing a server yourself, or setting its path, always wins over the
+bundled one; remove it from `PATH` (or the path from the configuration)
+to go back to the bundled copy.
 
 The "starts in" column lists each server's root markers: Arcode looks
 upwards from the file for the nearest folder containing one of them and
 starts the server there, so one project can hold several workspaces.
 Without a marker, the project folder is used.
 
-If a server is missing, the status bar shows it as not installed and a
-message names the command, once. Nothing else happens; install the
-server and Arcode uses it the next time it needs it.
+If a server is missing everywhere, the status bar shows it as not
+installed and a message names the command, once. Nothing else happens;
+install the server and Arcode uses it the next time it needs it.
 
 To use a server that is not on `PATH`, give its path:
 
@@ -123,6 +137,116 @@ env = { CARGO_TARGET_DIR = "target/ra" }
 
 Saving `config.toml` restarts only the servers whose settings changed.
 
+`args` may contain `${workspaceFolder}` (the folder the server starts in)
+and `${workspaceFolderHash}` (a short, stable hash of it, for servers that
+keep state per project).
+
+The built-in settings keep servers from downloading on their own:
+
+- `yaml-language-server` does not fetch the SchemaStore catalog, and a
+  schema a YAML file names in a `# yaml-language-server: $schema=<url>`
+  comment is not downloaded (it shows as not loaded).
+- `vscode-json-language-server` does not download schemas a JSON file
+  links to with `"$schema"` (they show as not loaded). Schemas in local
+  files work for both.
+- `taplo` runs with schemas off, as it can only get them from the network:
+  TOML files get formatting, syntax checks and symbols, but no schema
+  completion or validation.
+- `typescript-language-server` does not install `@types` packages with npm.
+
+Setting `initialization_options` for one of these servers replaces the
+built-in value, so you can turn them back on. For example, schema support
+for TOML, which downloads the SchemaStore catalog when taplo starts:
+
+```toml
+[lsp.taplo]
+initialization_options = { evenBetterToml = { schema = { enabled = true } } }
+```
+
+## Bundled language servers
+
+Release packages (built with `scripts/package.sh`) include these servers,
+so they work offline right after installing. The versions are pinned in
+`packaging/language-servers.toml`:
+
+| Language | Server | Version | Runs on |
+|---|---|---|---|
+| Rust | rust-analyzer | 2026-11-02 | native |
+| C, C++, Objective-C | clangd | 23.1.0 | native (no Linux arm64 build upstream) |
+| Go | gopls | v0.24.0 | native; needs Go installed to be useful |
+| Python | pyright (`pyright-langserver`) | 1.1.414 | bundled Node.js |
+| Python (lint) | ruff | 0.17.3 | native |
+| TypeScript, JavaScript | typescript-language-server with TypeScript 6.0.3 | 6.0.3 | bundled Node.js |
+| HTML, CSS, SCSS, Less, JSON | vscode-langservers-extracted | 4.10.0 | bundled Node.js |
+| YAML | yaml-language-server | 2.0.0 | bundled Node.js |
+| Shell Script | bash-language-server | 5.8.1 | bundled Node.js |
+| Lua | lua-language-server | 3.19.2 | native |
+| Markdown | marksman | 2026-02-08 | native |
+| TOML | taplo | 0.10.0 | native |
+| Java | jdtls | 1.61.0 | your Java (JDK 21 or newer) |
+
+The JavaScript-based servers run on a private Node.js 24 that ships in the
+bundle; it is not put on `PATH` and a system Node.js is never used for
+them. jdtls runs on the Java found through `JAVA_HOME`, else on `PATH`;
+without one, or with one older than Java 21, Arcode says so when a Java
+file opens and the Languages page shows jdtls as "bundled, cannot start".
+Arcode reads `JAVA_HOME` and `PATH` when it starts, so restart Arcode after
+installing a JDK. jdtls keeps its per-project data in
+`language-servers-state/jdtls` in the bundle's data folder (below). It is
+pinned to 1.61.0, the newest release that runs on Java 21.
+
+Not bundled:
+
+- **Ruby (`ruby-lsp`)** runs inside your project's Ruby and Bundler, so it
+  has to be installed with them: `gem install ruby-lsp`.
+- **PHP (`intelephense`)**: its licence does not allow redistribution.
+  Install it with `npm install --global intelephense`.
+
+The Languages page shows bundled servers as "bundled" and offers no
+install command for them. The licenses of everything in the bundle are
+in `share/doc/arcode/THIRD-PARTY.txt` and
+`share/arcode/language-servers/LICENSES/` of the installation.
+
+### Where Arcode looks for the bundle
+
+Arcode looks for the bundle once, the first time a language server
+starts, in the first of:
+
+1. `<installation>/share/arcode/language-servers`, next to the executable
+   (`bin/arcode` → `../share/arcode/language-servers`; on macOS
+   `Arcode.app/Contents/share/arcode/language-servers`);
+2. `language-servers` in Arcode's local data folder: `~/.local/share/arcode`
+   on Linux, `~/Library/Application Support/arcode` on macOS,
+   `%LOCALAPPDATA%\arcode` on Windows (not the roaming `%APPDATA%`, so
+   roaming profiles do not copy it around), or `$ARCODE_DATA_DIR`.
+
+A build from source has no bundle next to it. To get one, run the fetch
+script from the checkout into the data folder and restart Arcode:
+
+```sh
+scripts/fetch-language-servers.sh linux-x64 ~/.local/share/arcode
+scripts/fetch-language-servers.sh macos-arm64 ~/Library/Application\ Support/arcode
+scripts/fetch-language-servers.sh windows-x64 "$LOCALAPPDATA/arcode"   # Git Bash
+```
+
+The script needs Python 3.11 or newer and curl (and Go to build gopls);
+it downloads about 300 MB, checks every file against its pinned sha256
+and keeps the downloads in `~/.cache/arcode-language-servers`.
+
+### Using your own server instead
+
+Install it so it is on `PATH`, or point Arcode at it:
+
+```toml
+[lsp.pyright-langserver]
+command = "/home/me/.local/bin/pyright-langserver"
+args = ["--stdio"]
+```
+
+Either way the bundled copy is not used for that server. To use a newer
+TypeScript for one project, add `typescript` to the project's
+`devDependencies`: typescript-language-server prefers the project's own.
+
 ## Language packs
 
 A language pack is everything Arcode knows about a language: its grammar,
@@ -132,10 +256,10 @@ linters.
 
 The **Languages** page shows every pack: open the Plugins view (puzzle
 icon in the activity bar) and choose the Languages tab, or run
-**Languages: Show Language Packs**. For each pack it shows which tools are
-installed, checked offline by running them with `--version` and similar,
-and the command to install a missing one on your system, ready to copy.
-Nothing is downloaded or installed from this page.
+**Languages: Show Language Packs**. For each pack it shows which servers
+are installed (on `PATH` or at their configured path), which are bundled
+with Arcode, and the command to install a missing one on your system,
+ready to copy. Nothing is downloaded or installed from this page.
 
 | Pack | Languages | Tools it lists |
 |---|---|---|

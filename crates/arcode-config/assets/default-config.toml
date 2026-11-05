@@ -12,6 +12,9 @@ font_family = "JetBrains Mono"
 font_fallbacks = ["Noto Sans CJK SC", "Noto Color Emoji", "Segoe UI Emoji", "Apple Color Emoji"]
 # Font size in points (4 - 200).
 font_size = 14.0
+# Font weight: 400 is regular, 700 bold (100 - 900). A font without that
+# weight uses its nearest one; the bundled JetBrains Mono has 400 and 700.
+font_weight = 400
 # Line height as a multiple of the font size (0.5 - 4.0).
 line_height = 1.5
 # Programming ligatures such as -> and !=.
@@ -59,6 +62,11 @@ code_action_lightbulb = true
 # Show diagnostics as a lens after the end of their line: "errors", "all"
 # or "off".
 inline_diagnostics = "errors"
+# Show a minimap (the file scaled down) at the right edge of file editors;
+# click or drag it to scroll. Always hidden in low-end mode.
+minimap = true
+# Width of the minimap in pixels (40 - 240).
+minimap_width = 96
 
 [editor.completion]
 # Open the completion popup while typing. When false, only Ctrl+Space
@@ -96,6 +104,16 @@ animations = true
 animation_ms = 120
 # Show frame time and memory use in the footer.
 show_perf_stats = true
+# Show the menus (File, Edit, Selection, ...) in the title bar. When false,
+# and in a narrow window, a single menu button holds them; a tap on Alt
+# opens them either way. macOS always uses its own menu bar.
+menu_bar = true
+# How text edges are blended (Linux only; applied when Arcode starts).
+# Gamma 1.0 - 2.2: higher draws light text on dark themes heavier.
+text_gamma = 1.8
+# Contrast 0 - 8: higher thickens dark and mid-tone text (light themes,
+# muted text); light text is left as it is.
+text_contrast = 1.0
 
 [terminal]
 # Shell program. Unset: $SHELL on Linux/macOS, PowerShell on Windows.
@@ -201,9 +219,12 @@ network = true
 # pyright-langserver, gopls, clangd, taplo, vscode-json-language-server,
 # vscode-html-language-server, vscode-css-language-server,
 # bash-language-server, yaml-language-server, marksman, jdtls,
-# lua-language-server, ruby-lsp, intelephense. The Languages page (Plugins
-# view) shows which are installed and how to install them.
-# A new table defines a new server; keys in an existing one override it.
+# lua-language-server, ruby-lsp, intelephense. A command is looked up on
+# PATH, then in the language servers bundled with Arcode (all of these but
+# ruby-lsp and intelephense); a path is used as given. The Languages page
+# (Plugins view) shows which are installed or bundled and how to install
+# the rest. A new table defines a new server; keys in an existing one
+# override it.
 #
 # [lsp.ruff]
 # command = "ruff"                           # defaults to the table name

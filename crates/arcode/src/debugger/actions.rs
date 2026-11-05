@@ -39,6 +39,13 @@ actions!(
         OpenLaunchConfig,
         /// Opens the title bar's run command menu.
         PickRunCommand,
+        /// Runs the active editor's file on its own, with the toolchain of
+        /// its language.
+        RunCurrentFile,
+        /// Debugs the active editor's file on its own.
+        DebugCurrentFile,
+        /// Opens the dialog that sets the project's run command.
+        EditRunCommand,
     ]
 );
 
@@ -63,6 +70,9 @@ pub fn commands() -> Vec<(&'static str, Box<dyn gpui::Action>)> {
         ("Debug: Show Run and Debug", Box::new(ShowRunAndDebug)),
         ("Debug: Open launch.toml", Box::new(OpenLaunchConfig)),
         ("Run: Pick Run Command", Box::new(PickRunCommand)),
+        ("Run: Run Current File", Box::new(RunCurrentFile)),
+        ("Run: Edit Run Command", Box::new(EditRunCommand)),
+        ("Debug: Debug Current File", Box::new(DebugCurrentFile)),
     ]
 }
 

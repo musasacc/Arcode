@@ -68,18 +68,28 @@ fn generated(commands: &[RunCommand]) -> Vec<LaunchChoice> {
 }
 
 /// The starter `launch.toml` written by "Debug: Open launch.toml" when the
-/// project has none.
+/// project has none. With the program a Cargo project builds, it has one
+/// configuration for it. Without one every configuration is a commented
+/// example: an active placeholder would replace F5's fallback (debugging
+/// the current file) with a program that does not exist.
 pub fn template(first_program: Option<&str>) -> String {
-    let program = first_program.unwrap_or("target/debug/app");
-    format!(
-        r#"# Launch configurations for the Run and Debug view.
+    let header = r#"# Launch configurations for the Run and Debug view.
 # Docs: each [[configuration]] has a name and either `adapter`
 # (codelldb, lldb-dap, gdb, debugpy, delve) or `language` (the first
 # installed adapter for it). Arcode never downloads adapters.
 #
-# Variables: ${{workspaceFolder}}, ${{file}}, ${{fileDirname}},
-# ${{fileBasenameNoExtension}}, ${{env:NAME}}.
-
+# Variables: ${workspaceFolder}, ${file}, ${fileDirname},
+# ${fileBasenameNoExtension}, ${env:NAME}.
+"#;
+    let python = r#"
+# [[configuration]]
+# name = "Python file"
+# language = "python"
+# program = "${file}"
+"#;
+    match first_program {
+        Some(program) => format!(
+            r#"{header}
 [[configuration]]
 name = "Debug program"
 language = "rust"
@@ -91,13 +101,23 @@ cwd = "${{workspaceFolder}}"
 # env = {{ RUST_LOG = "debug" }}
 # stop_on_entry = false
 # build = "make debug"        # a command run before launching
+{python}"#
+        ),
+        None => format!(
+            r#"{header}#
+# Until a configuration is added, F5 debugs the file in the editor.
+# Remove the `#` in front of an example to use it.
 
 # [[configuration]]
-# name = "Python file"
-# language = "python"
-# program = "${{file}}"
-"#
-    )
+# name = "Debug program"
+# language = "c"
+# program = "build/app"
+# args = []
+# cwd = "${{workspaceFolder}}"
+# build = "make debug"        # a command run before launching
+{python}"#
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -143,8 +163,14 @@ mod tests {
 
     #[test]
     fn template_parses() {
-        let (entries, warnings) = parse_launch_file(&template(None));
+        let (entries, warnings) = parse_launch_file(&template(Some("target/debug/demo")));
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "Debug program");
+        // Without a known program it only has examples, so F5 keeps
+        // debugging the current file.
+        let (entries, warnings) = parse_launch_file(&template(None));
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert!(entries.is_empty(), "{entries:?}");
     }
 }

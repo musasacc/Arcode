@@ -83,13 +83,7 @@ fn on_debugger_event(
     match event {
         DebuggerEvent::Open { path, line, .. } => ws.open_debug_source(path, *line, window, cx),
         DebuggerEvent::RunCommand { title, command } => {
-            ws.bottom_panel_visible = true;
-            let line = command.command_line();
-            let cwd = Some(command.cwd.clone());
-            ws.bottom_panel.update(cx, |p, cx| {
-                p.run_named(title, &line, cwd, None, window, cx);
-            });
-            cx.notify();
+            ws.run_command_in_terminal(title, command, window, cx)
         }
         DebuggerEvent::RunInTerminal { title, request } => {
             ws.run_debuggee_in_terminal(title, request, window, cx)
@@ -257,12 +251,27 @@ impl Workspace {
         el: E,
         cx: &mut Context<Self>,
     ) -> E {
-        el.on_action(cx.listener(|ws, _: &StartOrContinue, _, cx| {
+        el.on_action(cx.listener(|ws, _: &StartOrContinue, window, cx| {
+            // Without a launch configuration, F5 debugs the current file.
+            let d = ws.debug.debugger.read(cx);
+            if d.choices().is_empty() && !d.is_active() {
+                ws.debug_current_file(window, cx);
+                return;
+            }
             let file = ws.active_file(cx);
             ws.debug
                 .debugger
                 .update(cx, |d, cx| d.start_or_continue(file, cx));
         }))
+        .on_action(
+            cx.listener(|ws, _: &RunCurrentFile, window, cx| ws.run_current_file(window, cx)),
+        )
+        .on_action(
+            cx.listener(|ws, _: &DebugCurrentFile, window, cx| ws.debug_current_file(window, cx)),
+        )
+        .on_action(
+            cx.listener(|ws, _: &EditRunCommand, window, cx| ws.edit_run_command(window, cx)),
+        )
         .on_action(cx.listener(|ws, _: &Continue, _, cx| ws.step(Step::Continue, cx)))
         .on_action(cx.listener(|ws, _: &Pause, _, cx| ws.step(Step::Pause, cx)))
         .on_action(cx.listener(|ws, _: &StepOver, _, cx| ws.step(Step::Over, cx)))

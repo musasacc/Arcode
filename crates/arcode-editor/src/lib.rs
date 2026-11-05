@@ -75,6 +75,15 @@
 //! [`UndoCursor`], Alt+click to add or remove a cursor and box selection
 //! with Alt+Shift+drag or the middle button.
 //!
+//! # Minimap
+//!
+//! With `editor.minimap` on (never in low-end mode), an editor whose host
+//! called [`Editor::set_minimap_allowed`] draws the file scaled down left
+//! of the scrollbar: syntax-coloured blocks from the same highlights as the
+//! text, the viewport slider, selections, background highlights, change
+//! marks and diagnostics. Its cost follows its height, not the file's
+//! length (see `minimap/geometry.rs`).
+//!
 //! # Large files
 //!
 //! Above `editor.large_file_bytes` / `editor.large_file_lines` no syntax tree
@@ -105,6 +114,7 @@ pub mod lang;
 mod layout;
 mod layout_extras;
 mod menu;
+mod minimap;
 mod mouse;
 mod mouse_column;
 mod mouse_ext;

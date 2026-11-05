@@ -61,6 +61,8 @@ pub fn run() {
     for warning in &warnings {
         log::warn!("config: {warning}");
     }
+    // Before any thread starts: GPUI reads these when it opens a window.
+    let text_rendering = crate::text_rendering::export_env(&config.ui);
     // Without a configuration folder there is nothing the first-run dialog
     // could write, so it is not shown.
     let config_exists =
@@ -84,6 +86,7 @@ pub fn run() {
             if first_run {
                 cx.set_global(crate::prefs::first_run::FirstRunPending);
             }
+            cx.set_global(text_rendering);
             arcode_ui_kit::load_fonts(cx);
             arcode_ui_kit::set_settings(config, cx);
             theme_sync::init(cx);
@@ -102,6 +105,9 @@ pub fn run() {
             commands::init(cx);
             #[cfg(feature = "plugins")]
             crate::plugins::commands::init(cx);
+            // macOS shows the menus in its own menu bar.
+            #[cfg(target_os = "macos")]
+            crate::menu_bar::install_native_menus(cx);
             crate::lsp_bridge::init(cx);
             path_prompt::bind_keys(cx);
             sidebar::file_tree::bind_keys(cx);

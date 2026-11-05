@@ -12,6 +12,18 @@ pub fn is_running_command(shell_pid: u32) -> bool {
     imp::is_running_command(shell_pid).unwrap_or(false)
 }
 
+/// The working directory of process `pid`, where the system tells it
+/// cheaply (Linux: `/proc/<pid>/cwd`); `None` elsewhere or when it cannot
+/// be read.
+pub fn current_dir(pid: u32) -> Option<std::path::PathBuf> {
+    if cfg!(target_os = "linux") {
+        std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
+    } else {
+        let _ = pid;
+        None
+    }
+}
+
 /// The process group and the terminal's foreground process group from a
 /// Linux `/proc/<pid>/stat` line.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -114,6 +126,18 @@ mod tests {
         // unless run from a shell, which still must not panic.
         let _ = is_running_command(std::process::id());
         assert!(!is_running_command(u32::MAX));
+    }
+
+    #[test]
+    fn the_working_directory_of_a_process() {
+        let here = std::env::current_dir().unwrap();
+        let dir = current_dir(std::process::id());
+        if cfg!(target_os = "linux") {
+            assert_eq!(dir, Some(std::fs::canonicalize(here).unwrap()));
+        } else {
+            assert_eq!(dir, None);
+        }
+        assert_eq!(current_dir(u32::MAX), None);
     }
 
     #[cfg(unix)]

@@ -32,6 +32,9 @@ pub struct EditorSettings {
     pub font_fallbacks: Vec<String>,
     /// Font size in points.
     pub font_size: f32,
+    /// Font weight, 100 (thin) to 900 (black); 400 is regular. A font
+    /// without that weight uses its nearest one.
+    pub font_weight: u16,
     /// Line height as a multiple of the font size.
     pub line_height: f32,
     /// Enable programming ligatures.
@@ -82,6 +85,11 @@ pub struct EditorSettings {
     /// Which diagnostics get an inline lens after their line: `"errors"`,
     /// `"all"` or `"off"`.
     pub inline_diagnostics: InlineDiagnostics,
+    /// Show a minimap (the file scaled down) at the right edge of file
+    /// editors. Always off in low-end mode.
+    pub minimap: bool,
+    /// Width of the minimap in pixels.
+    pub minimap_width: u32,
     /// `[editor.completion]`: completion popup, snippets, signature help.
     pub completion: CompletionSettings,
 }
@@ -99,6 +107,7 @@ impl Default for EditorSettings {
             .map(String::from)
             .to_vec(),
             font_size: 14.0,
+            font_weight: Self::DEFAULT_FONT_WEIGHT,
             line_height: 1.5,
             ligatures: true,
             tab_size: 4,
@@ -121,6 +130,8 @@ impl Default for EditorSettings {
             inlay_hints: true,
             code_action_lightbulb: true,
             inline_diagnostics: InlineDiagnostics::Errors,
+            minimap: true,
+            minimap_width: Self::DEFAULT_MINIMAP_WIDTH,
             completion: CompletionSettings::default(),
         }
     }
@@ -130,6 +141,7 @@ impl_section!(EditorSettings {
     font_family,
     font_fallbacks,
     font_size,
+    font_weight,
     line_height,
     ligatures,
     tab_size,
@@ -152,6 +164,8 @@ impl_section!(EditorSettings {
     inlay_hints,
     code_action_lightbulb,
     inline_diagnostics,
+    minimap,
+    minimap_width,
 });
 
 impl EditorSettings {
@@ -189,6 +203,15 @@ impl EditorSettings {
             "editor.line_height",
             warnings,
         );
+        if !Self::FONT_WEIGHTS.contains(&self.font_weight) {
+            warnings.push(format!(
+                "`editor.font_weight` must be between {} and {}, got {}; using default",
+                Self::FONT_WEIGHTS.start(),
+                Self::FONT_WEIGHTS.end(),
+                self.font_weight
+            ));
+            self.font_weight = defaults.font_weight;
+        }
         if !(1..=32).contains(&self.tab_size) {
             warnings.push(format!(
                 "`editor.tab_size` must be between 1 and 32, got {}; using default",
@@ -210,9 +233,26 @@ impl EditorSettings {
             ));
             self.format_on_save_timeout_ms = Self::MAX_FORMAT_TIMEOUT_MS;
         }
+        if !Self::MINIMAP_WIDTHS.contains(&self.minimap_width) {
+            warnings.push(format!(
+                "`editor.minimap_width` must be between {} and {}, got {}; using default",
+                Self::MINIMAP_WIDTHS.start(),
+                Self::MINIMAP_WIDTHS.end(),
+                self.minimap_width
+            ));
+            self.minimap_width = defaults.minimap_width;
+        }
         self.completion.validate(warnings);
     }
 
+    /// Default `font_weight` (regular).
+    pub const DEFAULT_FONT_WEIGHT: u16 = 400;
+    /// Accepted `font_weight` values.
+    pub const FONT_WEIGHTS: std::ops::RangeInclusive<u16> = 100..=900;
+    /// Default `minimap_width`.
+    pub const DEFAULT_MINIMAP_WIDTH: u32 = 96;
+    /// Accepted `minimap_width` values.
+    pub const MINIMAP_WIDTHS: std::ops::RangeInclusive<u32> = 40..=240;
     /// Longest accepted hover delay.
     pub const MAX_HOVER_DELAY_MS: u64 = 5000;
     /// Longest accepted format-on-save wait.
@@ -301,6 +341,16 @@ pub struct UiSettings {
     pub animation_ms: u32,
     /// Show frame-time / memory statistics in the status bar.
     pub show_perf_stats: bool,
+    /// Show the menu titles (File, Edit, ...) in the title bar; when off,
+    /// or in a narrow window, one menu button holds them. Linux and
+    /// Windows; macOS always uses its native menu bar.
+    pub menu_bar: bool,
+    /// Gamma used to blend text edges (1.0 - 2.2). Higher draws light text
+    /// on dark backgrounds heavier. Linux only; read at startup.
+    pub text_gamma: f32,
+    /// Extra contrast for text edges (0 - 8). Thickens dark and mid-tone
+    /// text; light text is left as it is. Linux only; read at startup.
+    pub text_contrast: f32,
 }
 
 impl Default for UiSettings {
@@ -315,6 +365,9 @@ impl Default for UiSettings {
             animations: true,
             animation_ms: 120,
             show_perf_stats: true,
+            menu_bar: true,
+            text_gamma: Self::DEFAULT_TEXT_GAMMA,
+            text_contrast: Self::DEFAULT_TEXT_CONTRAST,
         }
     }
 }
@@ -329,6 +382,9 @@ impl_section!(UiSettings {
     animations,
     animation_ms,
     show_perf_stats,
+    menu_bar,
+    text_gamma,
+    text_contrast,
 });
 
 impl UiSettings {
@@ -362,6 +418,22 @@ impl UiSettings {
             "ui.font_size",
             warnings,
         );
+        for (name, slot, range, default) in [
+            (
+                "ui.text_gamma",
+                &mut self.text_gamma,
+                Self::TEXT_GAMMA_RANGE,
+                Self::DEFAULT_TEXT_GAMMA,
+            ),
+            (
+                "ui.text_contrast",
+                &mut self.text_contrast,
+                Self::TEXT_CONTRAST_RANGE,
+                Self::DEFAULT_TEXT_CONTRAST,
+            ),
+        ] {
+            check_range(slot, *range.start(), *range.end(), default, name, warnings);
+        }
         if self.animation_ms > 5000 {
             warnings.push(format!(
                 "`ui.animation_ms` must be at most 5000, got {}; using default",

@@ -13,9 +13,13 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::config::ServerConfig;
 use super::text::LazyText;
-use crate::client::LspClient;
+use crate::client::{LspClient, ServerSpec};
 use crate::event::{EventSink, PositionEncoding};
 use crate::sync::TextChange;
+
+/// Adjusts a server's process spec right before it starts; see
+/// [`super::LspManager::set_launch_hook`].
+pub type LaunchHook = Arc<dyn Fn(&mut ServerSpec) + Send + Sync>;
 
 /// Produces a document's text for `didOpen`.
 pub(crate) type MakeOpenText = dyn Fn() -> String + Send + Sync;
@@ -82,16 +86,27 @@ impl ServerSlot {
 /// How long a replacement waits for the instance it replaces to stop.
 const REPLACE_WAIT: Duration = Duration::from_secs(8);
 
-/// Spawns the actor for `config` at `root` on `runtime`. With `after`, the
-/// server starts only once that fires (the instance it replaces stopped)
-/// or after [`REPLACE_WAIT`]; commands queue meanwhile.
+/// How an instance starts.
+pub(crate) struct Start {
+    pub(crate) events: EventSink,
+    /// The server starts only once this fires (the instance it replaces
+    /// stopped) or after [`REPLACE_WAIT`]; commands queue meanwhile.
+    pub(crate) after: Option<oneshot::Receiver<()>>,
+    pub(crate) hook: Option<LaunchHook>,
+}
+
+/// Spawns the actor for `config` at `root` on `runtime`.
 pub(crate) fn spawn(
     runtime: &Handle,
     config: &ServerConfig,
     root: PathBuf,
-    events: EventSink,
-    after: Option<oneshot::Receiver<()>>,
+    start: Start,
 ) -> Arc<ServerSlot> {
+    let Start {
+        events,
+        after,
+        hook,
+    } = start;
     let (tx, rx) = mpsc::unbounded_channel();
     let client = Arc::new(OnceLock::new());
     let stopped = Arc::new(AtomicBool::new(false));
@@ -107,14 +122,31 @@ pub(crate) fn spawn(
         if let Some(after) = after {
             let _ = tokio::time::timeout(REPLACE_WAIT, after).await;
         }
-        run(config, root, events, rx, client, &stopped).await;
+        let spec = launch_spec(&config, hook).await;
+        run(spec, root, events, rx, client, &stopped).await;
         stopped.store(true, Ordering::Relaxed);
     });
     slot
 }
 
+/// The process spec of `config`, adjusted by `hook` on a blocking thread.
+async fn launch_spec(config: &ServerConfig, hook: Option<LaunchHook>) -> ServerSpec {
+    let spec = config.spec();
+    let Some(hook) = hook else {
+        return spec;
+    };
+    let fallback = spec.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut spec = spec;
+        hook(&mut spec);
+        spec
+    })
+    .await
+    .unwrap_or(fallback)
+}
+
 async fn run(
-    config: ServerConfig,
+    spec: ServerSpec,
     root: PathBuf,
     events: EventSink,
     mut rx: mpsc::UnboundedReceiver<Command>,
@@ -123,13 +155,14 @@ async fn run(
 ) {
     // The slot is filled before `Running` is emitted, so a UI reacting to
     // that event can route requests to this server right away.
-    let started = LspClient::start_then(config.spec(), root, events, |client| {
+    let name = spec.name.clone();
+    let started = LspClient::start_then(spec, root, events, |client| {
         let _ = slot.set(client.clone());
     });
     let client = match started.await {
         Ok(client) => client,
         Err(e) => {
-            log::warn!("[{}] failed to start: {e}", config.name);
+            log::warn!("[{name}] failed to start: {e}");
             stopped.store(true, Ordering::Relaxed);
             // Keep draining so queued requests resolve (their senders drop).
             while let Some(cmd) = rx.recv().await {
@@ -143,13 +176,13 @@ async fn run(
     while let Some(cmd) = rx.recv().await {
         if let Command::Shutdown(ack) = cmd {
             if let Err(e) = client.shutdown().await {
-                log::debug!("[{}] shutdown: {e}", config.name);
+                log::debug!("[{name}] shutdown: {e}");
             }
             let _ = ack.send(());
             break;
         }
         if let Err(e) = apply(&client, cmd) {
-            log::debug!("[{}] {e}", config.name);
+            log::debug!("[{name}] {e}");
         }
     }
 }

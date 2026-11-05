@@ -34,9 +34,24 @@ pub(crate) enum Autoscroll {
 
 /// Highlight spans for a range of lines at one buffer version.
 pub(crate) struct HighlightCache {
+    /// Unique per cache, so views derived from it (the minimap) can tell
+    /// when it was replaced.
+    pub id: u64,
     pub version: u64,
     pub lines: Range<usize>,
     pub spans: Vec<Vec<HighlightSpan>>,
+}
+
+impl HighlightCache {
+    pub(crate) fn new(version: u64, lines: Range<usize>, spans: Vec<Vec<HighlightSpan>>) -> Self {
+        static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        HighlightCache {
+            id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            version,
+            lines,
+            spans,
+        }
+    }
 }
 
 /// A code editor view over one [`Buffer`].
@@ -93,6 +108,8 @@ pub struct Editor {
     /// The file changed or vanished on disk while the buffer kept its own
     /// text (see `reload.rs`).
     pub(crate) disk_conflict: Option<crate::reload::DiskConflict>,
+    /// Whether a minimap is shown, its hover state and its blocks.
+    pub(crate) minimap: crate::minimap::MinimapState,
 }
 
 impl EventEmitter<EditorEvent> for Editor {}
@@ -147,6 +164,7 @@ impl Editor {
             vim: None,
             indent_override: None,
             disk_conflict: None,
+            minimap: Default::default(),
         };
         crate::completion::register_editor(cx.entity().downgrade(), cx);
         editor.init_syntax(cx);

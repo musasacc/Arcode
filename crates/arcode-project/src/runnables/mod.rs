@@ -5,10 +5,10 @@
 //! `arcode-syntax` find them and report a [`RunnableKind`] and a name; this
 //! module turns that into a [`RunCommand`].
 
-mod go;
+pub(crate) mod go;
 mod js;
 mod python;
-mod rust;
+pub(crate) mod rust;
 
 use std::path::Path;
 

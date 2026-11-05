@@ -300,10 +300,23 @@ impl LspBridge {
         cx.notify();
     }
 
-    /// Reports a failed server once per session: the executable missing
-    /// gets a hint with the configured command (nothing is installed
-    /// automatically); other failures a short message.
+    /// Reports a failed server: a bundled server whose runtime is missing
+    /// or too old says what it needs, once per session; so does a missing
+    /// executable, with the configured command (nothing is installed
+    /// automatically); other failures get a short message.
     pub(super) fn report_failure(&mut self, server: &str, reason: &str, cx: &mut Context<Self>) {
+        let note = self
+            .runtime_notes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(server)
+            .cloned();
+        if let Some(note) = note {
+            if self.hinted.insert(server.to_string()) {
+                cx.emit(LspBridgeEvent::Message(note.into()));
+            }
+            return;
+        }
         if convert::is_not_installed(reason) {
             if self.hinted.insert(server.to_string()) {
                 let command = command_line(server, cx);

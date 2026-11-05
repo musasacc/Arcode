@@ -41,6 +41,35 @@ pub fn data_dir() -> Option<PathBuf> {
     data_dir_with(|key| std::env::var_os(key))
 }
 
+/// The data directory for large files that stay on this machine (the
+/// language server bundle of a build from source, language server state):
+/// `$ARCODE_DATA_DIR`, else `dirs::data_local_dir()/arcode`. That is the
+/// data directory except on Windows, where it is `%LOCALAPPDATA%\arcode`,
+/// which roaming profiles do not copy between machines.
+pub fn local_data_dir() -> Option<PathBuf> {
+    local_data_dir_with(|key| std::env::var_os(key))
+}
+
+/// Like [`local_data_dir`] but reads environment variables through `env`.
+pub fn local_data_dir_with(env: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    resolve(env(DATA_DIR_ENV), dirs::data_local_dir)
+}
+
+/// The cache directory for files Arcode can rebuild (programs built by
+/// Run Current File): `$ARCODE_DATA_DIR/cache` when that is set, else
+/// `dirs::cache_dir()/arcode`.
+pub fn cache_dir() -> Option<PathBuf> {
+    cache_dir_with(|key| std::env::var_os(key))
+}
+
+/// Like [`cache_dir`] but reads environment variables through `env`.
+pub fn cache_dir_with(env: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    match env(DATA_DIR_ENV) {
+        Some(value) if !value.is_empty() => Some(PathBuf::from(value).join("cache")),
+        _ => dirs::cache_dir().map(|dir| dir.join(APP_DIR_NAME)),
+    }
+}
+
 /// Path of `config.toml` inside [`config_dir`].
 pub fn config_file() -> Option<PathBuf> {
     config_dir().map(|dir| config_file_in(&dir))
@@ -117,6 +146,26 @@ mod tests {
         assert_eq!(dir, dirs::config_dir().map(|d| d.join("arcode")));
         let data = data_dir_with(|_| None);
         assert_eq!(data, dirs::data_dir().map(|d| d.join("arcode")));
+    }
+
+    #[test]
+    fn local_data_follows_the_data_dir_override() {
+        let local =
+            local_data_dir_with(|key| (key == DATA_DIR_ENV).then(|| OsString::from("/p/data")));
+        assert_eq!(local, Some(PathBuf::from("/p/data")));
+        let platform = local_data_dir_with(|_| None);
+        assert_eq!(platform, dirs::data_local_dir().map(|d| d.join("arcode")));
+        if !cfg!(windows) {
+            assert_eq!(platform, data_dir_with(|_| None));
+        }
+    }
+
+    #[test]
+    fn cache_follows_the_data_dir_override() {
+        let cache = cache_dir_with(|key| (key == DATA_DIR_ENV).then(|| OsString::from("/p/data")));
+        assert_eq!(cache, Some(PathBuf::from("/p/data/cache")));
+        let cache = cache_dir_with(|_| None);
+        assert_eq!(cache, dirs::cache_dir().map(|d| d.join("arcode")));
     }
 
     #[test]

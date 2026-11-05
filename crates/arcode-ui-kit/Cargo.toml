@@ -6,6 +6,10 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+# `paint_log` in release builds, for the tests of crates that use this one.
+test-support = []
+
 [dependencies]
 gpui.workspace = true
 arcode-config.workspace = true

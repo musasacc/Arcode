@@ -55,7 +55,7 @@ impl Editor {
             HighlightRange::Lines(r) => (r.start, 0),
             HighlightRange::Text(r) => (r.start.line, r.start.column),
         });
-        replace(&mut self.ext.highlights, set.into(), highlights);
+        self.ext.set_highlights(set.into(), highlights);
         cx.notify();
     }
 
@@ -106,6 +106,7 @@ impl Editor {
     pub fn clear_decorations(&mut self, set: &str, cx: &mut Context<Self>) {
         let mut changed = self.ext.gutter.remove(set).is_some();
         changed |= self.ext.highlights.remove(set).is_some();
+        self.ext.highlight_reach.remove(set);
         changed |= self.ext.virtual_text.remove(set).is_some();
         changed |= self.ext.lenses.remove(set).is_some();
         let before = self.ext.popovers.len();

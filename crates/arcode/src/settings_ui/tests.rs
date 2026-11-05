@@ -142,3 +142,29 @@ fn steppers_show_whole_numbers_for_whole_steps() {
     assert_eq!(shown_value(1.5, steps(0.1, false)), "1.5");
     assert_eq!(shown_value(150., steps(10., true)), "150");
 }
+
+/// `editor.font_weight` saved from the Fonts page reaches the editor's
+/// font.
+#[gpui::test]
+fn font_weight_reaches_the_editor_style(cx: &mut TestAppContext) {
+    crate::test_support::init(cx);
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("config.toml");
+    cx.update(|cx| cx.set_global(ConfigPathOverride(path.clone())));
+    let (page, cx) = cx.add_window_view(|_, cx| SettingsPage::new(WeakEntity::new_invalid(), cx));
+    let weight = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            arcode_editor::EditorStyle::from_settings("rust", cx)
+                .font
+                .weight
+        })
+    };
+    assert_eq!(weight(cx), gpui::FontWeight(400.));
+    page.update(cx, |page, cx| {
+        page.writer().set("editor.font_weight", 700_u32, cx)
+    });
+    cx.run_until_parked();
+    assert_eq!(weight(cx), gpui::FontWeight::BOLD);
+    let text = std::fs::read_to_string(&path).expect("read");
+    assert!(text.contains("font_weight = 700"), "{text}");
+}

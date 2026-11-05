@@ -1,0 +1,82 @@
+name: Language servers
+
+# Fetches the bundled language servers when their manifest, the npm
+# lockfile or the fetch script change: every download is checked against the
+# pinned sha256 (the script stops on a mismatch), the npm servers install
+# from the lockfile and gopls builds against its Go checksum. The manifest
+# itself is also validated by `cargo test -p arcode-project` in CI.
+on:
+  push:
+    paths:
+      - packaging/**
+      - scripts/fetch-language-servers.*
+      - .github/workflows/language-servers.yml
+  pull_request:
+    paths:
+      - packaging/**
+      - scripts/fetch-language-servers.*
+      - .github/workflows/language-servers.yml
+  workflow_dispatch:
+
+concurrency:
+  group: language-servers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fetch:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    # As in the main CI, a macOS runner that is unavailable does not fail
+    # the run.
+    continue-on-error: ${{ matrix.optional }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+            optional: false
+          - os: windows-latest
+            platform: windows-x64
+            optional: false
+          - os: macos-latest
+            platform: macos-arm64
+            optional: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/lsp-cache
+          key: lsp-${{ matrix.platform }}-${{ hashFiles('packaging/**') }}
+          restore-keys: lsp-${{ matrix.platform }}-
+      - name: Fetch and verify
+        run: |
+          scripts/fetch-language-servers.sh ${{ matrix.platform }} "$RUNNER_TEMP/bundle" \
+            --cache "$RUNNER_TEMP/lsp-cache"
+      - name: Check the bundle
+        run: |
+          dir="$RUNNER_TEMP/bundle/language-servers"
+          exe=""
+          node="$dir/node/bin/node"
+          if [ "$RUNNER_OS" = Windows ]; then exe=".exe"; node="$dir/node/node.exe"; fi
+          "$node" --version
+          "$dir/bin/rust-analyzer$exe" --version
+          "$dir/bin/taplo$exe" --version
+          "$dir/bin/ruff$exe" --version
+          "$dir/lib/clangd/bin/clangd$exe" --version
+          "$node" "$dir/lib/npm/node_modules/pyright/index.js" --version
+          "$node" "$dir/lib/npm/node_modules/typescript-language-server/lib/cli.mjs" --version
+          cat "$dir/SKIPPED.txt" 2> /dev/null || true
+          du -sh "$dir"
+      - name: A second run is a no-op
+        run: |
+          scripts/fetch-language-servers.sh ${{ matrix.platform }} "$RUNNER_TEMP/bundle" \
+            --cache "$RUNNER_TEMP/lsp-cache" | tee second.log
+          grep -q "is up to date" second.log

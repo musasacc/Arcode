@@ -18,6 +18,7 @@ mod presets;
 mod search;
 mod sections;
 mod terminal;
+mod text_rendering;
 mod workspace;
 
 use std::collections::BTreeMap;
@@ -46,6 +47,10 @@ pub use presets::{FirstRunChoices, keymap_edits, low_end_edits};
 pub use search::{SearchSettings, TodoSettings};
 pub use sections::{DEFAULT_EDITOR_FONT, EditorSettings, Keymap, ThemeChoice, UiSettings};
 pub use terminal::TerminalSettings;
+pub use text_rendering::{
+    TEXT_CONTRAST_ENV, TEXT_GAMMA_ENV, TEXT_RENDERING_OUTER_ENV, TEXT_RENDERING_TUNABLE,
+    TextRenderingEnv,
+};
 pub use workspace::WorkspaceSettings;
 
 /// The commented template written for new users; see [`Config::default_toml`].

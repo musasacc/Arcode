@@ -13,6 +13,32 @@ fn shell_build_output_is_logged_and_failures_reported() {
     assert!(err.contains("failed"), "{err}");
 }
 
+#[cfg(unix)]
+#[test]
+fn a_single_file_compile_makes_the_program_folder_and_reports_failures() {
+    use arcode_project::{RunKind, RunSource};
+    let dir = tempfile::tempdir().unwrap();
+    let program = dir.path().join("run/abc/prog");
+    let lines = Mutex::new(Vec::new());
+    let log = |l: String| lines.lock().unwrap().push(l);
+    let sh = |script: &str| {
+        RunCommand::new(
+            "sh",
+            vec!["-c".into(), script.into()],
+            dir.path(),
+            RunKind::Build,
+            RunSource::File,
+        )
+    };
+    compile_file(&sh("echo compiled"), &program, &Cancel::default(), &log).unwrap();
+    assert!(program.parent().unwrap().is_dir());
+    let logged = lines.lock().unwrap().clone();
+    assert!(logged[0].starts_with("> sh -c"), "{logged:?}");
+    assert!(logged.iter().any(|l| l == "compiled"), "{logged:?}");
+    let err = compile_file(&sh("exit 2"), &program, &Cancel::default(), &log).unwrap_err();
+    assert!(err.contains("failed"), "{err}");
+}
+
 #[test]
 fn a_cancelled_build_stops() {
     let dir = tempfile::tempdir().unwrap();

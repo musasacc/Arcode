@@ -1,6 +1,7 @@
 //! The Languages page (Plugins activity): one card per language pack with
-//! its languages, language servers (installed or not, and the command to
-//! install one, to copy), snippets, run commands and an enable switch.
+//! its languages, language servers (installed, bundled with Arcode or
+//! missing, with the command to install a missing one, to copy), snippets,
+//! run commands and an enable switch.
 //! Nothing is downloaded or installed from here.
 
 use std::collections::{HashMap, HashSet};
@@ -11,7 +12,7 @@ use gpui::{
     Window, div, prelude::*, px,
 };
 
-use super::bundle::{PackRow, ServerRow, installed_commands, pack_rows};
+use super::bundle::{Availability, PackRow, ServerRow, installed_commands, pack_rows};
 
 /// Messages for the workspace (shown as toasts).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,8 +24,8 @@ pub enum LanguagesEvent {
 /// The Languages page.
 pub struct LanguagesView {
     rows: Vec<PackRow>,
-    /// Server command → found on `PATH`. Empty until checked.
-    installed: HashMap<String, bool>,
+    /// Server command → installed, bundled or missing. Empty until checked.
+    installed: HashMap<String, Availability>,
     checking: bool,
     checked: bool,
     expanded: HashSet<String>,
@@ -75,9 +76,10 @@ impl LanguagesView {
         &self.rows
     }
 
-    /// Whether `command` was found on `PATH` (`None` before the check).
-    pub fn is_installed(&self, command: &str) -> Option<bool> {
-        self.installed.get(command).copied()
+    /// Whether `command` is installed, bundled or missing (`None` before
+    /// the check).
+    pub fn availability(&self, command: &str) -> Option<Availability> {
+        self.installed.get(command).cloned()
     }
 
     /// The page became visible: check the servers once.
@@ -87,7 +89,8 @@ impl LanguagesView {
         }
     }
 
-    /// Looks every server command up on `PATH` in the background.
+    /// Looks every server command up on `PATH` and in the bundled servers,
+    /// in the background.
     pub fn check_servers(&mut self, cx: &mut Context<Self>) {
         let rows = self.rows.clone();
         self.checking = true;
@@ -146,16 +149,24 @@ impl LanguagesView {
 
     fn render_server(&self, pack: &str, ix: usize, server: &ServerRow, cx: &App) -> gpui::Div {
         let c = theme(cx).colors.clone();
-        let state = self.is_installed(&server.command);
-        let (glyph, color, label) = match state {
-            Some(true) => (IconName::CircleCheck, c.success, "installed"),
-            Some(false) => (IconName::CircleX, c.warning, "not installed"),
+        let state = self.availability(&server.command);
+        let (glyph, color, label) = match &state {
+            Some(Availability::Installed) => (IconName::CircleCheck, c.success, "installed"),
+            Some(Availability::Bundled) => (IconName::Package, c.success, "bundled"),
+            Some(Availability::NeedsRuntime(_)) => {
+                (IconName::TriangleAlert, c.warning, "bundled, cannot start")
+            }
+            Some(Availability::Missing) => (IconName::CircleX, c.warning, "not installed"),
             None => (IconName::CircleDot, c.text_muted, "checking…"),
         };
         let hint = server
             .install_command
             .clone()
             .or_else(|| server.install_note.clone());
+        let runtime_note = match &state {
+            Some(Availability::NeedsRuntime(note)) => Some(note.clone()),
+            _ => None,
+        };
         div()
             .flex()
             .flex_col()
@@ -170,7 +181,7 @@ impl LanguagesView {
                     .child(div().text_color(c.text).child(server.name.clone()))
                     .child(div().text_color(c.text_muted).child(label)),
             )
-            .when(state == Some(false), |el| {
+            .when(state == Some(Availability::Missing), |el| {
                 el.when_some(hint, |el, hint| {
                     let copy = SharedString::from(hint.clone());
                     let mono = settings(cx).editor.font_family.clone();
@@ -208,6 +219,17 @@ impl LanguagesView {
                             ),
                     )
                 })
+            })
+            .when_some(runtime_note, |el, note| {
+                el.child(
+                    div()
+                        .ml(px(16.))
+                        .px_1()
+                        .rounded(px(5.))
+                        .bg(c.pill)
+                        .text_color(c.text_muted)
+                        .child(note),
+                )
             })
     }
 
@@ -351,7 +373,7 @@ impl Render for LanguagesView {
             .iter()
             .filter(|r| r.enabled)
             .flat_map(|r| &r.servers)
-            .filter(|s| self.is_installed(&s.command) == Some(false))
+            .filter(|s| self.availability(&s.command) == Some(Availability::Missing))
             .count();
         div()
             .size_full()

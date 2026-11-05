@@ -44,7 +44,8 @@ pub fn paused_chip(location: SharedString, cx: &App) -> impl IntoElement + use<>
 fn run_tooltip(command: Option<&str>) -> String {
     match command {
         Some(cmd) => format!("Run `{cmd}` ({})", shortcut_label("secondary-f5")),
-        None => "No run command detected; pick one from the menu".to_string(),
+        None => "No run command: Run runs the current file. Pick or type a command in the menu"
+            .to_string(),
     }
 }
 
@@ -58,7 +59,8 @@ pub fn run_split(
 ) -> impl IntoElement + use<> {
     let c = theme(cx).colors.clone();
     let scale = type_scale(cx);
-    let command = ws.run_command_line();
+    // Without a run command the button runs the current file.
+    let command = ws.run_command_line().or_else(|| ws.runnable_file_name(cx));
     let anchors = ws.tour_anchors().clone();
     let menu_open = ws.run_menu_open();
     let (fill, hover, fg, line) = if paused {

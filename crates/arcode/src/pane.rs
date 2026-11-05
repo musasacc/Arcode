@@ -206,13 +206,19 @@ impl Pane {
         self.add_editor(editor, window, cx);
     }
 
-    /// Adds `editor` after the active tab and activates it.
+    /// Adds `editor` after the active tab and activates it. A tab shows a
+    /// minimap unless its creator turned it off (diffs do).
     pub fn add_editor(
         &mut self,
         editor: Entity<Editor>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        editor.update(cx, |e, cx| {
+            if e.minimap_allowed().is_none() {
+                e.set_minimap_allowed(true, cx);
+            }
+        });
         let sub = cx.subscribe(&editor, |_, _, event: &EditorEvent, cx| {
             if matches!(
                 event,

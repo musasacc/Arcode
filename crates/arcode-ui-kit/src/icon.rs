@@ -54,6 +54,8 @@ pub enum IconName {
     /// The arc of the Arcode logo (tint it `text`; the spark is
     /// [`IconName::Ember`]).
     LogoArc,
+    /// Three lines: the menu button of a collapsed menu bar.
+    Menu,
     Minus,
     Monitor,
     Moon,
@@ -131,6 +133,7 @@ impl IconName {
             Self::ListTodo => "icons/list-todo.svg",
             Self::Loader => "icons/loader.svg",
             Self::LogoArc => "icons/logo-arc.svg",
+            Self::Menu => "icons/menu.svg",
             Self::Minus => "icons/minus.svg",
             Self::Monitor => "icons/monitor.svg",
             Self::Moon => "icons/moon.svg",

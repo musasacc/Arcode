@@ -16,12 +16,19 @@
 //!   test and build commands (Cargo, package.json, Go, Python, just, make).
 //! - [`command_for_runnable`] builds the command for a main function, test or
 //!   benchmark located by tree-sitter queries elsewhere.
+//! - [`file_command`] runs a single source file on its own (Python, Rust,
+//!   C, C++, Go, JavaScript, TypeScript, Java, Ruby, PHP, Lua, shell)
+//!   with the toolchain found on `PATH`, for folders without a project
+//!   file; compiled programs go to a build folder the caller names.
 //! - [`debug_target`] turns such a command into what a debugger launches
 //!   (a Cargo build whose JSON output names the executable, a script, a
 //!   Python module, a Go package).
 //! - [`packs()`] / [`pack_for_language`] describe language packs;
 //!   [`check_installed`] runs their (offline) check commands and
 //!   [`install_plan`] lists the install steps to confirm before running.
+//! - [`bundled`] reads the language servers bundled with a release and
+//!   resolves a server command to the configured path, `PATH` or the
+//!   bundled copy (in that order).
 //! - [`toolchain`] helpers read virtualenvs and version files.
 //! - [`files`] creates, renames, moves and deletes files (to the trash when
 //!   the platform has one) and reveals them in the system file manager.
@@ -31,10 +38,12 @@
 //! Everything that reads files or spawns processes blocks: call it off the
 //! UI thread.
 
+pub mod bundled;
 mod cargo;
 mod command;
 mod debug_target;
 pub mod deps;
+mod file_run;
 pub mod files;
 mod fsutil;
 mod gofile;
@@ -52,9 +61,15 @@ pub mod templates;
 pub mod toolchain;
 mod trash;
 
-pub use command::{RunCommand, RunKind, RunSource, command_line, quote_arg};
+pub use command::{
+    RunCommand, RunKind, RunSource, Shell, command_line, command_line_in, quote_arg, quote_arg_in,
+};
 pub use debug_target::{
     CargoExecutable, DebugTarget, cargo_message_text, debug_target, executables_from_cargo_json,
+};
+pub use file_run::{
+    FileLanguage, FileRunInput, SystemTools, Tools, create_output_dir, debug_unsupported_message,
+    file_command, parse_node_version, unsupported_message,
 };
 pub use install_state::{PackagesState, install_state, needs_install};
 pub use missing::{

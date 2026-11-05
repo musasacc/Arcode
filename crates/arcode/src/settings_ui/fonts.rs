@@ -1,12 +1,15 @@
 //! Fonts: editor and UI font families (pickers over the system fonts plus
-//! the bundled JetBrains Mono), sizes, line height, ligatures and a live
-//! preview with ligature, CJK and emoji samples.
+//! the bundled JetBrains Mono), sizes, weight, line height, ligatures and a
+//! live preview with ligature, CJK and emoji samples, then the text
+//! rendering settings ([`super::text_rendering`]).
 
 use std::sync::Arc;
 
 use arcode_config::EditorSettings;
 use arcode_ui_kit::{settings, theme, type_scale};
-use gpui::{App, Context, Div, FontFallbacks, FontFeatures, SharedString, div, prelude::*, px};
+use gpui::{
+    App, Context, Div, FontFallbacks, FontFeatures, FontWeight, SharedString, div, prelude::*, px,
+};
 
 use super::widgets::{picker_button, setting_row};
 use super::{SettingsEvent, SettingsPage, Steps, group_title};
@@ -36,6 +39,7 @@ pub(crate) fn font_preview(e: &EditorSettings, cx: &App) -> Div {
     let mut text = div()
         .font_family(SharedString::from(e.font_family.clone()))
         .text_size(px(e.font_size))
+        .font_weight(FontWeight(f32::from(e.font_weight)))
         .line_height(px((e.font_size * e.line_height).round()))
         .text_color(c.text);
     let style = text.text_style().get_or_insert_with(Default::default);
@@ -91,6 +95,19 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             cx,
         ))
         .child(page.number_row(
+            "Weight",
+            "400 is regular, 700 bold. A font without that weight uses its nearest one; the bundled JetBrains Mono has 400 and 700.",
+            "editor.font_weight",
+            f32::from(e.font_weight),
+            Steps {
+                step: 100.,
+                min: f32::from(*EditorSettings::FONT_WEIGHTS.start()),
+                max: f32::from(*EditorSettings::FONT_WEIGHTS.end()),
+                int: true,
+            },
+            cx,
+        ))
+        .child(page.number_row(
             "Line height",
             "A multiple of the font size.",
             "editor.line_height",
@@ -136,4 +153,5 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             },
             cx,
         ))
+        .child(super::text_rendering::render(page, cx))
 }

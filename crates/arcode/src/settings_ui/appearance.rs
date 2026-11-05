@@ -1,5 +1,5 @@
 //! Appearance: theme (cards with a live preview on hover), dark and light
-//! themes, UI size, animations and low-end mode.
+//! themes, UI size, animations, low-end mode and the menu bar.
 
 use arcode_config::{Appearance, ThemeChoice, low_end_edits};
 use arcode_ui_kit::{ButtonStyle, IconName, button, settings, switch, theme, type_scale};
@@ -201,4 +201,14 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             ui.show_perf_stats,
             cx,
         ))
+        // macOS always shows the menus in its own menu bar.
+        .when(!cfg!(target_os = "macos"), |el| {
+            el.child(page.bool_row(
+                "Menu bar",
+                "Show File, Edit, Selection and the other menus in the title bar. When off, or in a narrow window, one menu button holds them; Alt opens them either way.",
+                "ui.menu_bar",
+                ui.menu_bar,
+                cx,
+            ))
+        })
 }

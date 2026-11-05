@@ -375,6 +375,7 @@ impl Render for Workspace {
         let root = self.register_language_actions(root, cx);
         let root = self.register_prefs_actions(root, cx);
         let root = self.register_packages_actions(root, cx);
+        let root = self.register_menu_bar(root, window, cx);
         #[cfg(feature = "plugins")]
         let root = self.register_plugin_actions(root, cx);
         let root = self.render_overlays(root, cx);

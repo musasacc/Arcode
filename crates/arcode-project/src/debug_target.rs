@@ -17,8 +17,10 @@ pub struct DebugTarget {
     /// LSP language id that picks the debug adapter (`rust`, `python`,
     /// `go`, `javascript`).
     pub language: &'static str,
-    /// A command that builds the program first, printing Cargo's JSON
-    /// messages (`--message-format=json`); its executable is the program.
+    /// A command that builds the program first: a Cargo build printing
+    /// its JSON messages (`--message-format=json`), whose executable is
+    /// the program, or (for a single file) the compiler command that
+    /// writes [`DebugTarget::program`].
     pub build: Option<RunCommand>,
     /// The program (a script, a Go package folder); `None` when `build`
     /// produces it.
@@ -49,8 +51,30 @@ pub fn debug_target(command: &RunCommand) -> Option<DebugTarget> {
         RunSource::Cargo => cargo_target(command, base),
         RunSource::Python => python_target(command, base),
         RunSource::Go => go_target(command, base),
+        RunSource::File => file_target(command, base),
         RunSource::Node | RunSource::Make | RunSource::Just => None,
     }
+}
+
+/// A single Rust, C or C++ file: its compile step builds the program with
+/// debug info. Interpreted files (`node`, `ruby`, ...) have no target.
+fn file_target(command: &RunCommand, base: DebugTarget) -> Option<DebugTarget> {
+    let compile = command.compile.as_deref()?;
+    let language = compile.args.iter().find_map(|arg| {
+        match crate::FileLanguage::from_path(Path::new(arg))? {
+            crate::FileLanguage::Rust => Some("rust"),
+            crate::FileLanguage::C => Some("c"),
+            crate::FileLanguage::Cpp => Some("cpp"),
+            _ => None,
+        }
+    })?;
+    Some(DebugTarget {
+        language,
+        build: Some(compile.clone()),
+        program: Some(PathBuf::from(&command.program)),
+        args: command.args.clone(),
+        ..base
+    })
 }
 
 fn cargo_target(command: &RunCommand, base: DebugTarget) -> Option<DebugTarget> {

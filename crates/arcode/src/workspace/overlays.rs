@@ -6,7 +6,8 @@
 
 use arcode_ui_kit::metrics::{FOOTER_H, POPOVER_RADIUS, RAIL_W};
 use arcode_ui_kit::{
-    Elevated, IconName, animation_duration, icon, icon_button, theme, type_scale, ui_font_family,
+    ButtonStyle, Elevated, IconName, animation_duration, button, icon, icon_button, theme,
+    type_scale, ui_font_family,
 };
 use gpui::{
     Animation, AnimationExt, AnyElement, App, Context, Div, ElementId, MouseButton, Stateful,
@@ -153,6 +154,21 @@ impl Workspace {
                 .text_color(c.text)
                 .child(icon(glyph).size(px(14.)).color(color))
                 .child(toast_text(toast))
+                .when_some(self.toast_action.as_ref(), |el, (label, action)| {
+                    let action = action.boxed_clone();
+                    el.child(
+                        button("toast-action", label.clone())
+                            .style(ButtonStyle::Ghost)
+                            .compact()
+                            .on_click(cx.listener(move |ws, _, window, cx| {
+                                ws.toast = None;
+                                ws.toast_action = None;
+                                ws.toast_task = None;
+                                window.dispatch_action(action.boxed_clone(), cx);
+                                cx.notify();
+                            })),
+                    )
+                })
                 .child(
                     icon_button("toast-close", IconName::X)
                         .size(px(24.))
@@ -255,9 +271,15 @@ pub(super) fn toast_level(message: &str) -> ToastLevel {
     .iter()
     .any(|w| lower.contains(w));
     // Something missing that the user can install or set up.
-    let warning = ["not installed", "not on path", "not found", "warning"]
-        .iter()
-        .any(|w| lower.contains(w));
+    let warning = [
+        "not installed",
+        "not on path",
+        "not found",
+        "warning",
+        "no debug adapter",
+    ]
+    .iter()
+    .any(|w| lower.contains(w));
     if error {
         ToastLevel::Error
     } else if warning {
@@ -286,6 +308,10 @@ mod tests {
         );
         assert_eq!(
             toast_level("pnpm is not installed (or not on PATH)."),
+            ToastLevel::Warning
+        );
+        assert_eq!(
+            toast_level("No debug adapter for python was found. Install debugpy."),
             ToastLevel::Warning
         );
     }

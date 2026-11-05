@@ -104,8 +104,13 @@ pub fn spacer() -> Div {
 }
 
 /// A list or tree row chip: 24 tall, inset 6 px from the panel edges,
-/// radius 6, solid `hover` fill on hover and `pill` fill when `selected`.
-/// Change the height with `.h(..)` (22 in debugger columns, 26 in menus).
+/// radius 6, `text` colour, solid `hover` fill on hover and `pill` fill
+/// when `selected`. Change the height with `.h(..)` (22 in debugger
+/// columns, 26 in menus).
+///
+/// The row sets its text colour itself instead of inheriting it, so it
+/// reads the same inside a `deferred` popover, whose paint does not see
+/// the colours of the elements around it.
 pub fn list_row(id: impl Into<ElementId>, selected: bool, cx: &App) -> Stateful<Div> {
     let c = &theme(cx).colors;
     let hover = c.hover;
@@ -120,20 +125,29 @@ pub fn list_row(id: impl Into<ElementId>, selected: bool, cx: &App) -> Stateful<
         .px(px(8.))
         .rounded(ROW_RADIUS)
         .text_size(type_scale(cx).body)
+        .text_color(c.text)
         .cursor_pointer()
-        .when(selected, |el| {
-            el.bg(c.pill)
-                .text_color(c.text)
-                .font_weight(FontWeight::MEDIUM)
-        })
+        .when(selected, |el| el.bg(c.pill).font_weight(FontWeight::MEDIUM))
         .when(!selected, |el| el.hover(move |s| s.bg(hover)))
+}
+
+/// The text style every overlay and popover starts from: the UI font at
+/// the body size in `text`. Overlays are often drawn `deferred`, and GPUI
+/// 0.2.2 paints deferred elements without the text style of their
+/// ancestors (plain text would fall back to GPUI's black system font), so
+/// they carry their own.
+fn overlay_text<E: Styled>(el: E, cx: &App) -> E {
+    el.font_family(crate::ui_font_family(cx))
+        .text_size(type_scale(cx).body)
+        .text_color(theme(cx).colors.text)
 }
 
 /// The palette and dialogs: `panel_raised` fill, 1 px `border_strong`
 /// edge, radius 12 and the large overlay shadow (none in low-end mode).
+/// Text inside is the UI font at the body size in `text`.
 pub fn overlay(cx: &App) -> Div {
     let c = &theme(cx).colors;
-    div()
+    overlay_text(div(), cx)
         .flex()
         .flex_col()
         .bg(c.panel_raised())
@@ -146,10 +160,11 @@ pub fn overlay(cx: &App) -> Div {
 
 /// Popovers and menus: `panel_raised` fill, 1 px `border_strong` edge,
 /// radius 10, 4 px padding and the small overlay shadow. Rows inside are
-/// [`list_row`]s with `.mx(px(0.)).h(px(26.))`.
+/// [`list_row`]s with `.mx(px(0.)).h(px(26.))`. Text inside is the UI font
+/// at the body size in `text`.
 pub fn popover(cx: &App) -> Div {
     let c = &theme(cx).colors;
-    div()
+    overlay_text(div(), cx)
         .flex()
         .flex_col()
         .p(px(4.))

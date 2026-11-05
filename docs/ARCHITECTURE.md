@@ -679,6 +679,17 @@ User-facing behaviour and the `.arcode/launch.toml` format are in
   turns a run command into a build (`cargo ... --message-format=json`,
   `test`/`bench` get `--no-run`), a program, a Python module or a Delve
   mode; `executables_from_cargo_json` reads the built executable.
+- **Single files.** `arcode_project::file_command` builds Run Current
+  File's command from the editor's language and the toolchain on `PATH`
+  (`Tools`, faked in tests). Compiled languages get a
+  `RunCommand::compile` step that writes the program into
+  `<cache_dir>/run/<hash of the path>/` (`command_line` chains both;
+  PowerShell gets `a; if ($?) { b }`), and `debug_target` turns that step
+  into the build of a native debug target (`RunSource::File`). The
+  workspace (`workspace/run_file.rs`) computes it on the background
+  executor; the Run button, Ctrl+F5 and F5 fall back to it when there is
+  no run command or launch configuration, and every dead end is a toast
+  with a button (`show_toast_with_action`).
 - **`Debugger`** (`crates/arcode/src/debugger/`, one entity per
   workspace) owns the `BreakpointBook`, the launch choices (loaded in the
   background, reloaded when launch.toml or a package file is saved or
@@ -729,6 +740,46 @@ User-facing behaviour and the `.arcode/launch.toml` format are in
   starts a moment later and `runInTerminal` is answered from a callback;
   busy is checked on Unix only (on Windows a new tab is used).
 
+## Bundled language servers
+
+Release packages carry the servers of `packaging/language-servers.toml`
+in `<prefix>/share/arcode/language-servers` (laid out by
+`scripts/fetch-language-servers.sh`; see docs/PACKAGING.md). The bundle
+holds a copy of the manifest, which is all the app reads:
+`arcode_project::bundled` parses it (`Manifest`, with `validate()` used by
+the tests on the repository copy), finds the bundle (`bundle_dirs`: next
+to the executable, then `<local data>/language-servers`, which is
+`%LOCALAPPDATA%` rather than the roaming `%APPDATA%` on Windows) and
+resolves a command
+(`resolve_server`): a configured path as is, else `PATH`, else the bundled
+copy (`Bundle::launch`: a native program, a script run with the bundled
+Node.js, or jdtls run with the user's Java and a per-root `-data` folder
+through `${workspaceFolderHash}`, which `arcode-lsp` expands when it
+spawns the server).
+
+Nothing of this runs on the UI thread. The bridge gives the manager a
+launch hook (`LspManager::set_launch_hook`, from
+`lsp_bridge::bundled::launch_hook`) that `arcode-lsp` runs on a blocking
+thread of its runtime each time a server instance starts or restarts: it
+looks the bundle up once (`bundled::bundle`, a `OnceLock`), then rewrites
+that start's `ServerSpec`, with a `PATH` lookup only for commands the
+bundle has. The manager keeps the configured `ServerConfig`s, so a
+settings reload compares what the user wrote and costs no lookups. A
+bundled server whose runtime is missing or too old (jdtls without Java
+21, the version read from the JDK's `release` file) leaves a note that
+the bridge shows instead of the generic failure message. The Languages
+page checks availability in the background (`languages::bundle::
+installed_commands`): installed, "bundled", "bundled, cannot start" (with
+that note) or missing; only missing servers get an install command.
+
+Some servers go online on their own in ways their settings cannot stop.
+`arcode-lsp` (`client::offline`) handles those by name: taplo is started
+without workspace folders (it loads its schema catalog for each one before
+asking for settings), and yaml-language-server is told to route schema
+downloads through the client while its schema store is off. The client
+answers `vscode/content`, the request JSON and YAML servers use for that,
+with an error, so linked remote schemas stay unloaded.
+
 ## Language packs, file associations and the package banner
 
 A **language pack** bundles what Arcode knows about a language. The parts
@@ -746,10 +797,11 @@ live in the UI-agnostic crates and are joined in `arcode::languages::bundle`:
 
 The Languages page (Plugins activity, or "Languages: Show Language
 Packs") shows one card per pack: its languages, extensions, snippets,
-each configured server with "installed" / "not installed" (a `PATH`
-lookup of the configured command, done in the background when the page
-is first shown or Refresh is clicked; nothing is run) and, when missing,
-the install command or instructions as text with a copy button. Nothing
+each configured server with "installed" / "bundled" / "not installed" (a
+`PATH` lookup of the configured command, then the bundle, done in the
+background when the page is first shown or Refresh is clicked; nothing
+is run) and, when missing, the install command or instructions as text
+with a copy button. Nothing
 is downloaded. The pack's switch writes `[language.<id>] enabled = false`
 (or removes the key) for each of its languages with a comment-preserving
 `toml_edit` edit (`arcode_config::config::edit`) and reloads the settings.
@@ -973,6 +1025,38 @@ and 1 to 2 in low-end mode. The memory sampler reads `/proc` on the
 background executor every 2 s, redraws only when the shown MiB value
 changes, and starts or stops when `ui.show_perf_stats` changes.
 
+## Minimap
+
+`arcode-editor/src/minimap`: a column left of the scrollbar, shown when
+`editor.minimap` is on, low-end mode is off, the host allowed it
+(`Editor::set_minimap_allowed`; the pane allows it for every tab except
+diffs, so panel inputs and plugin code views have none) and the text
+area left beside it is at least three minimap widths wide. Every display row is 2 px tall and
+every column 1 px wide; a line is drawn as one quad per run of non-blank
+chars with the same syntax colour (no glyphs).
+
+Cost is bounded by the minimap's height, not the file. `geometry.rs`
+maps rows to y: when the file fits, row 0 is at the top; otherwise the
+minimap scrolls proportionally with the editor (VS Code's model), so only
+about `height / 2` rows are ever looked at. The highlight cache is
+extended to the minimap's lines (`ensure_view_highlights`), in one pass
+for the text's and the minimap's lines together, and the job started
+after an edit asks for both too: highlights covering only the text's
+lines would draw the rest of the minimap uncoloured for a frame. When the
+cache already holds part of the wanted lines at the current buffer
+version, only the rest is highlighted and joined to it
+(`missing_lines`, `join_highlights` in `syntax_sync.rs`), so scrolling
+costs the lines that came into view, not the whole view again.
+Background highlights are looked up from as far above the view as the
+longest highlight of their set reaches (`ExtState::highlight_reach`), so
+a long multi-line highlight that starts far above still shows.
+`rows.rs` keeps the blocks of the lines in view plus 64 on each side
+between frames, keyed by buffer version, highlight cache id, theme, tab
+size and width, so an idle redraw only paints. Clicking a row centers it
+(the cursor stays), dragging moves the scroll by the slider's ratio, the
+wheel scrolls the editor, and hover changes redraw only on enter and
+leave.
+
 ## Large files
 
 Above `editor.large_file_bytes` (default 4 MiB) or `editor.large_file_lines`
@@ -1007,3 +1091,30 @@ terminal call it for every shaped line; ASCII lines skip it entirely.
 `arcode_ui_kit::truncated` is a label element that truncates with an
 ellipsis to its laid-out width (GPUI caches the first unconstrained text
 measurement, so `text_ellipsis` does not work for shrinking labels).
+The label reads its text style during layout and keeps it for painting:
+GPUI 0.2.2 restores the text style of a `deferred` element (popovers,
+menus) for layout and prepaint but not for paint, where it would get
+GPUI's default black system font. `popover` and `overlay` set the UI
+font, body size and `text` colour themselves for the same reason.
+`crates/arcode/src/workspace/tab_menu_tests.rs` draws the tab list and a
+deferred popover of rows in every built-in theme and checks the colours
+the labels were painted in (`arcode_ui_kit::paint_log`, in debug builds
+and with the `test-support` feature) against 4.5:1, and that a label in
+a deferred element of plain `div`s keeps the colour of its ancestors.
+
+On Linux GPUI blends glyph edges with a gamma and a contrast it reads from
+`ZED_FONTS_GAMMA` and `ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST` when it
+creates a window's renderer. `ui.text_gamma` and `ui.text_contrast` are
+exported as those variables by `text_rendering::export_env` in `app::run`,
+right after the configuration is read and before any thread exists
+(`set_var` is unsafe once threads run), and only when they differ from
+GPUI's defaults (1.8 and 1.0); at the default a value set outside Arcode
+applies. Programs started from Arcode inherit the variables, so Arcode
+also records in `ARCODE_TEXT_RENDERING_OUTER` which ones it set and what
+they were before; an Arcode started from Arcode's terminal takes those
+back instead of mistaking them for the user's
+(`UiSettings::text_rendering_env`). The values at startup, and any taken
+from the environment, are kept in the `text_rendering::StartedWith`
+global, so the Settings page can say that a restart is needed and where a
+value comes from. macOS and Windows have no such knob; the settings are
+hidden there.

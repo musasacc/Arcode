@@ -2,11 +2,19 @@
 //! that runs each. Parsing runs on the background executor over a rope
 //! snapshot, so the editor's own tree is not needed.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use arcode_buffer::Rope;
-use arcode_project::{Runnable, RunnableKind as ProjectKind};
+use arcode_project::{FileRunInput, Runnable, RunnableKind as ProjectKind, SystemTools};
 use arcode_syntax::{Language, RunnableItem, RunnableKind, Syntax};
+
+/// Where Run Current File puts the programs it compiles: `run/` in the
+/// cache folder, one folder per source file.
+pub fn file_build_dir() -> PathBuf {
+    arcode_config::paths::cache_dir()
+        .unwrap_or_else(|| std::env::temp_dir().join("arcode"))
+        .join("run")
+}
 
 /// The runnable items of `text` (a file in the project at `root`) with
 /// their commands. Empty for languages without runnables. Blocking.
@@ -25,14 +33,10 @@ pub fn find_runnables(
     let mut out: Vec<Runnable> = Vec::new();
     for item in syntax.runnables(text) {
         let name = item_name(language.id, &item);
-        let Some(runnable) = Runnable::new(
-            language.id,
-            file,
-            root,
-            item.line,
-            project_kind(item.kind),
-            &name,
-        ) else {
+        let kind = project_kind(item.kind);
+        let runnable = Runnable::new(language.id, file, root, item.line, kind, &name)
+            .or_else(|| file_main(language.id, file, root, item.line, kind));
+        let Some(runnable) = runnable else {
             continue;
         };
         // One button per line (a `describe` that is also a test, ...).
@@ -41,6 +45,34 @@ pub fn find_runnables(
         }
     }
     out
+}
+
+/// A main function the project has no command for (a loose `test.rs`
+/// without `Cargo.toml`): the file is run on its own.
+fn file_main(
+    language_id: &str,
+    file: &Path,
+    root: &Path,
+    line: usize,
+    kind: ProjectKind,
+) -> Option<Runnable> {
+    if kind != ProjectKind::Main {
+        return None;
+    }
+    let build = file_build_dir();
+    let input = FileRunInput {
+        file,
+        language_id,
+        project_root: Some(root),
+        build_dir: &build,
+    };
+    let command = arcode_project::file_command(&input, &SystemTools).ok()?;
+    Some(Runnable {
+        line,
+        kind,
+        name: "main".to_string(),
+        command,
+    })
 }
 
 fn project_kind(kind: RunnableKind) -> ProjectKind {
@@ -89,6 +121,28 @@ mod tests {
         assert_eq!(test.args[0], "test");
         assert!(test.args.contains(&"tests::adds".to_string()), "{test:?}");
         assert!(test.args.contains(&"--exact".to_string()), "{test:?}");
+    }
+
+    #[test]
+    fn a_loose_rust_main_runs_the_file() {
+        if arcode_project::packs::find_executable("rustc").is_none() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let text = "fn main() {\n    println!(\"hi\");\n}\n";
+        let file = root.join("test.rs");
+        std::fs::write(&file, text).unwrap();
+        let lang = arcode_syntax::language_by_id("rust").unwrap();
+        let found = find_runnables(lang, &Rope::from_str(text), &file, root);
+        assert_eq!(found.len(), 1, "{found:#?}");
+        let command = &found[0].command;
+        assert_eq!(command.label, "run test.rs");
+        let compile = command.compile.as_deref().expect("compiled first");
+        assert_eq!(compile.program, "rustc");
+        assert!(!command.program.starts_with(&*root.to_string_lossy()));
+        // The gutter's Debug builds it with the same compile step.
+        assert!(super::super::launch::LaunchChoice::for_command(command).is_some());
     }
 
     #[test]

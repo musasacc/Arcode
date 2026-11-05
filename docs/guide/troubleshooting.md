@@ -173,6 +173,19 @@ a missing `appearance` or a file that is not valid TOML).
 Add a font that has them to `editor.font_fallbacks`, for example a CJK
 or emoji font installed on your system.
 
+### Text looks blurry or thin
+
+- On Linux, raise `ui.text_gamma` (for example to 2.0 or 2.2) for light
+  text on a dark theme, or `ui.text_contrast` (2 to 4) for dark text on a
+  light theme, then restart Arcode. See
+  [Text rendering](themes.md#text-rendering).
+- Use whole font sizes: on a screen without scaling, half sizes such as
+  13.5 are drawn softer. `ui.font_size` and `editor.font_size` are the
+  sizes.
+- A heavier editor font: `editor.font_weight = 500` with a font that has a
+  Medium weight, or 700 for bold. The bundled JetBrains Mono has only
+  regular and bold.
+
 ### The terminal uses the wrong shell
 
 Set it in `config.toml`:

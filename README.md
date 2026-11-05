@@ -46,6 +46,9 @@ and Windows. Linux gets the most testing.
   placeholders, mirrors and choices.
 - Split panes, tabs, soft wrap, bracket matching, indentation detection,
   line ending and encoding display.
+- A minimap with the viewport, selections, search matches, git changes and
+  errors; click or drag it to scroll. Its cost depends on its height, not
+  on the file's length.
 - Large files stay responsive: above 4 MiB or 50,000 lines only the visible
   part is parsed for highlighting.
 - Sessions: open tabs, splits, cursors, scroll positions and panels come
@@ -58,6 +61,11 @@ and Windows. Linux gets the most testing.
   go to definition / type definition / implementation, find references,
   document and workspace symbols, rename, code actions with a light bulb,
   formatting (also on save), inlay hints and occurrence highlighting.
+- Language servers for every built-in language except Ruby and PHP ship
+  with release packages (Node.js for the JavaScript-based ones included;
+  Java runs on your JDK), so completion,
+  diagnostics and hover work offline out of the box. A server you install
+  yourself, or configure, is used instead of the bundled one.
 - Several language servers per file. For example rust-analyzer plus a spell
   checker: diagnostics, completion and code actions are merged, other
   requests go to the servers in the order you set.
@@ -74,6 +82,10 @@ and Windows. Linux gets the most testing.
 - A Run button in the title bar with the project's detected command
   (`cargo run`, an npm `start` script, `go run .`, ...), or any command you
   type.
+- Run Current File and Debug Current File for single files without a
+  project file: Python, Rust, C, C++, Go, JavaScript, TypeScript, Java,
+  Ruby, PHP, Lua and shell scripts, with the toolchains on your `PATH`.
+  When there is nothing to run, Arcode says why and what to install.
 - Debugging through the Debug Adapter Protocol with CodeLLDB, lldb-dap,
   GDB 14+, debugpy and Delve: breakpoints (with conditions, hit counts and
   log messages), call stack, variables, watch expressions and a debug
@@ -151,15 +163,23 @@ See [docs/DEBUGGING.md](docs/DEBUGGING.md) for details.
   written to `config.toml`, keeping your comments.
 - Your own themes as TOML files in the `themes` folder next to
   `config.toml`.
-- Bundled fonts: JetBrains Mono for code and Inter for the interface.
+- Bundled fonts: JetBrains Mono for code and Inter for the interface,
+  with an editor font weight and, on Linux, text gamma and contrast
+  settings for thin or blurry text (see
+  [Text rendering](docs/guide/themes.md#text-rendering)).
 - A short first-run setup (theme, font, keymap, performance) and an
   optional guided tour.
+- A menu bar with every command and its shortcut: File, Edit, Selection,
+  View, Go, Run, Terminal, Git and Help, opened by click or Alt+letter,
+  folding into one menu button in narrow windows (the system menu bar on
+  macOS).
 
 ### Low-end mode
 
 Turn it on in the first-run dialog, in Settings, or with "Preferences:
-Toggle Low-End Mode". It turns off animations and cursor blinking, draws
-popups without shadows, turns off inlay hints and inline blame, and waits
+Toggle Low-End Mode". It turns off animations and cursor blinking, hides
+the minimap, draws popups without shadows, turns off inlay hints and
+inline blame, and waits
 longer before refreshing git and diagnostics. Turning it off again
 restores only what low-end mode changed.
 
@@ -327,9 +347,11 @@ built in this checkout (debug or release) finds them. The example plugin in
 
 ### Packaging
 
-`scripts/package.sh` builds a release binary and the plugins and lays them
-out as a folder you can install or move anywhere (`bin/arcode` plus
-`share/arcode/plugins/`). `ARCHIVE=1 scripts/package.sh` also writes a
+`scripts/package.sh` builds a release binary and the plugins, fetches the
+bundled language servers (pinned versions, every download checked against
+its sha256) and lays them out as a folder you can install or move anywhere
+(`bin/arcode` plus `share/arcode/plugins/` and
+`share/arcode/language-servers/`). `ARCHIVE=1 scripts/package.sh` also writes a
 `.tar.gz` (a `.zip` on Windows). See [docs/PACKAGING.md](docs/PACKAGING.md)
 for the layout on each platform.
 
@@ -449,33 +471,46 @@ shortcut of every command.
 ## Languages
 
 Every language below has tree-sitter syntax highlighting built in and a
-default language server configured:
+default language server configured. Release packages bundle the servers
+marked "yes", so they work offline right after installing:
 
-| Language | Default language server |
-|---|---|
-| Rust | `rust-analyzer` |
-| Python | `pyright-langserver` (from pyright) |
-| JavaScript, TypeScript, JSX, TSX | `typescript-language-server` |
-| Go | `gopls` |
-| C, C++ | `clangd` |
-| Java | `jdtls` |
-| Ruby | `ruby-lsp` |
-| PHP | `intelephense` |
-| Lua | `lua-language-server` |
-| Bash / shell | `bash-language-server` |
-| HTML, CSS, JSON | `vscode-html-language-server`, `vscode-css-language-server`, `vscode-json-language-server` |
-| YAML | `yaml-language-server` |
-| TOML | `taplo` |
-| Markdown | `marksman` |
+| Language | Default language server | Bundled |
+|---|---|---|
+| Rust | `rust-analyzer` | yes |
+| Python | `pyright-langserver` (from pyright) | yes (and `ruff`) |
+| JavaScript, TypeScript, JSX, TSX | `typescript-language-server` | yes |
+| Go | `gopls` | yes (needs Go itself) |
+| C, C++ | `clangd` | yes (not on Linux arm64) |
+| Java | `jdtls` | yes (runs on your JDK 21+) |
+| Ruby | `ruby-lsp` | no: `gem install ruby-lsp` |
+| PHP | `intelephense` | no: its licence forbids redistribution |
+| Lua | `lua-language-server` | yes |
+| Bash / shell | `bash-language-server` | yes |
+| HTML, CSS, JSON | `vscode-html-language-server`, `vscode-css-language-server`, `vscode-json-language-server` | yes |
+| YAML | `yaml-language-server` | yes |
+| TOML | `taplo` | yes |
+| Markdown | `marksman` | yes |
 
-**How language servers are found.** Arcode never downloads or installs a
-language server. It starts the command configured for the language and
-looks it up on your `PATH` (on Windows also with the `.cmd` / `.bat`
-extensions that npm uses). If a server is missing, the status bar shows
-"not installed" and a one-time message names the command. The Languages
-page (Plugins view, or "Languages: Show Language Packs") lists every
-language with its servers, shows which are installed, and gives the
-install command for your OS to copy.
+The bundle adds about 730 MB to an installation on Linux x64 (about
+310 MB as a `.tar.gz`); `ARCODE_SKIP_LANGUAGE_SERVERS=1
+scripts/package.sh` builds a small package without it. See
+[Languages](docs/guide/languages.md#bundled-language-servers) for the
+list of versions.
+
+**How language servers are found.** Arcode starts the command configured
+for the language: a path as given, otherwise the program on your `PATH`
+(on Windows also with the `.cmd` / `.bat` extensions that npm uses),
+otherwise the bundled copy. So a server you install yourself always wins
+over the bundled one. If a server is missing everywhere, the status bar
+shows "not installed" and a one-time message names the command. The
+Languages page (Plugins view, or "Languages: Show Language Packs") lists
+every language with its servers, shows which are installed or bundled,
+and gives the install command for your OS to copy for the rest.
+
+A build from source has no bundle; get one into Arcode's data folder with
+`scripts/fetch-language-servers.sh linux-x64 ~/.local/share/arcode`
+(`macos-arm64 ~/Library/Application\ Support/arcode` on a Mac,
+`windows-x64 "$LOCALAPPDATA/arcode"` in Git Bash on Windows).
 
 To use a server that is not on `PATH`, or a different one, set it in
 `config.toml`:
@@ -492,7 +527,8 @@ patterns to any of the languages above.
 
 Arcode itself does not connect to the internet. There is no telemetry, no
 crash reporting, no update check, no account and no plugin store. It
-never downloads language servers, debuggers or packages for you.
+never downloads language servers, debuggers or packages for you: the
+language servers of a release are in the package you installed.
 
 Network access only happens as a direct result of something you do:
 
@@ -508,8 +544,11 @@ Network access only happens as a direct result of something you do:
   which talks to its registry.
 - **Programs you run.** Commands in the terminal, run buttons and the
   debugger run your own tools. Language servers and debug adapters are
-  separate programs you installed; some of them (for example those that
-  invoke your build tool) may go online on their own.
+  separate programs (bundled or installed by you); some of them (for
+  example those that invoke your build tool) may go online on their own.
+  The built-in settings turn off the schema and type downloads of the
+  YAML, TOML, JSON and TypeScript servers, including schemas a file
+  links to.
 
 Git operations stay local; Arcode never fetches, pulls or pushes.
 

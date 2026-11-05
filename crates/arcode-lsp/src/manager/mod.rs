@@ -18,6 +18,7 @@ use lsp_types::{ServerCapabilities, Uri};
 use tokio::runtime::{Handle, Runtime};
 use tokio::sync::oneshot;
 
+pub use actor::LaunchHook;
 use actor::{Command, MakeOpenText, ServerSlot};
 pub use answer::Answer;
 pub use config::{ServerConfig, find_root};
@@ -61,6 +62,8 @@ struct State {
     /// Instances being restarted: the replacement starts once the old one
     /// acknowledged its shutdown, so their events never interleave.
     stopping: HashMap<(String, PathBuf), oneshot::Receiver<()>>,
+    /// Adjusts each server's process spec just before it starts.
+    launch_hook: Option<LaunchHook>,
 }
 
 /// Owns a small tokio runtime and every running language server.
@@ -130,6 +133,16 @@ impl LspManager {
 
     fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Sets `hook` to adjust the process spec of every server instance
+    /// right before it starts (and again at each restart), on a blocking
+    /// thread of the manager's runtime: the place for lookups that touch
+    /// the file system, such as finding the program to run. Configurations
+    /// keep their configured commands, so [`LspManager::reconfigure`]
+    /// compares what the user wrote.
+    pub fn set_launch_hook(&self, hook: LaunchHook) {
+        self.lock().launch_hook = Some(hook);
     }
 
     /// Sets the fallback root for files without root markers inside it.
@@ -238,11 +251,17 @@ impl LspManager {
             }
             let key = (name, root.clone());
             let after = state.stopping.remove(&key);
+            let hook = state.launch_hook.clone();
             let slot = state
                 .servers
                 .entry(key)
                 .or_insert_with(|| {
-                    actor::spawn(&self.handle, &config, root, self.events.clone(), after)
+                    let start = actor::Start {
+                        events: self.events.clone(),
+                        after,
+                        hook,
+                    };
+                    actor::spawn(&self.handle, &config, root, start)
                 })
                 .clone();
             slot.send(Command::Open {

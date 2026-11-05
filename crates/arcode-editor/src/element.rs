@@ -35,6 +35,8 @@ pub(crate) struct PrepaintState {
     text_hitbox: Hitbox,
     /// Clickable gutter slots and lens items (pointer cursor).
     click_hitboxes: Vec<Hitbox>,
+    /// The minimap (arrow cursor).
+    minimap_hitbox: Option<Hitbox>,
 }
 
 impl IntoElement for EditorElement {
@@ -97,6 +99,10 @@ impl Element for EditorElement {
             .into_iter()
             .map(|b| window.insert_hitbox(b, HitboxBehavior::Normal))
             .collect();
+        let minimap_hitbox = layout
+            .minimap
+            .as_ref()
+            .map(|m| window.insert_hitbox(m.geometry.bounds, HitboxBehavior::Normal));
         defer_popovers(popovers, window, cx);
         PrepaintState {
             layout,
@@ -104,6 +110,7 @@ impl Element for EditorElement {
             hitbox,
             text_hitbox,
             click_hitboxes,
+            minimap_hitbox,
         }
     }
 
@@ -132,6 +139,9 @@ impl Element for EditorElement {
         }
         for hb in &prepaint.click_hitboxes {
             window.set_cursor_style(CursorStyle::PointingHand, hb);
+        }
+        if let Some(hb) = &prepaint.minimap_hitbox {
+            window.set_cursor_style(CursorStyle::Arrow, hb);
         }
         self.register_mouse_listeners(&prepaint.hitbox, window);
         let layout = prepaint.layout.clone();

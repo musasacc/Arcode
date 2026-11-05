@@ -369,3 +369,66 @@ fn language_feature_settings_parse_and_cap() {
     assert_eq!(e.format_on_save_timeout_ms, 10_000);
     assert_eq!(warnings.len(), 1, "{warnings:?}");
 }
+
+#[test]
+fn minimap_settings_parse_and_reset() {
+    let e = Config::default().editor;
+    assert!(e.minimap);
+    assert_eq!(e.minimap_width, 96);
+    let (config, warnings) =
+        Config::from_toml_str("[editor]\nminimap = false\nminimap_width = 120\n");
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert!(!config.editor.minimap);
+    assert_eq!(config.editor.minimap_width, 120);
+    for width in [0, 39, 241, 5000] {
+        let (config, warnings) =
+            Config::from_toml_str(&format!("[editor]\nminimap_width = {width}\n"));
+        assert_eq!(config.editor.minimap_width, 96, "{width}");
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+    }
+}
+
+#[test]
+fn font_weight_and_text_rendering_parse_and_reset() {
+    let (config, warnings) = Config::from_toml_str(
+        "[editor]\nfont_weight = 600\n[ui]\ntext_gamma = 2.2\ntext_contrast = 4.5\n",
+    );
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(config.editor.font_weight, 600);
+    assert_eq!(config.ui.text_gamma, 2.2);
+    assert_eq!(config.ui.text_contrast, 4.5);
+    // The ends of each range are accepted.
+    let (config, warnings) = Config::from_toml_str(
+        "[editor]\nfont_weight = 100\n[ui]\ntext_gamma = 1.0\ntext_contrast = 8.0\n",
+    );
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(config.editor.font_weight, 100);
+    assert_eq!(config.ui.text_gamma, 1.0);
+    assert_eq!(config.ui.text_contrast, 8.0);
+    for weight in [0, 99, 901, 5000] {
+        let (config, warnings) =
+            Config::from_toml_str(&format!("[editor]\nfont_weight = {weight}\n"));
+        assert_eq!(config.editor.font_weight, 400, "{weight}");
+        assert_eq!(warnings.len(), 1, "{weight}: {warnings:?}");
+        assert!(warnings[0].contains("editor.font_weight"), "{warnings:?}");
+    }
+    for (key, value, default) in [
+        ("text_gamma", "0.9", 1.8),
+        ("text_gamma", "2.3", 1.8),
+        ("text_gamma", "nan", 1.8),
+        ("text_gamma", "inf", 1.8),
+        ("text_contrast", "-0.5", 1.0),
+        ("text_contrast", "8.5", 1.0),
+        ("text_contrast", "nan", 1.0),
+    ] {
+        let (config, warnings) = Config::from_toml_str(&format!("[ui]\n{key} = {value}\n"));
+        let got = if key == "text_gamma" {
+            config.ui.text_gamma
+        } else {
+            config.ui.text_contrast
+        };
+        assert_eq!(got, default, "{key} = {value}");
+        assert_eq!(warnings.len(), 1, "{key} = {value}: {warnings:?}");
+        assert!(warnings[0].contains(&format!("ui.{key}")), "{warnings:?}");
+    }
+}

@@ -9,7 +9,7 @@ page.
 
 ```
 +-------------------------------------------------------------------+
-| project v  branch      [ Search files   > commands ]   Run v  ... |  title bar
+| File Edit ... | project v  branch  [ Search files ]   Run v  ... |  title bar
 +--+---------------+------------------------------------------------+
 |  |               |  tabs                                          |
 |a |   sidebar     |                                                |
@@ -22,6 +22,11 @@ page.
 +-------------------------------------------------------------------+
 ```
 
+- The **menu bar** in the title bar (File, Edit, Selection, View, Go,
+  Run, Terminal, Git, Help) lists the commands with their shortcuts.
+  Click a menu or press Alt and its underlined letter (Alt+F for File).
+  In a narrow window, or with "Menu bar" off in Settings, a single menu
+  button holds them. On macOS the menus are in the system menu bar.
 - The **activity bar** on the left switches the sidebar between Files,
   Search, Source Control, Run and Debug, Plugins, TODO and Packages.
   Plugins can add their own entries below these. Ctrl+B shows or hides
@@ -175,9 +180,9 @@ Terminal Font** pick a font from a list of the installed ones. Every change is w
 
 ## Next steps
 
-- Install language servers for your languages: the Languages page
-  (**Languages: Show Language Packs**) shows what is missing and how to
-  install it.
+- Check your language servers: release packages bundle them, and the
+  Languages page (**Languages: Show Language Packs**) shows which are
+  installed, bundled or missing, and how to install a missing one.
 - Learn the [key bindings](keybindings.md).
 - Try the bundled [plugins](plugins.md): open a `.http` file or a SQLite
   database.

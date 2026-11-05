@@ -14,6 +14,9 @@ pub(crate) struct CargoPackage {
     /// Binary target names with the source file of each (relative path).
     pub bins: Vec<(String, String)>,
     pub default_run: Option<String>,
+    /// The build script (relative path): `package.build`, else `build.rs`
+    /// when it exists; `None` with `build = false`.
+    pub build_script: Option<String>,
 }
 
 impl CargoPackage {
@@ -69,11 +72,20 @@ fn package_from_table(dir: &Path, table: &Table) -> Option<CargoPackage> {
             }
         }
     }
+    let build_script = match package.get("build") {
+        Some(Value::String(path)) => Some(path.trim_start_matches("./").to_string()),
+        Some(Value::Boolean(false)) => None,
+        _ => dir
+            .join("build.rs")
+            .is_file()
+            .then(|| "build.rs".to_string()),
+    };
     Some(CargoPackage {
         name,
         dir: dir.to_path_buf(),
         bins,
         default_run,
+        build_script,
     })
 }
 

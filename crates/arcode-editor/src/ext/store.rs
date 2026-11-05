@@ -22,6 +22,10 @@ pub(crate) struct ExtState {
     pub gutter: BTreeMap<SharedString, Vec<GutterDecoration>>,
     pub lanes_shown: BTreeSet<GutterLane>,
     pub highlights: BTreeMap<SharedString, Vec<BackgroundHighlight>>,
+    /// For each highlight set, how many lines past its first line its
+    /// longest highlight reaches, so a lookup for some lines can start that
+    /// far above them and still find every highlight covering them.
+    pub highlight_reach: BTreeMap<SharedString, usize>,
     pub virtual_text: BTreeMap<SharedString, Vec<VirtualText>>,
     pub lenses: BTreeMap<SharedString, Vec<CodeLens>>,
     pub popovers: Vec<(SharedString, EditorPopover)>,
@@ -59,6 +63,17 @@ pub(crate) fn map_line(line: usize, edit: &Edit) -> Option<usize> {
     } else {
         None
     }
+}
+
+/// How many lines past its first line the longest of `list` reaches.
+fn highlight_reach(list: &[BackgroundHighlight]) -> usize {
+    list.iter()
+        .map(|h| match &h.range {
+            HighlightRange::Lines(r) => r.end.saturating_sub(r.start + 1),
+            HighlightRange::Text(r) => r.end.line.saturating_sub(r.start.line),
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 /// The buffer line a virtual text is on.
@@ -140,13 +155,16 @@ impl ExtState {
         for marks in self.gutter.values_mut() {
             marks.retain_mut(|m| map_line(m.line, edit).map(|l| m.line = l).is_some());
         }
-        for list in self.highlights.values_mut() {
+        for (set, list) in self.highlights.iter_mut() {
             list.retain_mut(|h| match &mut h.range {
                 HighlightRange::Lines(lines) => {
                     map_lines(lines, edit).map(|n| *lines = n).is_some()
                 }
                 HighlightRange::Text(r) => map_range(r, edit).map(|n| *r = n).is_some(),
             });
+            if let Some(reach) = self.highlight_reach.get_mut(set) {
+                *reach = highlight_reach(list);
+            }
         }
         for list in self.virtual_text.values_mut() {
             list.retain_mut(|v| match &mut v.position {
@@ -167,6 +185,25 @@ impl ExtState {
             }
         }
         self.hovered_lens = None;
+    }
+
+    /// Replaces the highlights of `set` (sorted by start), or removes them
+    /// when `list` is empty.
+    pub fn set_highlights(&mut self, set: SharedString, list: Vec<BackgroundHighlight>) {
+        if list.is_empty() {
+            self.highlights.remove(&set);
+            self.highlight_reach.remove(&set);
+        } else {
+            self.highlight_reach
+                .insert(set.clone(), highlight_reach(&list));
+            self.highlights.insert(set, list);
+        }
+    }
+
+    /// How many lines past its first line the longest highlight of `set`
+    /// reaches.
+    pub fn highlight_reach(&self, set: &str) -> usize {
+        self.highlight_reach.get(set).copied().unwrap_or(0)
     }
 
     /// Lanes that take space: forced visible or holding decorations.
@@ -323,6 +360,27 @@ mod tests {
             panic!("lines");
         };
         assert_eq!(r.clone(), 1..5);
+    }
+
+    #[test]
+    fn highlight_reach_follows_the_longest_highlight() {
+        let mut s = ExtState::default();
+        let one = |line| BackgroundHighlight::lines(line..line + 1, "warning".into());
+        s.set_highlights("search".into(), vec![one(1), one(7)]);
+        assert_eq!(s.highlight_reach("search"), 0, "one line each");
+        s.set_highlights(
+            "conflict".into(),
+            vec![one(0), BackgroundHighlight::lines(2..12, "warning".into())],
+        );
+        assert_eq!(s.highlight_reach("conflict"), 9);
+        // Edits inside it grow it.
+        let text: String = (0..20).map(|i| format!("{i}\n")).collect();
+        let at = text.find("5\n").expect("line 5");
+        s.adjust_for_edit(&edit(&text, at..at, "\n\n\n"));
+        assert_eq!(s.highlight_reach("conflict"), 12);
+        s.set_highlights("conflict".into(), Vec::new());
+        assert_eq!(s.highlight_reach("conflict"), 0);
+        assert!(!s.highlights.contains_key("conflict"));
     }
 
     #[test]

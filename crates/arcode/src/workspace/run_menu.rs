@@ -1,6 +1,7 @@
 //! The title bar's Run button: the project's run command (detected by
-//! `arcode-project`, or one the user picked or typed), and its dropdown
-//! listing every detected command.
+//! `arcode-project`, or one the user picked or typed), else the current
+//! file (see `run_file.rs`), and its dropdown listing every detected
+//! command and Run / Debug Current File.
 
 use std::path::{Path, PathBuf};
 
@@ -12,7 +13,9 @@ use gpui::{
 };
 
 use super::Workspace;
-use crate::debugger::actions::{OpenLaunchConfig, ShowRunAndDebug};
+use crate::debugger::actions::{
+    DebugCurrentFile, OpenLaunchConfig, RunCurrentFile, ShowRunAndDebug,
+};
 use crate::text_prompt::{TextPrompt, TextPromptEvent};
 use crate::title_bar::TITLE_BAR_HEIGHT;
 
@@ -25,12 +28,19 @@ pub struct RunState {
     pub custom: Option<String>,
     /// The dropdown's commands while it is open (`None`: closed).
     pub menu: Option<Vec<RunCommand>>,
+    /// The dropdown's commands were listed (an empty list means none).
+    pub menu_loaded: bool,
     /// The "Edit Run Command" dialog.
     pub prompt: Option<Entity<TextPrompt>>,
     /// Detects the default command.
     task: Option<Task<()>>,
     /// Lists the dropdown's commands.
     menu_task: Option<Task<()>>,
+    /// Finds the toolchain for Run / Debug Current File.
+    pub(super) file_task: Option<Task<()>>,
+    /// `(title, command line)` of each terminal run (tests only).
+    #[cfg(test)]
+    pub ran: Vec<(String, String)>,
 }
 
 impl Workspace {
@@ -65,17 +75,18 @@ impl Workspace {
         })
     }
 
-    /// Runs the project's run command in a terminal named after it.
+    /// Runs the project's run command in a terminal named after it; the
+    /// current file when the project has none (or no project is open).
     pub(super) fn run_project_command(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(root) = self.project_root().map(Path::to_path_buf) else {
-            self.show_toast("Open a project to run it", cx);
+            self.run_current_file(window, cx);
             return;
         };
         let (title, line, cwd) = match (&self.debug.run.custom, &self.debug.run.default) {
             (Some(line), _) => (line.clone(), line.clone(), root),
             (None, Some(cmd)) => (cmd.label.clone(), cmd.command_line(), cmd.cwd.clone()),
             (None, None) => {
-                self.show_toast("No run command detected. Use the Run menu to type one.", cx);
+                self.run_current_file(window, cx);
                 return;
             }
         };
@@ -94,17 +105,22 @@ impl Workspace {
             cx.notify();
             return;
         }
-        let Some(root) = self.project_root().map(Path::to_path_buf) else {
-            return;
-        };
         self.project_menu_open = false;
         self.debug.run.menu = Some(Vec::new());
+        // Without a project there are no commands, only the current file.
+        let Some(root) = self.project_root().map(Path::to_path_buf) else {
+            self.debug.run.menu_loaded = true;
+            cx.notify();
+            return;
+        };
+        self.debug.run.menu_loaded = false;
         let detect = cx.background_spawn(async move { detect_run_commands(&root) });
         self.debug.run.menu_task = Some(cx.spawn(async move |this, cx| {
             let commands = detect.await;
             this.update(cx, |ws, cx| {
                 if ws.debug.run.menu.is_some() {
                     ws.debug.run.menu = Some(commands);
+                    ws.debug.run.menu_loaded = true;
                     cx.notify();
                 }
             })
@@ -142,7 +158,12 @@ impl Workspace {
         cx.notify();
     }
 
-    fn edit_run_command(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Opens the dialog that sets the project's run command.
+    pub(super) fn edit_run_command(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.project_root().is_none() {
+            self.show_toast("Open a folder to set its run command", cx);
+            return;
+        }
         self.debug.run.menu = None;
         let initial = self.run_command_line().unwrap_or_default();
         let prompt = cx.new(|cx| {
@@ -223,13 +244,20 @@ impl Workspace {
                 .text_color(c.text)
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
             if commands.is_empty() {
+                let note = if !self.debug.run.menu_loaded {
+                    "Looking for run commands…"
+                } else if self.project_root().is_some() {
+                    "No run commands found in this project"
+                } else {
+                    "Open a folder to see its run commands"
+                };
                 menu = menu.child(
                     div()
                         .px_3()
                         .py_1()
                         .text_xs()
                         .text_color(c.text_muted)
-                        .child("Looking for run commands…"),
+                        .child(note),
                 );
             }
             for (ix, command) in commands.iter().enumerate() {
@@ -252,7 +280,43 @@ impl Workspace {
                         })),
                 );
             }
+            menu = menu.child(div().my(px(4.)).h(px(1.)).bg(c.border));
+            let detail: SharedString = self
+                .active_editor(cx)
+                .and_then(|e| {
+                    e.read(cx)
+                        .path()?
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                })
+                .map_or_else(|| "no file open".into(), Into::into);
             menu = menu
+                .child(
+                    Self::run_menu_row(
+                        "run-file",
+                        IconName::Play,
+                        "Run current file".into(),
+                        Some(detail.clone()),
+                        cx,
+                    )
+                    .on_click(cx.listener(|ws, _, window, cx| {
+                        ws.debug.run.menu = None;
+                        window.dispatch_action(Box::new(RunCurrentFile), cx);
+                    })),
+                )
+                .child(
+                    Self::run_menu_row(
+                        "debug-file",
+                        IconName::Bug,
+                        "Debug current file".into(),
+                        Some(detail),
+                        cx,
+                    )
+                    .on_click(cx.listener(|ws, _, window, cx| {
+                        ws.debug.run.menu = None;
+                        window.dispatch_action(Box::new(DebugCurrentFile), cx);
+                    })),
+                )
                 .child(div().my(px(4.)).h(px(1.)).bg(c.border))
                 .child(
                     Self::run_menu_row(

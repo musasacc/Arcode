@@ -1,5 +1,6 @@
 //! Mouse handling: clicks, drag selection, multi-cursor clicks, wheel
-//! scrolling and the scrollbar (hover lives in [`crate::hover`]).
+//! scrolling and the scrollbar (hover lives in [`crate::hover`], the
+//! minimap's handlers in [`crate::minimap`]).
 
 use std::ops::Range;
 
@@ -34,6 +35,8 @@ pub(crate) enum DragState {
     /// A box selection (Alt+Shift+drag or the middle button) from
     /// `(line, x from the text origin)`.
     Column { anchor: (usize, Pixels) },
+    /// Scrolling with the minimap.
+    Minimap(crate::minimap::MinimapDrag),
 }
 
 impl Editor {
@@ -76,6 +79,9 @@ impl Editor {
         let Some(layout) = self.layout.clone() else {
             return;
         };
+        if self.minimap_mouse_down(event, &layout, cx) {
+            return;
+        }
         if event.button == MouseButton::Right {
             self.context_click(event, &layout, window, cx);
             return;
@@ -162,6 +168,9 @@ impl Editor {
             Some(DragState::Scrollbar { grab }) => {
                 self.drag_scrollbar(&layout, event.position.y, grab, cx);
             }
+            Some(DragState::Minimap(drag)) => {
+                self.minimap_drag(&layout, drag, event.position.y, cx);
+            }
             Some(DragState::Column { anchor }) if event.pressed_button.is_some() => {
                 self.column_drag_move(&layout, anchor, event.position, cx);
             }
@@ -181,7 +190,10 @@ impl Editor {
                     self.selections_changed(cx);
                 }
             }
-            _ => self.hover_mouse_move(&layout, event.position, event.modifiers, hovered, cx),
+            _ => {
+                self.minimap_hover(&layout, event.position, hovered, cx);
+                self.hover_mouse_move(&layout, event.position, event.modifiers, hovered, cx);
+            }
         }
     }
 

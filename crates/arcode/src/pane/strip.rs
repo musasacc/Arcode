@@ -177,7 +177,8 @@ impl Pane {
                                     icon_button("tab-list", IconName::Ellipsis)
                                         .size(CONTROL_H_PANEL)
                                         .active(self.tab_menu_open)
-                                        .tooltip("Open tabs")
+                                        // No tooltip over the list it opened.
+                                        .when(!self.tab_menu_open, |b| b.tooltip("Open tabs"))
                                         .on_click(cx.listener(|pane, _, _, cx| {
                                             pane.tab_menu_open = !pane.tab_menu_open;
                                             cx.notify();
@@ -233,6 +234,7 @@ impl Pane {
         let c = theme(cx).colors.clone();
         let mut list = popover(cx)
             .id("tab-menu")
+            .debug_selector(|| "tab-menu".into())
             .min_w(px(220.))
             .max_w(px(360.))
             .max_h(px(420.))
@@ -308,6 +310,15 @@ impl Pane {
                 )
                 .into_any_element(),
         )
+    }
+}
+
+#[cfg(test)]
+impl Pane {
+    /// Opens the `…` list of tabs, as its button does.
+    pub(crate) fn open_tab_menu(&mut self, cx: &mut Context<Self>) {
+        self.tab_menu_open = true;
+        cx.notify();
     }
 }
 

@@ -1,7 +1,7 @@
 //! The title bar (docs/DESIGN.md 6.2), drawn on the canvas with no fill of
-//! its own: the spark logo over the rail column, the project and branch
-//! chips, the search field, and at the right the Paused chip, the Run split
-//! button and the Debug and Settings buttons.
+//! its own: the spark logo over the rail column, the menu bar, the project
+//! and branch chips, the search field, and at the right the Paused chip,
+//! the Run split button and the Debug and Settings buttons.
 
 mod run;
 
@@ -38,6 +38,30 @@ fn yielding(priority: f32) -> gpui::Div {
     el
 }
 
+/// Width of `text` in the UI font at `size` and `weight`.
+fn label_width(
+    text: &str,
+    size: gpui::Pixels,
+    weight: gpui::FontWeight,
+    window: &Window,
+    cx: &gpui::App,
+) -> gpui::Pixels {
+    let mut font = gpui::font(arcode_ui_kit::ui_font_family(cx));
+    font.weight = weight;
+    let run = gpui::TextRun {
+        len: text.len(),
+        font,
+        color: gpui::Hsla::default(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    window
+        .text_system()
+        .shape_line(text.to_owned().into(), size, &[run], None)
+        .width
+}
+
 /// Changed files of a repository by kind: `~2 +1` in the branch chip.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct GitCounts {
@@ -70,7 +94,7 @@ impl GitCounts {
 /// Renders the title bar for `ws`.
 pub fn render(
     ws: &Workspace,
-    _window: &mut Window,
+    window: &mut Window,
     cx: &mut Context<Workspace>,
 ) -> impl IntoElement + use<> {
     let c = theme(cx).colors.clone();
@@ -84,6 +108,21 @@ pub fn render(
     let menu_open = ws.project_menu_open();
     let anchors = ws.tour_anchors().clone();
     let paused = ws.paused_readout().cloned();
+    // With every menu title shown the left side is wide: the search field
+    // gives way first, and the project and branch names keep their width
+    // (up to a cap) instead of being cut to an ellipsis.
+    let menus_shown = !cfg!(target_os = "macos") && !crate::menu_bar::folds(window, cx);
+    let keep = |text: &str, size, weight, cap: f32| {
+        if menus_shown {
+            label_width(text, size, weight, window, cx).min(px(cap))
+        } else {
+            px(0.)
+        }
+    };
+    let name_min = keep(&name, scale.title, WEIGHT_SEMIBOLD, 220.);
+    let branch_min = branch.as_deref().map_or(px(0.), |b| {
+        keep(b, scale.body, gpui::FontWeight::NORMAL, 180.)
+    });
 
     let dropdown = div()
         .id("project-dropdown")
@@ -104,7 +143,7 @@ pub fn render(
         .child(
             div()
                 .max_w(px(220.))
-                .min_w_0()
+                .min_w(name_min)
                 .overflow_hidden()
                 .child(truncated(name)),
         )
@@ -134,7 +173,12 @@ pub fn render(
                     .size(icon_size::TOOLBAR)
                     .color(c.text_muted),
             )
-            .child(div().min_w_0().overflow_hidden().child(truncated(branch)))
+            .child(
+                div()
+                    .min_w(branch_min)
+                    .overflow_hidden()
+                    .child(truncated(branch)),
+            )
             // The counts never shrink: the branch name truncates instead.
             .when(counts.modified > 0, |el| {
                 let n = readout(format!("~{}", counts.modified)).color(c.info);
@@ -171,6 +215,8 @@ pub fn render(
                 .h_full()
                 .child(logo(px(22.))),
         )
+        // The menus (or the menu button) come right after the logo.
+        .child(ws.menu_bar().clone())
         .child(dropdown)
         .children(branch_chip);
 

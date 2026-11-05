@@ -88,6 +88,7 @@ scripts/build-plugins.sh http-client      # one plugin
 scripts/build-plugins.sh hello-world      # the example plugin (never built by default)
 scripts/build-test-plugins.sh             # fixtures -> target/test-plugins/
 scripts/package.sh                        # release layout -> target/package/ (see docs/PACKAGING.md)
+scripts/fetch-language-servers.sh linux-x64 ~/.local/share/arcode   # bundled language servers for a source build
 ```
 
 ## Running the tests

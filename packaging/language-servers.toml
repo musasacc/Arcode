@@ -1,0 +1,412 @@
+# The language servers bundled with Arcode releases.
+#
+# scripts/fetch-language-servers.sh reads this file, downloads what one
+# platform needs, checks every download against the sha256 below (a
+# mismatch stops the script) and lays it out as
+#
+#   <dest>/language-servers/
+#       manifest.toml      a copy of this file; the app reads `commands`
+#       bin/               single-file servers (rust-analyzer, taplo, ...)
+#       lib/<name>/        servers that are a folder (clangd, jdtls, ...)
+#       lib/npm/           the npm servers (package.json, lockfile, node_modules)
+#       node/              the Node.js runtime the npm servers run on
+#       LICENSES/          the license of everything above
+#
+# Every version is pinned. To update a server, change its version, URLs and
+# sha256 values together (and for npm servers packaging/npm/package.json and
+# its lockfile); `cargo test -p arcode-project bundled` checks the file.
+#
+# Platforms: linux-x64, linux-arm64, macos-arm64, macos-x64, windows-x64.
+#
+# Per server:
+#   source    "archive" (one download per platform), "npm" (installed from
+#             packaging/npm with its lockfile), "go" (built with `go install`
+#             at packaging time; skipped with a note when Go is missing)
+#   install   archive only: `file = "bin/<name>"` keeps one executable
+#             (".exe" is added on Windows; `member` names it inside a zip or
+#             tar), `dir = "lib/<name>"` unpacks everything there (`strip`
+#             leading folders removed)
+#   commands  what the app may run: `exec` (a native program, ".exe" added
+#             on Windows), `node` (a script run with the bundled Node.js) or
+#             `java` (jdtls, run with the user's Java)
+#   licenses  license files: `path` inside the unpacked archive (or Go
+#             module), or `url`
+#             with its sha256 for archives that do not contain one
+#   unsupported  platforms without an upstream build (with `note`)
+
+schema = 1
+
+[node]
+version = "24.22.2"
+license = "MIT"
+homepage = "https://nodejs.org"
+licenses = [{ path = "LICENSE" }]
+
+[node.platforms.linux-x64]
+url = "https://nodejs.org/dist/v24.22.2/node-v24.22.2-linux-x64.tar.xz"
+sha256 = "48cc0e21e048790e54c0cf5749c2725005313d652651c40b7a21feb9697aaf75"
+
+[node.platforms.linux-arm64]
+url = "https://nodejs.org/dist/v24.22.2/node-v24.22.2-linux-arm64.tar.xz"
+sha256 = "eb187837a2230d4047161ac0be008584e16b46f726e9c9490ee35dc6b17d9ba8"
+
+[node.platforms.macos-arm64]
+url = "https://nodejs.org/dist/v24.22.2/node-v24.22.2-darwin-arm64.tar.gz"
+sha256 = "aa9549349e47dffaa42dcf95d6e06ade8c4bdafc980979883b88767670df385a"
+
+[node.platforms.macos-x64]
+url = "https://nodejs.org/dist/v24.22.2/node-v24.22.2-darwin-x64.tar.gz"
+sha256 = "d5e336d588c45be0c37dbd52cc29895593009ca4997a77a1fd02815131ed0e52"
+
+[node.platforms.windows-x64]
+url = "https://nodejs.org/dist/v24.22.2/node-v24.22.2-win-x64.zip"
+sha256 = "ca1bff5d8ead13c9f2ea404a176db46bd430704d5b5113734049fa365e7799e2"
+
+# --- Rust -----------------------------------------------------------------
+
+[[server]]
+name = "rust-analyzer"
+version = "2026-11-02"
+languages = ["rust"]
+license = "MIT OR Apache-2.0"
+homepage = "https://rust-analyzer.github.io"
+source = "archive"
+install = { file = "bin/rust-analyzer" }
+commands = [{ name = "rust-analyzer", exec = "bin/rust-analyzer" }]
+licenses = [
+    { url = "https://raw.githubusercontent.com/rust-lang/rust-analyzer/2026-11-02/LICENSE-MIT", sha256 = "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3" },
+    { url = "https://raw.githubusercontent.com/rust-lang/rust-analyzer/2026-11-02/LICENSE-APACHE", sha256 = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" },
+]
+
+[server.platforms.linux-x64]
+url = "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-02/rust-analyzer-x86_64-unknown-linux-gnu.gz"
+sha256 = "5249da68c3f36bb77ea7d401824f5e8bd8d0a47a162daf5f72208eb7c1bf1500"
+
+[server.platforms.linux-arm64]
+url = "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-02/rust-analyzer-aarch64-unknown-linux-gnu.gz"
+sha256 = "4f8699eaee4231df5a5ffd477106ecae3bf6328918a60de742798912ecff6869"
+
+[server.platforms.macos-arm64]
+url = "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-02/rust-analyzer-aarch64-apple-darwin.gz"
+sha256 = "d10ca0a10e386f74ca36847b3df2ad5ab6f1328feeb1591467b3724f3fd8e8cf"
+
+[server.platforms.macos-x64]
+url = "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-02/rust-analyzer-x86_64-apple-darwin.gz"
+sha256 = "2c3d6c564f9b2734085cf6439c78896545e86b54ebb63870ba701e12ca582b22"
+
+[server.platforms.windows-x64]
+url = "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-02/rust-analyzer-x86_64-pc-windows-msvc.zip"
+sha256 = "5450a3735c601f047dc9ca46a01add55c4ac7ef450ae5e710d249a26d65f5632"
+member = "rust-analyzer.exe"
+
+# --- C, C++, Objective-C ----------------------------------------------------
+
+# clangd finds its builtin headers in ../lib/clang next to the binary, so
+# the whole folder is kept. The macOS build is universal (arm64 + x86_64).
+# There is no upstream Linux arm64 build: install clangd from the
+# distribution there.
+[[server]]
+name = "clangd"
+version = "23.1.0"
+languages = ["c", "cpp", "objective-c", "objective-cpp"]
+license = "Apache-2.0 WITH LLVM-exception"
+homepage = "https://clangd.llvm.org"
+source = "archive"
+install = { dir = "lib/clangd", strip = 1 }
+commands = [{ name = "clangd", exec = "lib/clangd/bin/clangd" }]
+licenses = [{ path = "LICENSE.TXT" }]
+unsupported = ["linux-arm64"]
+note = "No upstream clangd build for Linux arm64; install clangd from your distribution."
+
+[server.platforms.linux-x64]
+url = "https://github.com/clangd/clangd/releases/download/23.1.0/clangd-linux-23.1.0.zip"
+sha256 = "e53b1a96196095faedb7642cf64964f7fb9ad4a0c1f00dd2c172a3d9dcbafdfd"
+
+[server.platforms.macos-arm64]
+url = "https://github.com/clangd/clangd/releases/download/23.1.0/clangd-mac-23.1.0.zip"
+sha256 = "1082e6638223b785ca2daf0939f13afcd0bb95c84ee9a4bbaff4745365159253"
+
+[server.platforms.macos-x64]
+url = "https://github.com/clangd/clangd/releases/download/23.1.0/clangd-mac-23.1.0.zip"
+sha256 = "1082e6638223b785ca2daf0939f13afcd0bb95c84ee9a4bbaff4745365159253"
+
+[server.platforms.windows-x64]
+url = "https://github.com/clangd/clangd/releases/download/23.1.0/clangd-windows-23.1.0.zip"
+sha256 = "23412a240756a162e7b98a282f36aa2a23a88db5ce16a0cbc4fef7253768c810"
+
+# --- Go ---------------------------------------------------------------------
+
+# gopls publishes no binaries. It is built at packaging time with
+# `go install` for the target platform (pure Go, cross-compiles without
+# cgo); the module is checked against `sum` (the Go checksum database
+# entry). Without Go on the packaging machine gopls is left out with a note:
+# it needs the Go toolchain at run time anyway, so anyone who can use it can
+# also install it from the Languages page.
+[[server]]
+name = "gopls"
+version = "v0.24.0"
+languages = ["go", "gomod"]
+license = "BSD-3-Clause"
+homepage = "https://go.dev/gopls"
+source = "go"
+module = "golang.org/x/tools/gopls"
+sum = "h1:nPO/LffYa4sP62Ueuema5PPnZPGaZjGl+vZGvbTek4g="
+go = "1.27.0"
+commands = [{ name = "gopls", exec = "bin/gopls" }]
+licenses = [{ path = "LICENSE" }]
+
+# --- Python -----------------------------------------------------------------
+
+[[server]]
+name = "pyright"
+version = "1.1.414"
+languages = ["python"]
+license = "MIT"
+homepage = "https://github.com/microsoft/pyright"
+source = "npm"
+packages = ["pyright@1.1.414"]
+commands = [
+    { name = "pyright-langserver", node = "lib/npm/node_modules/pyright/langserver.index.js" },
+    { name = "pyright", node = "lib/npm/node_modules/pyright/index.js" },
+]
+
+[[server]]
+name = "ruff"
+version = "0.17.3"
+languages = ["python"]
+license = "MIT"
+homepage = "https://docs.astral.sh/ruff"
+source = "archive"
+install = { file = "bin/ruff" }
+commands = [{ name = "ruff", exec = "bin/ruff" }]
+licenses = [{ url = "https://raw.githubusercontent.com/astral-sh/ruff/0.17.3/LICENSE", sha256 = "2597d854122b77ddc71971564ca2350a37608575ce324adc5650a2b2051c8f18" }]
+
+[server.platforms.linux-x64]
+url = "https://github.com/astral-sh/ruff/releases/download/0.17.3/ruff-x86_64-unknown-linux-gnu.tar.gz"
+sha256 = "2b0890f5a55900af741f133918c2656919bbf18c2ab7741b4ca8403a90e647a9"
+member = "ruff-x86_64-unknown-linux-gnu/ruff"
+
+[server.platforms.linux-arm64]
+url = "https://github.com/astral-sh/ruff/releases/download/0.17.3/ruff-aarch64-unknown-linux-gnu.tar.gz"
+sha256 = "3f4639152c0e42bb5938e6c23d53d527a38f3133e000102934518f90529fa299"
+member = "ruff-aarch64-unknown-linux-gnu/ruff"
+
+[server.platforms.macos-arm64]
+url = "https://github.com/astral-sh/ruff/releases/download/0.17.3/ruff-aarch64-apple-darwin.tar.gz"
+sha256 = "118f7121aa838785672bf612487f755a89108bb5f44e0f3df96c5967a72614f9"
+member = "ruff-aarch64-apple-darwin/ruff"
+
+[server.platforms.macos-x64]
+url = "https://github.com/astral-sh/ruff/releases/download/0.17.3/ruff-x86_64-apple-darwin.tar.gz"
+sha256 = "17f95b1bee24d70de62ffe5beec7f71bb541c7e3d147a1c3d84f7cd6525f6fdf"
+member = "ruff-x86_64-apple-darwin/ruff"
+
+[server.platforms.windows-x64]
+url = "https://github.com/astral-sh/ruff/releases/download/0.17.3/ruff-x86_64-pc-windows-msvc.zip"
+sha256 = "a84d9ac74af8ef5bac84a1888a1634df18e6e985e2f930d35c052beacd00e813"
+member = "ruff.exe"
+
+# --- TypeScript, JavaScript -------------------------------------------------
+
+# typescript 6 is the last release with tsserver.js, which
+# typescript-language-server drives.
+[[server]]
+name = "typescript-language-server"
+version = "6.0.3"
+languages = ["typescript", "javascript", "typescriptreact", "javascriptreact"]
+license = "Apache-2.0"
+homepage = "https://github.com/typescript-language-server/typescript-language-server"
+source = "npm"
+packages = ["typescript-language-server@6.0.3", "typescript@6.0.3"]
+commands = [{ name = "typescript-language-server", node = "lib/npm/node_modules/typescript-language-server/lib/cli.mjs" }]
+
+# --- HTML, CSS, SCSS, Less, JSON ----------------------------------------------
+
+[[server]]
+name = "vscode-langservers-extracted"
+version = "4.10.0"
+languages = ["html", "css", "scss", "less", "json", "jsonc"]
+license = "MIT"
+homepage = "https://github.com/hrsh7th/vscode-langservers-extracted"
+source = "npm"
+packages = ["vscode-langservers-extracted@4.10.0"]
+commands = [
+    { name = "vscode-html-language-server", node = "lib/npm/node_modules/vscode-langservers-extracted/bin/vscode-html-language-server" },
+    { name = "vscode-css-language-server", node = "lib/npm/node_modules/vscode-langservers-extracted/bin/vscode-css-language-server" },
+    { name = "vscode-json-language-server", node = "lib/npm/node_modules/vscode-langservers-extracted/bin/vscode-json-language-server" },
+    { name = "vscode-eslint-language-server", node = "lib/npm/node_modules/vscode-langservers-extracted/bin/vscode-eslint-language-server" },
+]
+
+# --- YAML -------------------------------------------------------------------
+
+[[server]]
+name = "yaml-language-server"
+version = "2.0.0"
+languages = ["yaml"]
+license = "MIT"
+homepage = "https://github.com/redhat-developer/yaml-language-server"
+source = "npm"
+packages = ["yaml-language-server@2.0.0"]
+commands = [{ name = "yaml-language-server", node = "lib/npm/node_modules/yaml-language-server/bin/yaml-language-server" }]
+
+# --- Shell ------------------------------------------------------------------
+
+[[server]]
+name = "bash-language-server"
+version = "5.8.1"
+languages = ["shellscript"]
+license = "MIT"
+homepage = "https://github.com/bash-lsp/bash-language-server"
+source = "npm"
+packages = ["bash-language-server@5.8.1"]
+commands = [{ name = "bash-language-server", node = "lib/npm/node_modules/bash-language-server/out/cli.js" }]
+
+# --- Lua --------------------------------------------------------------------
+
+[[server]]
+name = "lua-language-server"
+version = "3.19.2"
+languages = ["lua"]
+license = "MIT"
+homepage = "https://luals.github.io"
+source = "archive"
+install = { dir = "lib/lua-language-server" }
+commands = [{ name = "lua-language-server", exec = "lib/lua-language-server/bin/lua-language-server" }]
+licenses = [{ path = "LICENSE" }]
+
+[server.platforms.linux-x64]
+url = "https://github.com/LuaLS/lua-language-server/releases/download/3.19.2/lua-language-server-3.19.2-linux-x64.tar.gz"
+sha256 = "93ad326b10f6c00911dd8c450fa098332dbd8f9f45d1052f5636a2d54479b947"
+
+[server.platforms.linux-arm64]
+url = "https://github.com/LuaLS/lua-language-server/releases/download/3.19.2/lua-language-server-3.19.2-linux-arm64.tar.gz"
+sha256 = "17b8e401a874440adeb649e5024c364f2bb9d15156c74a40e56d1ae9a1b2e4f2"
+
+[server.platforms.macos-arm64]
+url = "https://github.com/LuaLS/lua-language-server/releases/download/3.19.2/lua-language-server-3.19.2-darwin-arm64.tar.gz"
+sha256 = "79149584320a23bd5fcd5bc31f47a1975acd8a4560a0e89036bb1016fa61687f"
+
+[server.platforms.macos-x64]
+url = "https://github.com/LuaLS/lua-language-server/releases/download/3.19.2/lua-language-server-3.19.2-darwin-x64.tar.gz"
+sha256 = "6f2174ece5ec63bcd9d5b22b2c902445c1cd9045fafe48c62602448ebf4c09cc"
+
+[server.platforms.windows-x64]
+url = "https://github.com/LuaLS/lua-language-server/releases/download/3.19.2/lua-language-server-3.19.2-win32-x64.zip"
+sha256 = "4a3dc851b3b31e7b75a23f645d1ba4a2137579a55f5fa4edbb17a3e2a6254044"
+
+# --- Markdown ---------------------------------------------------------------
+
+# One universal binary for both macOS architectures.
+[[server]]
+name = "marksman"
+version = "2026-02-08"
+languages = ["markdown"]
+license = "MIT"
+homepage = "https://github.com/artempyanykh/marksman"
+source = "archive"
+install = { file = "bin/marksman" }
+commands = [{ name = "marksman", exec = "bin/marksman" }]
+licenses = [{ url = "https://raw.githubusercontent.com/artempyanykh/marksman/2026-02-08/LICENSE", sha256 = "f48413df41ebe5a5f77f997f1f8a0cf5236f24c6878a16e0073da81642aabf04" }]
+
+[server.platforms.linux-x64]
+url = "https://github.com/artempyanykh/marksman/releases/download/2026-02-08/marksman-linux-x64"
+sha256 = "be5098e8213219269c47fc0d916a66fa31ce0602ec967475c722260aabf26087"
+
+[server.platforms.linux-arm64]
+url = "https://github.com/artempyanykh/marksman/releases/download/2026-02-08/marksman-linux-arm64"
+sha256 = "db8e124527f7f8048e3e6c91821b9c52ef173d92c01e47d221bf1337afd962fb"
+
+[server.platforms.macos-arm64]
+url = "https://github.com/artempyanykh/marksman/releases/download/2026-02-08/marksman-macos"
+sha256 = "6a801c17b5ac0dba69787c5282b3b3bd416e66c96253fae098d311c6bbd1833b"
+
+[server.platforms.macos-x64]
+url = "https://github.com/artempyanykh/marksman/releases/download/2026-02-08/marksman-macos"
+sha256 = "6a801c17b5ac0dba69787c5282b3b3bd416e66c96253fae098d311c6bbd1833b"
+
+[server.platforms.windows-x64]
+url = "https://github.com/artempyanykh/marksman/releases/download/2026-02-08/marksman.exe"
+sha256 = "a6d05beb08ebe41b0a9f09c98a438540421436fa5531424c22e0bb1d22529705"
+
+# --- TOML -------------------------------------------------------------------
+
+[[server]]
+name = "taplo"
+version = "0.10.0"
+languages = ["toml"]
+license = "MIT"
+homepage = "https://taplo.tamasfe.dev"
+source = "archive"
+install = { file = "bin/taplo" }
+commands = [{ name = "taplo", exec = "bin/taplo" }]
+licenses = [{ url = "https://raw.githubusercontent.com/tamasfe/taplo/0.10.0/LICENSE", sha256 = "b23690ab205e06bf09725ef88e0b321175cbc2dd4d9f8ec7f7cd0577302c244d" }]
+
+[server.platforms.linux-x64]
+url = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-x86_64.gz"
+sha256 = "8fe196b894ccf9072f98d4e1013a180306e17d244830b03986ee5e8eabeb6156"
+
+[server.platforms.linux-arm64]
+url = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-aarch64.gz"
+sha256 = "033681d01eec8376c3fd38fa3703c79316f5e14bb013d859943b60a07bccdcc3"
+
+[server.platforms.macos-arm64]
+url = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-darwin-aarch64.gz"
+sha256 = "713734314c3e71894b9e77513c5349835eefbd52908445a0d73b0c7dc469347d"
+
+[server.platforms.macos-x64]
+url = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-darwin-x86_64.gz"
+sha256 = "898122cde3a0b1cd1cbc2d52d3624f23338218c91b5ddb71518236a4c2c10ef2"
+
+[server.platforms.windows-x64]
+url = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-windows-x86_64.zip"
+sha256 = "1615eed140039bd58e7089109883b1c434de5d6de8f64a993e6e8c80ca57bdf9"
+member = "taplo.exe"
+
+# --- Java -------------------------------------------------------------------
+
+# jdtls is platform-independent Java: the same archive for every platform.
+# It runs on the user's Java (JDK 21 or newer, from JAVA_HOME or PATH);
+# Java itself is not bundled. 1.61.0 is the newest release that runs on
+# Java 21: some Eclipse platform bundles of 1.62.0 and later need Java 25.
+[[server]]
+name = "jdtls"
+version = "1.61.0"
+languages = ["java"]
+license = "EPL-2.0"
+homepage = "https://github.com/eclipse-jdtls/eclipse.jdt.ls"
+source = "archive"
+install = { dir = "lib/jdtls" }
+commands = [{ name = "jdtls", java = "lib/jdtls" }]
+licenses = [{ url = "https://raw.githubusercontent.com/eclipse-jdtls/eclipse.jdt.ls/v1.61.0/LICENSE", sha256 = "209fe24bf55677bbf81c2b0481c1403201fab57b3b4c609971eba4ec8162b99c" }]
+
+[server.platforms.linux-x64]
+url = "https://download.eclipse.org/jdtls/milestones/1.61.0/jdt-language-server-1.61.0-202609031315.tar.gz"
+sha256 = "338e7e73d61836651ba2453919a0d34fa763eb4e7c03342092309bffb8934c64"
+
+[server.platforms.linux-arm64]
+url = "https://download.eclipse.org/jdtls/milestones/1.61.0/jdt-language-server-1.61.0-202609031315.tar.gz"
+sha256 = "338e7e73d61836651ba2453919a0d34fa763eb4e7c03342092309bffb8934c64"
+
+[server.platforms.macos-arm64]
+url = "https://download.eclipse.org/jdtls/milestones/1.61.0/jdt-language-server-1.61.0-202609031315.tar.gz"
+sha256 = "338e7e73d61836651ba2453919a0d34fa763eb4e7c03342092309bffb8934c64"
+
+[server.platforms.macos-x64]
+url = "https://download.eclipse.org/jdtls/milestones/1.61.0/jdt-language-server-1.61.0-202609031315.tar.gz"
+sha256 = "338e7e73d61836651ba2453919a0d34fa763eb4e7c03342092309bffb8934c64"
+
+[server.platforms.windows-x64]
+url = "https://download.eclipse.org/jdtls/milestones/1.61.0/jdt-language-server-1.61.0-202609031315.tar.gz"
+sha256 = "338e7e73d61836651ba2453919a0d34fa763eb4e7c03342092309bffb8934c64"
+
+# --- Not bundled ------------------------------------------------------------
+
+[[not_bundled]]
+name = "ruby-lsp"
+languages = ["ruby"]
+reason = "ruby-lsp runs inside the project's Ruby and Bundler, so it has to be installed with them (gem install ruby-lsp)."
+
+[[not_bundled]]
+name = "intelephense"
+languages = ["php"]
+reason = "Its licence does not allow redistribution; install it with npm (npm install --global intelephense)."
