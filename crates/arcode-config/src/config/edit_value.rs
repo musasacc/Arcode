@@ -5,6 +5,8 @@ use toml_edit::{DocumentMut, Item, Value};
 
 use super::edit::{parse, table_entry};
 
+mod remove;
+
 /// A value the Settings page writes.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SettingValue {
@@ -16,6 +18,8 @@ pub enum SettingValue {
     Float(f64),
     /// A string.
     Str(String),
+    /// A list of strings.
+    List(Vec<String>),
 }
 
 impl SettingValue {
@@ -25,6 +29,7 @@ impl SettingValue {
             Self::Int(i) => Value::from(*i),
             Self::Float(f) => Value::from((f * 1000.).round() / 1000.),
             Self::Str(s) => Value::from(s.as_str()),
+            Self::List(items) => Value::Array(items.iter().map(String::as_str).collect()),
         }
     }
 }
@@ -37,6 +42,12 @@ impl SettingValue {
             Self::Int(i) => value.as_integer() == Some(*i),
             Self::Float(f) => value.as_float() == Some(*f),
             Self::Str(s) => value.as_str() == Some(s.as_str()),
+            Self::List(items) => value.as_array().is_some_and(|array| {
+                array
+                    .iter()
+                    .map(Value::as_str)
+                    .eq(items.iter().map(|s| Some(s.as_str())))
+            }),
         }
     }
 }
@@ -81,6 +92,12 @@ impl From<&str> for SettingValue {
 impl From<String> for SettingValue {
     fn from(value: String) -> Self {
         Self::Str(value)
+    }
+}
+
+impl From<Vec<String>> for SettingValue {
+    fn from(value: Vec<String>) -> Self {
+        Self::List(value)
     }
 }
 
@@ -203,30 +220,27 @@ pub fn apply_edits(source: &str, edits: &[SettingEdit]) -> Result<String, String
         {
             continue;
         }
-        match &edit.value {
-            Some(value) => {
-                let mut new = value.to_toml();
-                if let Some(old) = old {
-                    *new.decor_mut() = old.decor().clone();
-                    let mark = match edit.guard {
-                        Some(Guard::IsThenMark(_)) => Some(true),
-                        Some(Guard::Marked) => Some(false),
-                        _ => None,
-                    };
-                    if let Some(mark) = mark {
-                        let suffix = old.decor().suffix().and_then(|s| s.as_str());
-                        new.decor_mut().set_suffix(marked_suffix(suffix, mark));
-                    }
-                }
-                match table.get_mut(key) {
-                    Some(item) => *item = Item::Value(new),
-                    None => {
-                        table.insert(key, Item::Value(new));
-                    }
-                }
+        let Some(value) = &edit.value else {
+            remove::remove_keeping_comments(&mut doc, tables, key)?;
+            continue;
+        };
+        let mut new = value.to_toml();
+        if let Some(old) = old {
+            *new.decor_mut() = old.decor().clone();
+            let mark = match edit.guard {
+                Some(Guard::IsThenMark(_)) => Some(true),
+                Some(Guard::Marked) => Some(false),
+                _ => None,
+            };
+            if let Some(mark) = mark {
+                let suffix = old.decor().suffix().and_then(|s| s.as_str());
+                new.decor_mut().set_suffix(marked_suffix(suffix, mark));
             }
+        }
+        match table.get_mut(key) {
+            Some(item) => *item = Item::Value(new),
             None => {
-                table.remove(key);
+                table.insert(key, Item::Value(new));
             }
         }
     }

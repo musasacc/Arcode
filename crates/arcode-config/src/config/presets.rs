@@ -9,7 +9,7 @@ use super::sections::{Keymap, ThemeChoice};
 
 /// Settings low-end mode turns off. A key the file does not set is off
 /// anyway while low-end mode is on (see [`apply_low_end_defaults`]).
-const LOW_END_OFF: [&str; 2] = ["editor.inlay_hints", "git.inline_blame"];
+pub(super) const LOW_END_OFF: [&str; 2] = ["editor.inlay_hints", "git.inline_blame"];
 
 /// The edits that turn low-end mode on or off. On also turns off inlay
 /// hints and inline blame where the file turns them on, tagging each value

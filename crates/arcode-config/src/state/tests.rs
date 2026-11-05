@@ -102,11 +102,12 @@ fn remove_recent() {
 }
 
 #[test]
-fn prune_missing_drops_vanished_projects() {
+fn prune_missing_keeps_recent_projects() {
     let dir = tempfile::tempdir().unwrap();
     let alive = dir.path().join("alive");
     std::fs::create_dir(&alive).unwrap();
     let gone = dir.path().join("gone");
+    let forgotten = dir.path().join("forgotten");
 
     let mut state = AppState::default();
     state.touch_recent_at(&alive, 1);
@@ -114,13 +115,77 @@ fn prune_missing_drops_vanished_projects() {
     state.open_projects = vec![alive.clone(), gone.clone()];
     state.session_mut(&alive);
     state.session_mut(&gone);
+    state.session_mut(&forgotten);
 
-    assert_eq!(state.prune_missing(), 1);
-    assert_eq!(state.recent_projects.len(), 1);
-    assert_eq!(state.recent_projects[0].path, alive);
+    // The open entry of `gone` and the session of `forgotten` (neither
+    // there nor recent) go; `gone` stays listed, with its session.
+    assert_eq!(state.prune_missing(), 2);
+    assert_eq!(state.recent_projects.len(), 2);
     assert_eq!(state.open_projects, std::slice::from_ref(&alive));
     assert!(state.session(&alive).is_some());
-    assert!(state.session(&gone).is_none());
+    assert!(state.session(&gone).is_some());
+    assert!(state.session(&forgotten).is_none());
+}
+
+#[test]
+fn pinned_flag_round_trips_and_old_files_load() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.toml");
+    // Written before pinning existed: no `pinned` key.
+    std::fs::write(
+        &path,
+        "[[recent_projects]]\npath = \"/work/a\"\nname = \"a\"\nlast_opened = 5\n",
+    )
+    .unwrap();
+    let mut state = AppState::load_from(&path).unwrap();
+    assert_eq!(state.recent_projects.len(), 1);
+    assert!(!state.recent_projects[0].pinned);
+
+    state.touch_recent_at(Path::new("/work/b"), 6);
+    assert!(state.set_pinned(Path::new("/work/a"), true));
+    assert!(!state.set_pinned(Path::new("/work/a"), true), "no change");
+    assert!(!state.set_pinned(Path::new("/work/nope"), true));
+    let text = state.to_toml().unwrap();
+    // Only the pinned entry spells the flag out.
+    assert_eq!(text.matches("pinned").count(), 1, "{text}");
+    state.save_to(&path).unwrap();
+    let loaded = AppState::load_from(&path).unwrap();
+    assert_eq!(loaded, state);
+    assert!(loaded.recent_projects.iter().any(|p| p.pinned));
+}
+
+#[test]
+fn trimming_keeps_pinned_projects() {
+    let mut state = AppState::default();
+    state.touch_recent_at(Path::new("/p/old-pinned"), 0);
+    state.set_pinned(Path::new("/p/old-pinned"), true);
+    for i in 1..=30 {
+        state.touch_recent_at(&PathBuf::from(format!("/p/{i}")), i);
+    }
+    let pinned: Vec<_> = state.recent_projects.iter().filter(|p| p.pinned).collect();
+    assert_eq!(pinned.len(), 1);
+    assert_eq!(pinned[0].name, "old-pinned");
+    assert_eq!(state.recent_projects.len(), MAX_RECENT_PROJECTS + 1);
+    assert_eq!(state.recent_projects[0].name, "30");
+
+    // Opening a pinned project again keeps its pin.
+    state.touch_recent_at(Path::new("/p/old-pinned"), 40);
+    assert!(state.recent_projects[0].pinned);
+
+    // Unpinning makes it an ordinary entry again: the list is capped.
+    state.touch_recent_at(Path::new("/p/31"), 50);
+    assert!(state.set_pinned(Path::new("/p/old-pinned"), false));
+    assert_eq!(state.recent_projects.len(), MAX_RECENT_PROJECTS);
+}
+
+#[test]
+fn clearing_keeps_pinned_projects() {
+    let mut state = sample();
+    state.set_pinned(Path::new("/work/other"), true);
+    assert_eq!(state.clear_recent(), 1);
+    assert_eq!(state.recent_projects.len(), 1);
+    assert_eq!(state.recent_projects[0].path, Path::new("/work/other"));
+    assert_eq!(state.clear_recent(), 0);
 }
 
 #[test]

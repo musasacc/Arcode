@@ -1,17 +1,30 @@
 //! Editor: indentation, display, editing aids, language features and git
 //! decorations.
 
-use arcode_config::Keymap;
+use arcode_config::{CompletionSettings, EditorSettings, GitSettings, InlineDiagnostics, Keymap};
 use arcode_ui_kit::settings;
 use gpui::{Context, Div, div, prelude::*};
 
-use super::widgets::{segmented, setting_row};
+use super::widgets::segmented;
 use super::{SettingsPage, Steps, group_title};
 
 pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div {
     let config = settings(cx).clone();
     let e = &config.editor;
-    let low_end = config.ui.low_end_mode;
+    let writer = page.writer();
+    let inline_diagnostics = segmented(
+        "editor-inline-diagnostics",
+        &["Errors", "All", "Off"],
+        InlineDiagnostics::ALL
+            .iter()
+            .position(|d| *d == e.inline_diagnostics)
+            .unwrap_or(0),
+        move |ix, _, cx| {
+            let choice = InlineDiagnostics::ALL[ix.min(2)];
+            writer.set("editor.inline_diagnostics", choice.as_str(), cx)
+        },
+        cx,
+    );
     let writer = page.writer();
     let keymap = segmented(
         "editor-keymap",
@@ -78,13 +91,10 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             e.word_wrap,
             cx,
         ))
-        .child(page.bool_row(
+        .child(page.low_end_bool_row(
             "Minimap",
-            if low_end {
-                "The minimap is hidden in low-end mode."
-            } else {
-                "The file scaled down at the right edge; click or drag it to scroll."
-            },
+            "The file scaled down at the right edge; click or drag it to scroll.",
+            "The minimap is hidden in low-end mode.",
             "editor.minimap",
             e.minimap,
             cx,
@@ -102,24 +112,26 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             },
             cx,
         ))
-        .child(page.bool_row(
+        .child(page.low_end_bool_row(
             "Cursor blink",
-            if low_end {
-                "The cursor never blinks in low-end mode."
-            } else {
-                "Blinks only while the window is focused."
-            },
+            "Blinks only while the window is focused.",
+            "The cursor never blinks in low-end mode.",
             "editor.cursor_blink",
             e.cursor_blink,
             cx,
         ))
         .child(group_title("Editing", cx))
-        .child(setting_row(
-            "Keymap",
-            "Vim mode: Normal, Insert and Visual modes, operators, registers, : commands.",
-            keymap,
-            cx,
-        ))
+        .child(
+            page.keyed_row_with_reset(
+                "Keymap",
+                "Vim mode: Normal, Insert and Visual modes, operators, registers, : commands.",
+                "editor.keymap",
+                (super::keymap_index(&config) != 0)
+                    .then(|| arcode_config::keymap_edits(Keymap::Default)),
+                keymap,
+                cx,
+            ),
+        )
         .child(page.bool_row(
             "Auto-close brackets",
             "Insert the closing bracket or quote when typing an opening one.",
@@ -134,12 +146,38 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             e.format_on_save,
             cx,
         ))
+        .child(page.number_row(
+            "Format on save timeout (ms)",
+            "Save without formatting when the formatter takes longer.",
+            "editor.format_on_save_timeout_ms",
+            e.format_on_save_timeout_ms as f32,
+            Steps {
+                step: 250.,
+                min: 250.,
+                max: EditorSettings::MAX_FORMAT_TIMEOUT_MS as f32,
+                int: true,
+            },
+            cx,
+        ))
         .child(group_title("Code intelligence", cx))
         .child(page.bool_row(
             "Completion while typing",
             "Off: only Ctrl+Space opens the completion list.",
             "editor.completion.auto_trigger",
             e.completion.auto_trigger,
+            cx,
+        ))
+        .child(page.number_row(
+            "Completion delay (ms)",
+            "Wait after a keystroke before asking for completions.",
+            "editor.completion.delay_ms",
+            e.completion.delay_ms as f32,
+            Steps {
+                step: 10.,
+                min: 0.,
+                max: CompletionSettings::MAX_DELAY_MS as f32,
+                int: true,
+            },
             cx,
         ))
         .child(page.bool_row(
@@ -170,9 +208,10 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             },
             cx,
         ))
-        .child(page.bool_row(
+        .child(page.low_end_off_row(
             "Inlay hints",
             "Types and parameter names from the language server.",
+            "Low-end mode turned inlay hints off; switch them on to use them anyway.",
             "editor.inlay_hints",
             e.inlay_hints,
             cx,
@@ -191,6 +230,21 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             e.code_action_lightbulb,
             cx,
         ))
+        .child(page.keyed_row(
+            "Inline diagnostics",
+            "Show diagnostics after the end of their line: errors only, all of them, or none.",
+            "editor.inline_diagnostics",
+            inline_diagnostics,
+            cx,
+        ))
+        .child(page.bool_row(
+            "Fade unused code",
+            "Unused imports, variables and unreachable code the language server reports. \
+             Deprecated code is always struck through.",
+            "editor.fade_unused",
+            e.fade_unused,
+            cx,
+        ))
         .child(group_title("Git", cx))
         .child(page.bool_row(
             "Change bars",
@@ -199,11 +253,25 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             config.git.gutter,
             cx,
         ))
-        .child(page.bool_row(
+        .child(page.low_end_off_row(
             "Inline blame",
             "Author and date of the cursor line, at its end.",
+            "Low-end mode turned inline blame off; switch it on to use it anyway.",
             "git.inline_blame",
             config.git.inline_blame,
+            cx,
+        ))
+        .child(page.number_row(
+            "Inline blame delay (ms)",
+            "How long the cursor rests on a line before its blame shows.",
+            "git.inline_blame_delay_ms",
+            config.git.inline_blame_delay_ms as f32,
+            Steps {
+                step: 100.,
+                min: 0.,
+                max: GitSettings::MAX_BLAME_DELAY_MS as f32,
+                int: true,
+            },
             cx,
         ))
 }

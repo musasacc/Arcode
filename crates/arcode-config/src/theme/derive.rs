@@ -18,9 +18,22 @@ const DERIVED: [(&str, &[&str]); 5] = [
 ];
 
 /// Every key that can be derived, in the order of [`DERIVED`].
-#[cfg(test)]
-pub(super) fn derived_keys() -> impl Iterator<Item = &'static str> {
+pub fn derived_keys() -> impl Iterator<Item = &'static str> {
     DERIVED.iter().map(|(key, _)| *key)
+}
+
+/// The keys `key` is derived from, or `None` when it is not derivable.
+pub fn derived_sources(key: &str) -> Option<&'static [&'static str]> {
+    DERIVED
+        .iter()
+        .find(|(name, _)| *name == key)
+        .map(|(_, sources)| *sources)
+}
+
+/// The value `key` would take in a theme file that leaves it out and sets
+/// its sources to the colours of `ui`; `None` when it is not derivable.
+pub fn derived_value(ui: &super::UiColors, key: &str) -> Option<Color> {
+    derive(key, |_| true, |k| ui.get(k))
 }
 
 /// The derived value of `key`, or `None` when `key` is not derivable or the
@@ -96,6 +109,8 @@ mod tests {
         assert!(derive("border_strong", only_border, lookup).is_some());
         assert!(derive("paused_line", only_border, lookup).is_none());
         assert_eq!(derived_keys().count(), 5);
+        assert_eq!(derived_sources("canvas"), Some(&["title_bar"][..]));
+        assert_eq!(derived_sources("text"), None);
     }
 
     #[test]

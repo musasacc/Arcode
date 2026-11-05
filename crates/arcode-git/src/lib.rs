@@ -1,6 +1,8 @@
 //! Local-only git integration for Arcode.
 //!
-//! This crate never talks to the network: there is no fetch, pull or push.
+//! This crate never talks to the network on its own: there is no fetch,
+//! pull or push. The one exception is [`clone_command`], which builds the
+//! `git clone` of a repository the user asked for.
 //!
 //! - Repository discovery ([`find_repo`]) and branch detection ([`Repo::head`])
 //!   work purely by reading files under `.git`, so they are cheap enough to
@@ -25,6 +27,7 @@
 mod blame;
 mod branch;
 mod cli;
+mod clone;
 mod commit;
 mod conflict;
 mod diff;
@@ -44,6 +47,10 @@ mod status;
 
 pub use blame::{BlameLine, blame};
 pub use branch::{Branch, branches, checkout_branch};
+pub use clone::{
+    BATCH_SSH_COMMAND, CloneFailure, CloneProgress, clone_command, clone_failure,
+    folder_name_from_url, parse_progress, ssh_is_customized,
+};
 pub use commit::commit;
 pub use conflict::{Conflict, Resolution, parse_conflicts, resolve};
 pub use diff::{ChangeKind, LineChange, line_diff, split_lines};

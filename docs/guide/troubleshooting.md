@@ -153,6 +153,15 @@ built with the same nixpkgs channel as your system (see
 
 - Check that the language pack is not turned off
   (`[language.<id>] enabled = false`).
+- A single `.rs` file outside any Cargo project is served without a
+  project (see [Files outside a project](languages.md#files-outside-a-project)).
+  "Rust files in … are not analysed" means its folder holds too many Rust
+  files for that: move the file into a folder of its own, or run
+  `cargo init` in the folder.
+  "rust-analyzer: Failed to load workspaces" for a file inside a project
+  means Cargo could not read the project (a syntax error in `Cargo.toml`,
+  a dependency that is not downloaded yet): run `cargo metadata` in that
+  folder to see why.
 - `RUST_LOG=arcode_lsp=debug` shows what is sent to and received from
   servers.
 

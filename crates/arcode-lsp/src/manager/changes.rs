@@ -144,6 +144,7 @@ impl LspManager {
             slot.send(Command::Close {
                 uri: doc.uri.clone(),
             });
+            slot.close_detached(&absolute(path));
         }
     }
 }

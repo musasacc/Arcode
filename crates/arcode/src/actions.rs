@@ -23,6 +23,8 @@ actions!(
         OpenFolder,
         /// Prompts for a parent folder and creates a new project in it.
         NewProject,
+        /// Removes every project that is not pinned from the recent list.
+        ClearRecentProjects,
         /// Closes the current project.
         CloseProject,
         /// Opens the Settings page.
@@ -68,6 +70,9 @@ actions!(
         RefreshGit,
         /// Creates a git repository in the project folder.
         InitRepository,
+        /// Asks for a repository address and a folder, clones it with git
+        /// and opens the clone.
+        CloneRepository,
     ]
 );
 
@@ -134,6 +139,7 @@ pub fn commands() -> Vec<(&'static str, Box<dyn gpui::Action>)> {
         ("File: Find File", Box::new(ToggleFinder)),
         ("File: Open Folder", Box::new(OpenFolder)),
         ("File: New Project", Box::new(NewProject)),
+        ("File: Clear Recent Projects", Box::new(ClearRecentProjects)),
         ("File: Close Project", Box::new(CloseProject)),
         ("File: New Window", Box::new(NewWindow)),
         (
@@ -219,6 +225,7 @@ pub fn commands() -> Vec<(&'static str, Box<dyn gpui::Action>)> {
         ("Git: Previous Conflict", Box::new(PreviousConflict)),
         ("Git: Refresh", Box::new(RefreshGit)),
         ("Git: Initialize Repository", Box::new(InitRepository)),
+        ("Git: Clone Repository…", Box::new(CloneRepository)),
         ("View: Command Palette", Box::new(ToggleCommandPalette)),
         ("Search: Find in Files", Box::new(ShowProjectSearch)),
         ("Search: Replace in Files", Box::new(ReplaceInFiles)),
@@ -234,6 +241,7 @@ pub fn commands() -> Vec<(&'static str, Box<dyn gpui::Action>)> {
     list.extend(crate::debugger::actions::commands());
     list.extend(crate::languages::actions::commands());
     list.extend(crate::prefs::commands());
+    list.extend(crate::theme_editor::commands());
     list.extend(crate::packages::commands());
     list
 }

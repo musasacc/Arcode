@@ -29,6 +29,7 @@ machines with slow integrated graphics, and remote desktops.
 | Inline git blame | on | off, unless you set `git.inline_blame` yourself |
 | Background refreshes (diagnostic counts, git status) | short delay | three times the delay |
 | Running time of a command in the terminal tab | updates every second for the first minute | updates every minute |
+| Rust files outside a project | analysed when their folder holds up to 1,000 Rust files | up to 200 ([more](languages.md#files-outside-a-project)) |
 
 Settings you set explicitly win: with `low_end_mode = true` and
 `inlay_hints = true`, inlay hints stay on.

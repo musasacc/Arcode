@@ -98,7 +98,16 @@ fn items(
                     });
                 }
             }
-            Item::Recent { .. } => {}
+            // Recent projects need the window; clearing them does not.
+            Item::Recent { .. } => {
+                if let Some(action) = action(super::model::CLEAR_RECENT) {
+                    out.push(MenuItem::Action {
+                        name: "Clear Recent Projects".into(),
+                        action,
+                        os_action: None,
+                    });
+                }
+            }
         }
     }
     // No separator at either end or twice in a row.

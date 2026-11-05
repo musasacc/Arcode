@@ -1,9 +1,16 @@
 //! Page tabs: views that are not editors (the Settings page) shown as a
 //! tab of the pane. Pages come after the editor tabs; at most one page per
-//! key is open in a pane.
+//! key is open in a pane. A page with unsaved work (the theme editor)
+//! registers a close guard, asked before its tab closes.
+
+use std::collections::HashMap;
+use std::rc::Rc;
 
 use arcode_ui_kit::{IconName, pill_tab};
-use gpui::{AnyView, Context, FocusHandle, MouseButton, SharedString, Window, prelude::*};
+use gpui::{
+    AnyView, App, Context, EntityId, FocusHandle, Global, MouseButton, SharedString, Window,
+    prelude::*,
+};
 
 use super::{Pane, PaneEvent};
 
@@ -20,6 +27,26 @@ pub struct PageTab {
     pub view: AnyView,
     /// Focused when the page is activated.
     pub focus: FocusHandle,
+}
+
+/// Asked before a page's tab closes: `true` lets it close now; `false`
+/// keeps it open (the page asks the user and closes itself later).
+pub type CloseGuard = Rc<dyn Fn(&mut Window, &mut App) -> bool>;
+
+/// The close guards, by the page view's entity.
+#[derive(Default)]
+struct CloseGuards(HashMap<EntityId, CloseGuard>);
+
+impl Global for CloseGuards {}
+
+/// Sets (or, with `None`, removes) the close guard of the page whose view
+/// is `view`.
+pub fn set_close_guard(view: EntityId, guard: Option<CloseGuard>, cx: &mut App) {
+    let guards = &mut cx.default_global::<CloseGuards>().0;
+    match guard {
+        Some(guard) => guards.insert(view, guard),
+        None => guards.remove(&view),
+    };
 }
 
 impl Pane {
@@ -77,9 +104,24 @@ impl Pane {
         cx.notify();
     }
 
-    /// Closes the page at `ix`; the editor tab that was active before is
-    /// shown again.
+    /// Closes the page at `ix` unless its close guard keeps it open; the
+    /// editor tab that was active before is shown again.
     pub fn close_page(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(page) = self.pages.get(ix) else {
+            return;
+        };
+        let guard = cx
+            .try_global::<CloseGuards>()
+            .and_then(|g| g.0.get(&page.view.entity_id()))
+            .cloned();
+        if guard.is_some_and(|guard| !guard(window, cx)) {
+            return;
+        }
+        self.close_page_now(ix, window, cx);
+    }
+
+    /// Closes the page at `ix` without asking its close guard.
+    pub fn close_page_now(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         if ix >= self.pages.len() {
             return;
         }

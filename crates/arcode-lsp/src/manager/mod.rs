@@ -4,6 +4,7 @@ mod actor;
 mod answer;
 mod changes;
 mod config;
+mod detached;
 mod files;
 mod lifecycle;
 mod requests;
@@ -64,6 +65,8 @@ struct State {
     stopping: HashMap<(String, PathBuf), oneshot::Receiver<()>>,
     /// Adjusts each server's process spec just before it starts.
     launch_hook: Option<LaunchHook>,
+    /// Smaller limits for loose Rust files' folders; see `detached`.
+    low_end: bool,
 }
 
 /// Owns a small tokio runtime and every running language server.
@@ -156,7 +159,9 @@ impl LspManager {
     ///
     /// A file marked with [`LspManager::attach_to_workspace`] (a standard
     /// library source a definition led to) joins a server already running
-    /// for the workspace instead of starting one for its own root.
+    /// for the workspace instead of starting one for its own root. A Rust
+    /// file outside any Cargo project is given to rust-analyzer as a
+    /// detached file (see `detached`).
     pub fn open_document(
         &self,
         path: &Path,
@@ -215,7 +220,10 @@ impl LspManager {
             servers: Vec::new(),
         };
         state.documents.insert(path.clone(), doc);
-        self.attach_servers(&mut state, &path);
+        // A restart for a stale list of loose files attaches it too.
+        if !self.restart_stale(&mut state) {
+            self.attach_servers(&mut state, &path);
+        }
     }
 
     /// Makes `path`'s servers match its language's configured list:
@@ -242,34 +250,40 @@ impl LspManager {
                 continue;
             };
             let mut root = find_root(path, &config.root_markers, state.workspace_root.as_deref());
-            if let Some(shared) = config::shared_root(state, &name, path, &root) {
+            let shared = config::shared_root(state, &name, path, &root);
+            // A file joining another instance is served as part of its
+            // project; a loose Rust file is added to its own instance, once
+            // it exists (see `detached`).
+            let loose = shared.is_none() && detached::is_loose(&config, path);
+            if loose && !path.is_file() {
+                continue;
+            }
+            if let Some(shared) = shared {
                 root = shared;
             }
-            if let Some(slot) = current.iter().find(|s| s.name == name && s.root == root) {
+            let joined = current
+                .iter()
+                .find(|s| s.name == name && s.root == root && !s.is_retired());
+            if let Some(slot) = joined {
                 servers.push(slot.clone());
                 continue;
             }
-            let key = (name, root.clone());
-            let after = state.stopping.remove(&key);
-            let hook = state.launch_hook.clone();
-            let slot = state
-                .servers
-                .entry(key)
-                .or_insert_with(|| {
-                    let start = actor::Start {
-                        events: self.events.clone(),
-                        after,
-                        hook,
-                    };
-                    actor::spawn(&self.handle, &config, root, start)
-                })
-                .clone();
-            slot.send(Command::Open {
+            let open = || Command::Open {
                 uri: uri.clone(),
                 language_id: language_id.clone(),
                 version,
                 text: open_text.clone(),
-            });
+            };
+            let loose = loose.then_some(path);
+            let (mut slot, started) = self.instance(state, &config, root.clone(), loose);
+            slot.send(open());
+            if let Some(file) = loose.filter(|_| !started)
+                && !slot.add_detached(file)
+            {
+                // It retired just now: the file gets a new instance.
+                (slot, _) = self.instance(state, &config, root, Some(file));
+                slot.send(open());
+            }
             servers.push(slot);
         }
         for old in &current {
@@ -300,6 +314,7 @@ impl LspManager {
             .lock()
             .servers
             .values()
+            .filter(|s| !s.is_retired())
             .map(|s| (s.name.clone(), s.root.clone()))
             .collect();
         out.sort();

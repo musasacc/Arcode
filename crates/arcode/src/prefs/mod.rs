@@ -101,6 +101,8 @@ pub struct PrefsParts {
     pub tour_focus: Option<gpui::FocusHandle>,
     /// The first-run dialog, while shown.
     pub first_run: Option<Entity<first_run::FirstRunDialog>>,
+    /// The theme editor page (kept while its tab is open).
+    pub theme_editor: Option<Entity<crate::theme_editor::ThemeEditor>>,
     /// A diagnostics-count refresh waiting for the low-end debounce.
     pub counts_task: Option<Task<()>>,
     /// Sidebar and bottom panel slide animations.

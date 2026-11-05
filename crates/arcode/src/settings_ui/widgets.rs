@@ -5,13 +5,32 @@
 use std::rc::Rc;
 
 use arcode_ui_kit::metrics::{CONTROL_H, CONTROL_RADIUS, WEIGHT_MEDIUM, type_scale};
-use arcode_ui_kit::{IconName, icon, switch, theme};
-use gpui::{App, ClickEvent, Div, ElementId, SharedString, Stateful, Window, div, prelude::*, px};
+use arcode_ui_kit::{IconName, icon, icon_button, mono_font_family, switch, theme};
+use gpui::{
+    App, ClickEvent, Div, ElementId, KeyDownEvent, SharedString, Stateful, Window, div, prelude::*,
+    px,
+};
 
 type Handler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
+type ResetHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 
 /// Width the label column of a row keeps before its control wraps below.
 const LABEL_BASIS: f32 = 220.;
+
+/// What a row knows about the setting it changes: its `config.toml` key
+/// (shown in mono after the label and matched by the page filter) and,
+/// while the value differs from the default, how to reset it.
+pub(crate) struct RowKey {
+    pub path: SharedString,
+    pub reset: Option<Reset>,
+}
+
+/// The reset button of a changed row.
+pub(crate) struct Reset {
+    /// "Reset to default (4)".
+    pub tooltip: SharedString,
+    pub click: ResetHandler,
+}
 
 /// A setting (docs/DESIGN.md 6.14): label (body, Medium) and description
 /// (meta, muted) on the left, its control on the right, 14 px of padding
@@ -24,14 +43,41 @@ pub fn setting_row(
     control: impl IntoElement,
     cx: &App,
 ) -> Div {
+    row(label.into(), description.into(), None, control, cx)
+}
+
+/// A [`setting_row`] for one key of `config.toml`: the key in small mono
+/// text after the label and, for a changed value, a reset button before
+/// the control. The filter also matches the key.
+pub(crate) fn keyed_setting_row(
+    label: impl Into<SharedString>,
+    description: impl Into<SharedString>,
+    key: RowKey,
+    control: impl IntoElement,
+    cx: &App,
+) -> Div {
+    row(label.into(), description.into(), Some(key), control, cx)
+}
+
+fn row(
+    label: SharedString,
+    description: SharedString,
+    key: Option<RowKey>,
+    control: impl IntoElement,
+    cx: &App,
+) -> Div {
     let c = &theme(cx).colors;
     let scale = type_scale(cx);
-    let label: SharedString = label.into();
-    let description: SharedString = description.into();
-    if !super::filter::admit(&label, &description) {
+    let path = key.as_ref().map(|k| k.path.clone());
+    #[cfg(test)]
+    if let Some(path) = &path {
+        super::filter::record_key(path);
+    }
+    if !super::filter::admit(&label, &description, path.as_ref().map(|p| p.as_ref())) {
         return div();
     }
     let selector = format!("setting-row-{label}");
+    let reset = key.and_then(|k| k.reset.map(|r| (k.path, r)));
     div()
         .debug_selector(move || selector)
         .flex()
@@ -52,9 +98,25 @@ pub fn setting_row(
                 .gap(px(3.))
                 .child(
                     div()
-                        .text_size(scale.body)
-                        .font_weight(WEIGHT_MEDIUM)
-                        .child(label),
+                        .flex()
+                        .flex_wrap()
+                        .items_baseline()
+                        .gap_x(px(8.))
+                        .child(
+                            div()
+                                .text_size(scale.body)
+                                .font_weight(WEIGHT_MEDIUM)
+                                .child(label),
+                        )
+                        .when_some(path, |el, path| {
+                            el.child(
+                                div()
+                                    .font_family(mono_font_family())
+                                    .text_size(scale.micro)
+                                    .text_color(c.text_muted)
+                                    .child(path),
+                            )
+                        }),
                 )
                 .when(!description.is_empty(), |el| {
                     el.child(
@@ -65,7 +127,46 @@ pub fn setting_row(
                     )
                 }),
         )
-        .child(div().flex_none().child(control))
+        .child(
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap_2()
+                .when_some(reset, |el, (path, reset)| {
+                    let id = format!("reset-{path}");
+                    let selector = id.clone();
+                    let click = reset.click;
+                    let key_click = click.clone();
+                    // A tab stop (Tab reaches it); Enter or Space resets.
+                    let focus_ring = c.border_focused;
+                    el.child(
+                        div()
+                            .id(SharedString::from(format!("{id}-focus")))
+                            .debug_selector(move || selector)
+                            .tab_index(0)
+                            .rounded(px(7.))
+                            .border_1()
+                            .border_color(gpui::transparent_black())
+                            .focus(move |s| s.border_color(focus_ring))
+                            .on_key_down(move |e: &KeyDownEvent, window, cx| {
+                                if matches!(e.keystroke.key.as_str(), "enter" | "space") {
+                                    key_click(window, cx);
+                                    // The button goes away: on to the control.
+                                    window.focus_next();
+                                    cx.stop_propagation();
+                                }
+                            })
+                            .child(
+                                icon_button(SharedString::from(id), IconName::RotateCcw)
+                                    .size(px(24.))
+                                    .tooltip(reset.tooltip)
+                                    .on_click(move |_, window, cx| click(window, cx)),
+                            ),
+                    )
+                })
+                .child(control),
+        )
 }
 
 /// A switch that runs `toggle` with the new state when clicked.

@@ -152,6 +152,7 @@ impl Workspace {
         self.packages_paths_changed(paths, overflow, cx);
         self.packages_files_changed(paths, overflow, cx);
         self.reload_changed_editors(paths, overflow, cx);
+        self.lsp.read(cx).files_changed_on_disk(paths, overflow);
     }
 
     /// The one-line selection of the active editor (to seed searches).

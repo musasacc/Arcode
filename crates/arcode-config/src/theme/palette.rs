@@ -26,6 +26,15 @@ macro_rules! color_set {
                 }
             }
 
+            /// Sets the color of a TOML key; `false` for an unknown key.
+            pub fn set(&mut self, key: &str, color: Color) -> bool {
+                match key {
+                    $(stringify!($field) => self.$field = color,)*
+                    _ => return false,
+                }
+                true
+            }
+
             /// Builds the set by asking `lookup` for every key; returns the
             /// first missing key on failure.
             pub(crate) fn from_lookup(
@@ -197,6 +206,21 @@ impl TerminalColors {
         }
     }
 
+    /// Sets the color of a TOML key; `false` for an unknown key.
+    pub fn set(&mut self, key: &str, color: Color) -> bool {
+        let slot = match key {
+            "foreground" => &mut self.foreground,
+            "background" => &mut self.background,
+            "cursor" => &mut self.cursor,
+            _ => match ANSI_NAMES.iter().position(|name| *name == key) {
+                Some(i) => &mut self.ansi[i],
+                None => return false,
+            },
+        };
+        *slot = color;
+        true
+    }
+
     /// ANSI color by index (0-15); out-of-range indices return `None`.
     pub fn ansi_color(&self, index: usize) -> Option<Color> {
         self.ansi.get(index).copied()
@@ -234,6 +258,10 @@ mod tests {
         let ui = UiColors::from_lookup(|_| Some(Color::WHITE)).unwrap();
         assert_eq!(ui.get("diff_deleted"), Some(Color::WHITE));
         assert_eq!(ui.get("nope"), None);
+        let mut ui = ui;
+        assert!(ui.set("accent", Color::BLACK));
+        assert_eq!(ui.accent, Color::BLACK);
+        assert!(!ui.set("nope", Color::BLACK));
         let missing = UiColors::from_lookup(|k| (k != "hover").then_some(Color::BLACK));
         assert_eq!(missing, Err("hover"));
     }
@@ -251,6 +279,12 @@ mod tests {
         assert_eq!(term.ansi[9], Color::WHITE);
         assert_eq!(term.get("bright_red"), Some(Color::WHITE));
         assert_eq!(term.ansi_color(16), None);
+        let mut term = term;
+        assert!(term.set("bright_cyan", Color::WHITE));
+        assert_eq!(term.ansi[14], Color::WHITE);
+        assert!(term.set("cursor", Color::WHITE));
+        assert_eq!(term.cursor, Color::WHITE);
+        assert!(!term.set("orange", Color::WHITE));
         assert_eq!(TerminalColors::FIELDS[18], "bright_white");
         assert_eq!(
             TerminalColors::from_lookup(|k| (k != "cursor").then_some(Color::BLACK)),

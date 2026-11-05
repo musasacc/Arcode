@@ -27,6 +27,62 @@ dark mode and switches when it changes.
 Plugins' panels, the terminal and every built-in view use the active
 theme; there is nothing else to configure.
 
+## Editing a theme
+
+The theme editor changes the colours of a theme while you watch the whole
+app follow. Open it with **Theme: Edit Current Theme…** in the command
+palette, **Edit Theme…** under Settings > Appearance > All themes, or
+**File > Preferences > Customize Theme…** in the menu bar. It opens as a tab on the theme
+in use; the button with the theme's name at the top edits another one.
+
+The list on the left holds every colour of the theme, grouped as
+Surfaces, Borders, Text and accent, Syntax, Git and diagnostics, Terminal
+(the 16 ANSI colours) and Classic keys. For each colour:
+
+- Click the swatch for the colour picker: drag in the square for
+  saturation and brightness, along the strips for the hue and the
+  opacity, or type a value into its hex field. Enter or Escape closes it.
+- Click the hex value to type one: `#rgb`, `#rrggbb` or `#rrggbbaa`.
+  A value that is not a colour is outlined in red and not applied.
+- A ring after the name marks a colour you changed.
+- Keys that are [derived](#derived-keys) say what they are derived from
+  and follow those colours while you edit them (change `title_bar` and
+  `canvas` follows). **Override** sets one on its own; **Derive** makes
+  it follow again.
+
+Every change shows at once in the editor, the panels, the terminal and
+the code sample on the right (under the list when the tab is narrow);
+nothing is written until you save. While the tab is open the edited theme
+stays shown, also when the system switches between dark and light or
+another theme is chosen in Settings. Under the
+sample, **Contrast** lists the WCAG contrast ratio of the pairs that
+matter for reading (text, muted text, selected text, line numbers,
+comments and terminal text on their backgrounds, text on the accent) with
+a warning when one is under 4.5:1, and of the accent, control outlines
+and the caret, which need 3:1.
+
+- **Save As…** asks for a name and writes `<name>.toml` (lowercase, words
+  joined by `-`, for example `my-ember.toml` for "My Ember") to your
+  `themes` folder, in the same layout as the built-in themes, then makes
+  it the theme in use: the dark or light theme of your mode when it
+  matches, else the theme by name. Built-in themes are never changed, so
+  they can only be saved as a new theme; a name a built-in theme uses is
+  refused, and saving over another of your themes asks first.
+- **Save** (your own themes) writes the theme's own file. The editor
+  writes every colour, so comments and an `extends` line in a hand-made
+  file are not kept.
+- **Discard** drops the changes and shows the theme in use again.
+- **Open File** opens your theme's TOML file in an editor tab.
+- Closing the tab with changes asks whether to save them first.
+  Closing the project, opening another one in the window, closing the
+  window or quitting asks before dropping them too.
+
+Saving any `.toml` file of the `themes` folder in an editor tab reloads
+the themes, so a theme you edit by hand also shows as soon as you save.
+A file that cannot be read (a TOML syntax error, for example) is not
+loaded: a message names the file and the problem, and the app shows the
+default theme until the file is fixed and saved again.
+
 ## Text rendering
 
 On Linux, Arcode draws text with grayscale anti-aliasing. Two settings

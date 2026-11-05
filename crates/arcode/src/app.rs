@@ -113,6 +113,8 @@ pub fn run() {
             sidebar::file_tree::bind_keys(cx);
 
             new_project::bind_keys(cx);
+            crate::clone_dialog::bind_keys(cx);
+            crate::welcome::bind_keys(cx);
 
             cx.on_action(|_: &actions::Quit, cx| windows::quit(cx));
             cx.on_action(|_: &actions::NewWindow, cx| {

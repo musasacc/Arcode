@@ -147,6 +147,7 @@ const PREFERENCES: &[Item] = &[
     ),
     SEP,
     cmd("Select &Theme…", "Preferences: Select Theme"),
+    cmd("Customi&ze Theme…", "Theme: Edit Current Theme…"),
     cmd("&Editor Font…", "Preferences: Select Editor Font"),
     cmd("&UI Font…", "Preferences: Select UI Font"),
     cmd("Te&rminal Font…", "Preferences: Select Terminal Font"),
@@ -156,6 +157,7 @@ const PREFERENCES: &[Item] = &[
 
 const FILE: &[Item] = &[
     cmd("&New Project…", "File: New Project"),
+    cmd("Clone Re&pository…", "Git: Clone Repository…"),
     cmd("New &Window", "File: New Window"),
     SEP,
     cmd("&Open Folder…", "File: Open Folder"),
@@ -412,6 +414,9 @@ pub fn menu_for_mnemonic(key: char) -> Option<usize> {
         .position(|m| mnemonic(m.title).1.map(|(_, c)| c) == Some(key))
 }
 
+/// The command at the end of the recent projects submenu.
+pub const CLEAR_RECENT: &str = "File: Clear Recent Projects";
+
 /// Every command label the menus name, with the menu path it is under
 /// (for tests and the native menus).
 pub fn command_labels() -> Vec<(String, &'static str)> {
@@ -424,7 +429,11 @@ pub fn command_labels() -> Vec<(String, &'static str)> {
                 Item::Submenu { label, items } => {
                     walk(&format!("{path} > {}", mnemonic(label).0), items, out)
                 }
-                Item::Separator | Item::Recent { .. } | Item::Themes { .. } => {}
+                Item::Recent { label } => out.push((
+                    format!("{path} > {} > Clear Recent Projects", mnemonic(label).0),
+                    CLEAR_RECENT,
+                )),
+                Item::Separator | Item::Themes { .. } => {}
             }
         }
     }

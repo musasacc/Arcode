@@ -9,7 +9,7 @@ use crate::{Head, Repo, paths};
 
 /// Environment variables that would redirect git away from the repository
 /// we resolved ourselves (e.g. when Arcode itself runs inside a git hook).
-const SCRUBBED_ENV: &[&str] = &[
+pub(crate) const SCRUBBED_ENV: &[&str] = &[
     "GIT_DIR",
     "GIT_WORK_TREE",
     "GIT_INDEX_FILE",
@@ -57,7 +57,7 @@ pub(crate) fn git_command(workdir: &Path) -> Command {
 }
 
 #[cfg(windows)]
-fn hide_console_window(cmd: &mut Command) {
+pub(crate) fn hide_console_window(cmd: &mut Command) {
     use std::os::windows::process::CommandExt;
     /// `CREATE_NO_WINDOW`: don't flash a console for a GUI app's child.
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -65,7 +65,7 @@ fn hide_console_window(cmd: &mut Command) {
 }
 
 #[cfg(not(windows))]
-fn hide_console_window(_cmd: &mut Command) {}
+pub(crate) fn hide_console_window(_cmd: &mut Command) {}
 
 /// Runs git with `args` in `workdir` and returns stdout on success.
 /// Returns `None` if git is missing, fails to start, or exits non-zero.

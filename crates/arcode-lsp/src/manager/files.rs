@@ -85,14 +85,29 @@ impl LspManager {
     /// [`needs_crate_graph_rebuild`]). Servers still starting get it once
     /// they are initialized. Call it after the change is on disk and the
     /// documents were reopened under their new paths.
+    ///
+    /// An instance serving Rust files outside a project whose list names
+    /// a file that is gone restarts without it (see `detached`).
     pub fn files_changed(&self, changes: &[FileChange]) {
         let rebuild = needs_crate_graph_rebuild(changes);
-        let state = self.lock();
+        let mut state = self.lock();
+        for change in changes {
+            if let FileChange::Deleted(path) | FileChange::Renamed(path, _) = change {
+                state
+                    .servers
+                    .values()
+                    .for_each(|slot| slot.close_detached(path));
+            }
+        }
+        self.restart_stale(&mut state);
         for slot in state.servers.values() {
             let events = watched_events(&slot.root, changes);
             if events.is_empty() {
                 continue;
             }
+            // The crate roots of loose files are handled above; a rebuild
+            // could make rust-analyzer drop their diagnostics.
+            let rebuild = rebuild && !slot.serves_loose_files();
             slot.send(Command::Run(Box::new(move |client: &LspClient| {
                 let params = DidChangeWatchedFilesParams { changes: events };
                 if let Err(err) = client.notify::<DidChangeWatchedFiles>(params) {
@@ -109,6 +124,16 @@ impl LspManager {
                 }
             })));
         }
+    }
+}
+
+impl LspManager {
+    /// Files changed on disk outside Arcode (a project watcher saw them):
+    /// an instance serving Rust files outside a project whose list names a
+    /// file that is gone restarts without it (see `detached`). Cheap when
+    /// there are none.
+    pub fn files_changed_on_disk(&self) {
+        self.restart_stale(&mut self.lock());
     }
 }
 

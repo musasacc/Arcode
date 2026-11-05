@@ -7,6 +7,8 @@ use arcode_config::InlineDiagnostics;
 use arcode_ui_kit::{IconName, ThemeColors};
 use gpui::Hsla;
 
+use crate::diagnostic_tags::DiagnosticTags;
+
 /// How serious a diagnostic is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DiagnosticSeverity {
@@ -55,6 +57,8 @@ pub struct EditorDiagnostic {
     pub source: String,
     /// The diagnostic's code, e.g. `E0308` (shown in the inline lens).
     pub code: Option<String>,
+    /// Unused or deprecated code: drawn faded or struck through.
+    pub tags: DiagnosticTags,
 }
 
 /// Maps `p` (at or after the edit's old end) into post-edit coordinates.
@@ -99,14 +103,16 @@ pub fn adjust_for_edit(diagnostics: &mut Vec<EditorDiagnostic>, edit: &Edit) {
 }
 
 /// The most severe diagnostic per line in `lines`, for gutter markers.
+/// Hints that only fade unused code (with `fade_unused`) mark nothing.
 pub fn line_severities(
     diagnostics: &[EditorDiagnostic],
     lines: Range<usize>,
+    fade_unused: bool,
 ) -> Vec<Option<DiagnosticSeverity>> {
     let mut out = vec![None; lines.len()];
     for d in diagnostics {
         let line = d.range.start.line;
-        if lines.contains(&line) {
+        if lines.contains(&line) && !d.fade_only(fade_unused) {
             let slot = &mut out[line - lines.start];
             *slot = Some(slot.map_or(d.severity, |s: DiagnosticSeverity| s.min(d.severity)));
         }
@@ -119,10 +125,12 @@ pub fn line_severities(
 /// that `mode` shows. Among equals it is the one with the shortest first
 /// message line (it fits the lens best), then the leftmost, then by
 /// source, so the choice never depends on which server published first.
+/// Hints that only fade unused code (with `fade_unused`) get no lens.
 pub(crate) fn lens_diagnostics(
     diagnostics: &[EditorDiagnostic],
     lines: Range<usize>,
     mode: InlineDiagnostics,
+    fade_unused: bool,
 ) -> Vec<Option<&EditorDiagnostic>> {
     let mut out: Vec<Option<&EditorDiagnostic>> = vec![None; lines.len()];
     if mode == InlineDiagnostics::Off {
@@ -130,7 +138,10 @@ pub(crate) fn lens_diagnostics(
     }
     for d in diagnostics {
         let line = d.range.start.line;
-        if !lines.contains(&line) || !mode.shows(d.severity == DiagnosticSeverity::Error) {
+        if !lines.contains(&line)
+            || !mode.shows(d.severity == DiagnosticSeverity::Error)
+            || d.fade_only(fade_unused)
+        {
             continue;
         }
         let slot = &mut out[line - lines.start];
@@ -181,6 +192,7 @@ mod tests {
             message: "m".into(),
             source: "s".into(),
             code: None,
+            tags: DiagnosticTags::default(),
         }
     }
 
@@ -223,7 +235,7 @@ mod tests {
         let mut w = diag((1, 0), (1, 1));
         w.severity = DiagnosticSeverity::Warning;
         let ds = vec![w, diag((1, 2), (1, 3)), diag((5, 0), (5, 0))];
-        let s = line_severities(&ds, 0..3);
+        let s = line_severities(&ds, 0..3, true);
         assert_eq!(s, vec![None, Some(DiagnosticSeverity::Error), None]);
     }
 
@@ -237,17 +249,19 @@ mod tests {
         e.source = "rustc".into();
         e.code = Some("E0308".into());
         let ds = vec![w, e, diag((7, 0), (7, 0))];
-        let errors = lens_diagnostics(&ds, 0..3, InlineDiagnostics::Errors);
+        let errors = lens_diagnostics(&ds, 0..3, InlineDiagnostics::Errors, true);
         assert_eq!(errors.len(), 3);
         let lens = errors[1].expect("lens on line 1");
         assert_eq!(lens.lens_text(), ("mismatched types", "rustc E0308".into()));
         assert!(errors[0].is_none() && errors[2].is_none());
-        let off = lens_diagnostics(&ds, 0..3, InlineDiagnostics::Off);
+        let off = lens_diagnostics(&ds, 0..3, InlineDiagnostics::Off, true);
         assert!(off.iter().all(Option::is_none));
         // Warnings get a lens only with "all".
         let only_warning = [ds[0].clone()];
-        assert!(lens_diagnostics(&only_warning, 0..3, InlineDiagnostics::Errors)[1].is_none());
-        let all = lens_diagnostics(&only_warning, 0..3, InlineDiagnostics::All);
+        assert!(
+            lens_diagnostics(&only_warning, 0..3, InlineDiagnostics::Errors, true)[1].is_none()
+        );
+        let all = lens_diagnostics(&only_warning, 0..3, InlineDiagnostics::All, true);
         assert_eq!(all[1].map(|d| d.lens_text()), Some(("unused", "s".into())));
     }
 
@@ -264,7 +278,7 @@ mod tests {
             vec![ra.clone(), rustc.clone()],
             vec![rustc.clone(), ra.clone()],
         ] {
-            let lens = lens_diagnostics(&ds, 0..3, InlineDiagnostics::Errors);
+            let lens = lens_diagnostics(&ds, 0..3, InlineDiagnostics::Errors, true);
             assert_eq!(lens[1].map(|d| d.source.as_str()), Some("rustc"));
         }
         // Severity still comes first: a long error beats a short warning.
@@ -272,7 +286,7 @@ mod tests {
         w.severity = DiagnosticSeverity::Warning;
         w.message = "x".into();
         let ds = [w, ra.clone()];
-        let lens = lens_diagnostics(&ds, 0..3, InlineDiagnostics::All);
+        let lens = lens_diagnostics(&ds, 0..3, InlineDiagnostics::All, true);
         assert_eq!(lens[1].map(|d| d.source.as_str()), Some("rust-analyzer"));
     }
 }

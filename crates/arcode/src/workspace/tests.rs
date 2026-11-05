@@ -23,6 +23,8 @@ pub(super) fn init(cx: &mut TestAppContext) {
         crate::find_bar::bind_keys(cx);
         crate::search_view::bind_keys(cx);
         crate::commands::init(cx);
+        crate::welcome::bind_keys(cx);
+        crate::clone_dialog::bind_keys(cx);
     });
 }
 

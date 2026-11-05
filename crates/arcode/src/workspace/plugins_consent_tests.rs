@@ -117,9 +117,10 @@ fn after_a_replaced_dialog_the_next_request_follows_the_app_prompt(cx: &mut Test
     cx.simulate_keystrokes("enter");
     cx.run_until_parked();
     assert_eq!(second_answer.wait(&CancelToken::new(), SHORT).ok(), once());
-    cx.update(|window, _| {
+    // Back in the workspace (on the welcome screen, its view has it).
+    cx.update(|window, cx| {
         assert!(
-            focus.is_focused(window),
+            focus.contains_focused(window, cx),
             "the focus is back on the workspace"
         )
     });

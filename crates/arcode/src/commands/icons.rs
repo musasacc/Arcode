@@ -20,6 +20,7 @@ pub fn category_icon(category: &str) -> IconName {
         "packages" => IconName::Package,
         "todo" => IconName::ListTodo,
         "preferences" => IconName::Settings,
+        "theme" => IconName::Palette,
         "plugins" | "custom" => IconName::Puzzle,
         "languages" | "lsp" => IconName::Type,
         "help" => IconName::Info,

@@ -9,7 +9,8 @@ use std::time::Duration;
 
 use arcode_buffer::Point;
 use arcode_editor::{
-    DiagnosticSeverity, Documentation, Editor, EditorDiagnostic, HoverInfo, HoverProvider,
+    DiagnosticSeverity, DiagnosticTags, Documentation, Editor, EditorDiagnostic, HoverInfo,
+    HoverProvider,
 };
 use common::*;
 use gpui::{Context, Entity, Modifiers, Task, TestAppContext, VisualTestContext, point, px};
@@ -117,6 +118,7 @@ fn diagnostics_come_first_and_docs_follow(cx: &mut TestAppContext) {
                 message: "cannot find function `helper`".into(),
                 source: "rustc".into(),
                 code: None,
+                tags: Default::default(),
             }],
             cx,
         )
@@ -132,6 +134,35 @@ fn diagnostics_come_first_and_docs_follow(cx: &mut TestAppContext) {
     let diags = editor.read_with(cx, |e, _| e.hover_diagnostics());
     assert_eq!(diags.len(), 1, "diagnostics stay above the docs");
     assert!(docs(&editor, cx).is_some());
+}
+
+#[gpui::test]
+fn faded_unused_code_shows_its_message(cx: &mut TestAppContext) {
+    // A hint that only marks unused code draws no underline, dot or lens;
+    // hovering the faded text still tells why it is faded.
+    let (editor, cx) = open(cx, "use std::fmt;\nfn main() {}\n");
+    install_hover(&editor, cx);
+    editor.update(cx, |e, cx| {
+        e.set_diagnostics(
+            vec![EditorDiagnostic {
+                range: Point::new(0, 0)..Point::new(0, 13),
+                severity: DiagnosticSeverity::Hint,
+                message: "unused import: `std::fmt`".into(),
+                source: "rustc".into(),
+                code: Some("unused_imports".into()),
+                tags: DiagnosticTags {
+                    unnecessary: true,
+                    deprecated: false,
+                },
+            }],
+            cx,
+        )
+    });
+    let at = pos_of(&editor, Point::new(0, 9), cx);
+    cx.simulate_mouse_move(at, None, Modifiers::none());
+    cx.run_until_parked();
+    let diags = editor.read_with(cx, |e, _| e.hover_diagnostics());
+    assert_eq!(diags, vec!["unused import: `std::fmt`".to_string()]);
 }
 
 #[gpui::test]
@@ -214,6 +245,7 @@ fn moving_within_one_diagnostic_does_not_redraw(cx: &mut TestAppContext) {
                 message: "bad call".into(),
                 source: String::new(),
                 code: None,
+                tags: Default::default(),
             }],
             cx,
         )

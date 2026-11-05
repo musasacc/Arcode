@@ -98,6 +98,9 @@ mod commands;
 pub mod completion;
 mod decorate;
 mod decorate_ext;
+mod diagnostic_tags;
+#[cfg(test)]
+mod diagnostic_tags_tests;
 mod diagnostics;
 mod display;
 mod doc_settings;
@@ -134,6 +137,7 @@ pub use completion::{
     CompletionItem, CompletionList, CompletionProvider, CompletionTrigger, Documentation, ItemEdit,
     ParameterInfo, SignatureHelp, SignatureInfo, SignatureRequest, SignatureTriggers,
 };
+pub use diagnostic_tags::{DiagnosticTags, UNNECESSARY_OPACITY};
 pub use diagnostics::{DiagnosticSeverity, EditorDiagnostic};
 pub use doc_settings::IndentOverride;
 pub use editor::{Editor, EditorEvent};

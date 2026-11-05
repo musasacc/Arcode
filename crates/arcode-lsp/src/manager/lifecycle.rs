@@ -2,12 +2,13 @@
 //! reloads and restarting one server.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio::sync::oneshot;
 
-use super::actor::{Command, ServerSlot};
+use super::actor::{self, Command, ServerSlot};
+use super::detached::FolderLimit;
 use super::{LspManager, ServerConfig, State};
 
 impl LspManager {
@@ -38,6 +39,69 @@ impl LspManager {
             self.stop_instances(&mut state, |(name, _)| changed.iter().any(|c| c == name));
         self.reattach_all(&mut state);
         stopped
+    }
+
+    /// Low-end mode: a Rust file outside any project is analysed only in
+    /// a smaller folder (rust-analyzer reads every Rust file under it).
+    /// Applies to instances started afterwards.
+    pub fn set_low_end_mode(&self, on: bool) {
+        self.lock().low_end = on;
+    }
+
+    /// The instance of `config` for `root`, started now (true) unless one
+    /// is running or starting; a retired one is replaced. `loose` is the
+    /// loose Rust file it is started for.
+    pub(super) fn instance(
+        &self,
+        state: &mut State,
+        config: &ServerConfig,
+        root: PathBuf,
+        loose: Option<&Path>,
+    ) -> (Arc<ServerSlot>, bool) {
+        let key = (config.name.clone(), root);
+        if let Some(slot) = state.servers.get(&key)
+            && !slot.is_retired()
+        {
+            return (slot.clone(), false);
+        }
+        let start = actor::Start {
+            events: self.events.clone(),
+            after: state.stopping.remove(&key),
+            hook: state.launch_hook.clone(),
+            loose: loose.map(Path::to_path_buf),
+            limit: if state.low_end {
+                FolderLimit::LOW_END
+            } else {
+                FolderLimit::NORMAL
+            },
+        };
+        let slot = actor::spawn(&self.handle, config, key.1.clone(), start);
+        state.servers.insert(key, slot.clone());
+        (slot, true)
+    }
+
+    /// Restarts the instances whose list of loose Rust files names a file
+    /// that is gone, with the open files that exist (an instance with none
+    /// left just stops); see `detached`. Returns whether one was found.
+    pub(super) fn restart_stale(&self, state: &mut State) -> bool {
+        let stale: Vec<(String, PathBuf)> = state
+            .servers
+            .iter()
+            .filter(|(_, slot)| slot.detached_missing())
+            .map(|(key, _)| key.clone())
+            .collect();
+        if stale.is_empty() {
+            return false;
+        }
+        for (name, root) in &stale {
+            log::info!(
+                "[{name}] a loose file in {} is gone, restarting",
+                root.display()
+            );
+        }
+        self.stop_instances(state, |key| stale.contains(key));
+        self.reattach_all(state);
+        true
     }
 
     /// Stops every instance of `server` and starts it again for the open

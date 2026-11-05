@@ -32,7 +32,11 @@ pub(crate) struct Shared {
     pub(crate) name: String,
     pub(crate) root: PathBuf,
     pub(crate) events: EventSink,
-    pub(crate) initialization_options: Option<Value>,
+    /// Sent as `initializationOptions`; answers `workspace/configuration`.
+    /// Replaced by [`super::LspClient::change_settings`].
+    options: Mutex<Option<Value>>,
+    /// How many `workspace/configuration` requests were answered.
+    settings_answered: watch::Sender<u64>,
     /// Features the client uses from this server.
     pub(crate) features: crate::Features,
     /// Negotiated position encoding, set once `initialize` answered.
@@ -58,7 +62,8 @@ impl Shared {
             name,
             root,
             events,
-            initialization_options,
+            options: Mutex::new(initialization_options),
+            settings_answered: watch::channel(0).0,
             features,
             encoding: OnceLock::new(),
             outgoing: tx,
@@ -84,6 +89,32 @@ impl Shared {
     /// The negotiated encoding (UTF-16 before `initialize` answered).
     pub(crate) fn encoding(&self) -> PositionEncoding {
         self.encoding.get().copied().unwrap_or_default()
+    }
+
+    /// The current initialization options (the server's settings).
+    pub(crate) fn options(&self) -> Option<Value> {
+        self.options
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Replaces the settings given to the server from now on.
+    pub(crate) fn set_options(&self, options: Option<Value>) {
+        *self.options.lock().unwrap_or_else(|e| e.into_inner()) = options;
+    }
+
+    /// Records that the answer to a `method` request from the server was
+    /// queued; counts `workspace/configuration` answers.
+    pub(crate) fn answered(&self, method: &str) {
+        if method == "workspace/configuration" {
+            self.settings_answered.send_modify(|n| *n += 1);
+        }
+    }
+
+    /// Follows the number of `workspace/configuration` answers.
+    pub(crate) fn settings_answers(&self) -> watch::Receiver<u64> {
+        self.settings_answered.subscribe()
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {

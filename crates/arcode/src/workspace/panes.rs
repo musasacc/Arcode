@@ -45,8 +45,10 @@ impl Workspace {
         })
     }
 
-    /// Replaces all panes with one empty pane.
+    /// Replaces all panes with one empty pane. The theme editor's tab goes
+    /// with them: its edits are dropped (the caller asked first).
     pub(super) fn reset_panes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.end_theme_editing(window.appearance(), cx);
         let pane = cx.new(|cx| Pane::new(window, cx));
         let sub = Self::subscribe_pane(&pane, window, cx);
         self.subs.tie(pane.downgrade().into(), sub);

@@ -42,6 +42,7 @@ fn fake_diagnostics() -> Vec<EditorDiagnostic> {
         message: message.to_string(),
         source: "rust-analyzer".to_string(),
         code: None,
+        tags: Default::default(),
     };
     vec![
         d(

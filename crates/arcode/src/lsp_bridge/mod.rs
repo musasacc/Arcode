@@ -374,6 +374,7 @@ impl LspBridge {
             }
         };
         manager.set_workspace_root(self.root.clone());
+        manager.set_low_end_mode(settings(cx).ui.low_end_mode);
         // Bundled servers are looked up as each one starts, off this thread.
         manager.set_launch_hook(bundled::launch_hook(self.runtime_notes.clone()));
         let manager = Arc::new(manager);

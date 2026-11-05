@@ -24,7 +24,7 @@ mod tab;
 mod tab_icon_tests;
 
 pub use disk_bar::{CompareWithDisk, KeepMyChanges, ReloadFromDisk};
-pub use page::PageTab;
+pub use page::{CloseGuard, PageTab, set_close_guard};
 
 /// Events emitted by a [`Pane`].
 #[derive(Clone, Debug, PartialEq, Eq)]

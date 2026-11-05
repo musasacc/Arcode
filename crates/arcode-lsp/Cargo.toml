@@ -34,6 +34,10 @@ name = "manager_routing"
 harness = false
 
 [[test]]
+name = "loose_files"
+harness = false
+
+[[test]]
 name = "manager_multi"
 harness = false
 

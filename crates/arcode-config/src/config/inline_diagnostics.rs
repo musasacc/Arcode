@@ -64,4 +64,12 @@ mod tests {
         let names: Vec<_> = InlineDiagnostics::ALL.iter().map(|d| d.as_str()).collect();
         assert_eq!(names, ["errors", "all", "off"]);
     }
+
+    #[test]
+    fn fading_unused_code_is_on_by_default() {
+        assert!(Config::default().editor.fade_unused);
+        let (config, warnings) = Config::from_toml_str("[editor]\nfade_unused = false");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert!(!config.editor.fade_unused);
+    }
 }

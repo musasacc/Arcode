@@ -103,6 +103,62 @@ To use a server that is not on `PATH`, give its path:
 command = "/opt/rust-analyzer/bin/rust-analyzer"
 ```
 
+### Files outside a project
+
+A single file with no project around it (`~/scratch/test.rs`, a quick
+script you **Run Current File** on) still gets completion, hover and
+diagnostics:
+
+- **Rust.** rust-analyzer needs a `Cargo.toml` to find a workspace. For a
+  `.rs` file with no `Cargo.toml` (or `rust-project.json`) in any folder
+  above it, Arcode starts rust-analyzer in its detached-files mode: the
+  file is analysed as a crate of its own with the standard library, and
+  `mod helper;` finds `helper.rs` next to it. Other such files in the same
+  folder join that server, which reloads to take them in (a second or two)
+  rather than restarting; renaming or deleting one restarts it with the
+  files that are left. You get rust-analyzer's own diagnostics (type
+  errors, unresolved names, unused code), though rust-analyzer 1.97 does
+  not always report them for such files, and never for one that joined a
+  running server; `cargo check` on save is off for these files, because
+  Cargo would need a nightly toolchain to check a file on its own (set
+  `checkOnSave` in `initialization_options` to choose yourself). Files
+  inside a Cargo project are not affected. For crates from crates.io or
+  `cargo check`, make it a project: `cargo init` in the folder.
+
+  rust-analyzer reads every `.rs` file in the file's folder and in all
+  folders below it, hidden ones included. For a file directly in your
+  home folder that would be `~/.cargo`, `~/.rustup` and every checkout:
+  gigabytes of memory and minutes of indexing. Arcode counts first: when
+  the folder holds more than 1,000 Rust files (200 in
+  [low-end mode](low-end-mode.md)), or too many files to count quickly,
+  the file is not analysed and a message says so. Keep single files in a
+  folder of their own, such as `~/scratch`.
+- **Go, C and C++, Python, TypeScript and JavaScript.** gopls, clangd,
+  pyright and typescript-language-server serve a loose file as it is
+  (gopls as a package of its own, clangd with its default flags), so
+  nothing extra is needed. clangd only knows a project's include paths
+  and defines from a `compile_commands.json`.
+
+### How diagnostics look
+
+Errors get a wavy underline, warnings and information a straight one, in
+their colour; hints have none. `editor.inline_diagnostics` adds the
+message after the end of the line, and the Problems panel lists them all.
+Rest the mouse on the code to read the message.
+
+Servers also say when code is **unused** (an import, a variable or a
+function nobody uses, unreachable code) or **deprecated**:
+
+- Unused code is drawn faded, in its usual colours. When the server only
+  reports it as a hint (pyright's "is not accessed", for example), the
+  fading is all you see: no underline, gutter dot or inline message. When
+  it is a warning (rust-analyzer's unused variables and imports), you get
+  the warning's underline as well. Turn fading off with
+  [`editor.fade_unused = false`](configuration.md#editor) or in Settings,
+  Editor, Fade unused code.
+- Deprecated code (a call to a function marked `#[deprecated]`,
+  `@deprecated` in TypeScript) is struck through.
+
 ### Several servers for one language
 
 A language can use more than one server, for example a type checker plus

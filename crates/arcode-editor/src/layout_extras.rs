@@ -153,7 +153,12 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         let mode = settings(cx).editor.inline_diagnostics;
-        let lensed = lens_diagnostics(&self.diagnostics, snap.visible_range(), mode);
+        let lensed = lens_diagnostics(
+            &self.diagnostics,
+            snap.visible_range(),
+            mode,
+            snap.style.fade_unused,
+        );
         let paused = self.ext.paused.as_ref();
         if !self.ext.has_line_extras() && paused.is_none() && lensed.iter().all(Option::is_none) {
             return;

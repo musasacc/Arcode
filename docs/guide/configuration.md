@@ -12,6 +12,28 @@ them in three ways:
 Saving the file applies it at once, in every window. Language server
 changes restart only the servers whose settings changed.
 
+Every setting on this page has a row on the Settings page, except the
+ones that are tables rather than single values: `[files] associations`
+(the language picker in the status bar adds entries), `[debug] adapters`
+and `adapter_paths`, and the per-language `[language.<id>]` and
+per-server `[lsp.<name>]` tables (the Languages section turns language
+packs on and off). `editor.vim_mode` is the Vim choice of the Keymap
+row. Each row shows its key in small type after its label, so you can
+find it in the file. Type a key into **Filter settings** (`tab_size`,
+`editor.minimap`) to find its row; the filter also knows a few other
+words for some settings (`caret`, `zoom`, `color scheme`), and typing
+one of the table keys above shows where it is set, with a button that
+opens `config.toml` (so does the button next to the filter). A row whose
+value is not the default has a reset button that writes the default
+back, keeping the comments above the line. Lists (fallback fonts, search
+excludes, TODO tags) are typed separated by commas; a comma inside a
+glob's `{…}` or `[…]` stays in the glob (`*.{min.js,map}`). Terminal
+arguments are separated by spaces: put one that holds spaces in double
+or single quotes (`-c "echo hi"`, `-c 'echo hi'`), and write a double
+quote inside double quotes as `\"`. A field is written when you press
+Enter or leave it (Tab moves to the next field or reset button), and
+Escape puts the setting back.
+
 Arcode is forgiving with this file. Unknown keys and values of the wrong
 type are reported as warnings in Arcode's log (see
 [Troubleshooting](troubleshooting.md#logs)) and the affected settings
@@ -93,6 +115,7 @@ ask for it (**Debug: Open launch.toml**).
 | `inlay_hints` | `true` | Type and parameter hints from the language server inside the code. **Editor: Toggle Inlay Hints** switches them for the session. Off in low-end mode unless set here. |
 | `code_action_lightbulb` | `true` | A light bulb in the gutter when code actions exist on the cursor line. |
 | `inline_diagnostics` | `"errors"` | Show diagnostics after the end of their line: `"errors"`, `"all"` or `"off"`. |
+| `fade_unused` | `true` | Draw code the language server reports as unused (imports, variables, unreachable code) faded. Deprecated code is struck through either way. See [How diagnostics look](languages.md#how-diagnostics-look). |
 | `minimap` | `true` | A minimap at the right edge of file editors: the file scaled down in its syntax colours, with the visible part, selections, search matches, git changes, errors and warnings marked. Click a line to center it, drag to scroll. It is hidden when it would leave the text less than three times its width, in diffs, and always in low-end mode. |
 | `minimap_width` | `96` | Width of the minimap in pixels, 40 to 240 (one pixel per column, so this is about the number of columns shown). |
 
@@ -174,7 +197,7 @@ args = ["-l"]
 | `reopen_projects` | `true` | When Arcode starts without a path, reopen the projects that were open at quit, one window each. |
 | `confirm_delete` | `true` | Ask before deleting files in the file tree. |
 | `watch_files` | `true` | Show changes made outside Arcode in the file tree, using the operating system's file notifications (no polling). |
-| `projects_folder` | unset | Folder offered for new projects. Unset: next to the current project. Example: `"~/Projects"`. |
+| `projects_folder` | unset | Folder offered for new projects and clones. Unset: next to the current project (a clone with no project yet: `~/Projects` if it exists). Example: `"~/Projects"`. |
 | `package_banner` | `true` | Show a banner when a project's packages are not installed (for example `package.json` without `node_modules`). Nothing is installed unless you click "Install packages". |
 
 ## `[files]`

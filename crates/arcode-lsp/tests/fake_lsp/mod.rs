@@ -12,6 +12,11 @@
 //! - `workspace/didChangeWatchedFiles` publishes `"watched <type>"` on each
 //!   changed file; `rust-analyzer/rebuildProcMacros` publishes `"rebuilt"`
 //!   on every open document.
+//! - `ARCODE_FAKE_HOVER=options` makes hover answer the current settings
+//!   (initialization options, replaced by the answer to the
+//!   `workspace/configuration` request sent on `didChangeConfiguration`);
+//!   `rust-analyzer/reloadWorkspace` publishes `"reloaded <detached files>"`
+//!   on every open document.
 
 use std::collections::HashMap;
 
@@ -69,10 +74,18 @@ async fn serve() {
     let mut input = BufReader::new(tokio::io::stdin());
     let mut out = tokio::io::stdout();
     let mut docs: HashMap<String, Doc> = HashMap::new();
+    let mut settings = Value::Null;
     while let Ok(Some(text)) = read_message(&mut input).await {
         let Ok(msg) = serde_json::from_str::<Value>(&text) else {
             continue;
         };
+        if msg.get("method").is_none() {
+            // The answer to the settings request below.
+            if msg["id"] == "settings" {
+                settings = msg["result"][0].clone();
+            }
+            continue;
+        }
         let method = msg["method"].as_str().unwrap_or_default().to_string();
         let params = &msg["params"];
         let id = msg.get("id").cloned();
@@ -80,6 +93,7 @@ async fn serve() {
         let key = uri.as_str().unwrap_or_default().to_string();
         match method.as_str() {
             "initialize" => {
+                settings = params["initializationOptions"].clone();
                 let mut caps = json!({
                     "textDocumentSync": { "openClose": true, "change": 2, "save": { "includeText": true } },
                     "hoverProvider": true,
@@ -103,6 +117,29 @@ async fn serve() {
                 for change in params["changes"].as_array().into_iter().flatten() {
                     let what = format!("watched {}", change["type"]);
                     publish(&mut out, &name, &change["uri"], 0, &what).await;
+                }
+            }
+            "workspace/didChangeConfiguration" => {
+                let items = json!({ "items": [{ "section": "rust-analyzer" }] });
+                let request = json!({ "jsonrpc": "2.0", "id": "settings", "method": "workspace/configuration", "params": items });
+                send(&mut out, request).await;
+            }
+            "rust-analyzer/reloadWorkspace" => {
+                send(
+                    &mut out,
+                    json!({ "jsonrpc": "2.0", "id": id, "result": null }),
+                )
+                .await;
+                let files: Vec<&str> = settings["detachedFiles"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|f| f.as_str()?.rsplit(['/', '\\']).next())
+                    .collect();
+                let what = format!("reloaded {}", files.join(","));
+                let uris: Vec<String> = docs.keys().cloned().collect();
+                for uri in uris {
+                    publish(&mut out, &name, &json!(uri), 0, &what).await;
                 }
             }
             "rust-analyzer/rebuildProcMacros" => {
@@ -166,6 +203,15 @@ async fn serve() {
                 docs.remove(&key);
                 let params = json!({ "uri": uri, "diagnostics": [] });
                 send(&mut out, json!({ "jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": params })).await;
+            }
+            "textDocument/hover" if hover_mode == "options" => {
+                let result =
+                    json!({ "contents": { "kind": "plaintext", "value": settings.to_string() } });
+                send(
+                    &mut out,
+                    json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+                )
+                .await;
             }
             "textDocument/hover" if hover_mode != "normal" => {
                 let reply = if hover_mode == "null" {

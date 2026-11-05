@@ -22,10 +22,15 @@
 
 mod color;
 mod derive;
+mod edit;
+mod hsv;
 mod loader;
 mod palette;
 mod parse;
 mod registry;
+mod save;
+mod tokens;
+mod write;
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -34,8 +39,19 @@ use serde::{Deserialize, Serialize};
 use toml::Table;
 
 pub use color::{Color, ColorParseError};
+pub use derive::{derived_keys, derived_sources, derived_value};
+pub use edit::{ContrastHint, TEXT_CONTRAST, ThemeEdit, UI_CONTRAST, contrast_hints};
+pub use hsv::Hsv;
 pub use palette::{ANSI_NAMES, TerminalColors, UiColors};
 pub use registry::{BUILTIN_THEME_NAMES, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, ThemeRegistry};
+pub use save::{
+    MAX_THEME_NAME, SaveError, SaveTarget, find_user_theme_file, is_builtin_name, save_user_theme,
+    theme_slug, validate_theme_name,
+};
+pub use tokens::{
+    SYNTAX_ORDER, TokenGroup, TokenRef, TokenSection, ansi_index, ordered_captures, token_groups,
+    ui_description,
+};
 
 /// Whether a theme is dark or light.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]

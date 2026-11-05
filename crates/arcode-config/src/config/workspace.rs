@@ -21,8 +21,8 @@ pub struct WorkspaceSettings {
     /// Follow file-system changes in the file tree (the expanded folders
     /// are watched; nothing is polled).
     pub watch_files: bool,
-    /// Folder offered for new projects. Unset: the parent of the current
-    /// project, else the home folder.
+    /// Folder offered for new projects and clones. Unset: the parent of
+    /// the current project, else the home folder.
     pub projects_folder: Option<String>,
     /// Show a banner when the project's packages (`node_modules`, a Python
     /// virtualenv, Go modules, ...) are not installed. Nothing is installed

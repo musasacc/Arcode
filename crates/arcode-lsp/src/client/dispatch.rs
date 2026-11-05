@@ -120,6 +120,7 @@ fn answer(shared: &Shared, id: &Value, method: &str, result: ReplyResult) {
     if let Err(e) = shared.send_raw(reply) {
         log::debug!("[{}] could not answer {method}: {e}", shared.name);
     }
+    shared.answered(method);
 }
 
 /// The `ApplyWorkspaceEditResult` for what the UI answered (or did not).
@@ -171,11 +172,11 @@ fn handle_plain_request(shared: &Shared, method: &str, params: Value) -> ReplyRe
     match method {
         "workspace/configuration" => {
             let params: ConfigurationParams = parse(params)?;
-            let options = shared.initialization_options.as_ref();
+            let options = shared.options();
             let items = params
                 .items
                 .iter()
-                .map(|item| config_value(options, item.section.as_deref()))
+                .map(|item| config_value(options.as_ref(), item.section.as_deref()))
                 .collect();
             Ok(Value::Array(items))
         }

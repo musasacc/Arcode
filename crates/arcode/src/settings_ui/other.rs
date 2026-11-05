@@ -1,17 +1,15 @@
 //! Terminal and Advanced sections.
 
-use arcode_config::SettingEdit;
-use arcode_ui_kit::{ButtonStyle, IconName, button, settings, theme, type_scale};
+use arcode_ui_kit::{IconName, button, settings, theme, type_scale};
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
-use super::widgets::{picker_button, setting_row, stepped, stepper};
+use super::widgets::{picker_button, stepped, stepper};
 use super::{SettingsEvent, SettingsPage, Steps, group_title};
 use crate::prefs::pickers::FontTarget;
 
 pub(super) fn render_terminal(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div {
     let config = settings(cx).clone();
     let t = &config.terminal;
-    let c = theme(cx).colors.clone();
     let family = t
         .font_family
         .clone()
@@ -24,48 +22,42 @@ pub(super) fn render_terminal(page: &SettingsPage, cx: &mut Context<SettingsPage
     );
     let size = config.terminal_font_size();
     let writer = page.writer();
-    let size_control = div()
-        .flex()
-        .items_center()
-        .gap_2()
-        .when(t.font_size.is_some(), |el| {
-            let writer = writer.clone();
-            el.child(
-                button("terminal-size-reset", "Use editor size")
-                    .style(ButtonStyle::Ghost)
-                    .on_click(move |_, _, cx| {
-                        writer.write(vec![SettingEdit::remove("terminal.font_size")], cx)
-                    }),
-            )
-        })
-        .child(stepper(
-            "terminal.font_size",
-            format!("{size:.1}"),
-            move |delta, _, cx| {
-                let next = stepped(size, delta, 1., 6., 72.);
-                writer.set("terminal.font_size", next, cx);
-            },
-            cx,
-        ));
-    let shell = t.shell.clone().unwrap_or_else(|| {
-        if cfg!(windows) {
-            "PowerShell (default)".into()
-        } else {
-            "$SHELL (default)".into()
-        }
-    });
+    let size_control = stepper(
+        "terminal.font_size",
+        format!("{size:.1}"),
+        move |delta, _, cx| {
+            let next = stepped(size, delta, 1., 6., 72.);
+            writer.set("terminal.font_size", next, cx);
+        },
+        cx,
+    );
     div()
         .child(group_title("Font", cx))
-        .child(setting_row("Family", "", font, cx))
-        .child(setting_row("Size", "", size_control, cx))
+        .child(page.keyed_row(
+            "Family",
+            "Unset: the editor font.",
+            "terminal.font_family",
+            font,
+            cx,
+        ))
+        .child(page.keyed_row(
+            "Size",
+            "Unset: the editor font size.",
+            "terminal.font_size",
+            size_control,
+            cx,
+        ))
         .child(group_title("Shell", cx))
-        .child(setting_row(
+        .child(page.text_row(
             "Program",
-            "Set `shell` and `args` under [terminal] in config.toml to change it.",
-            div()
-                .text_size(type_scale(cx).body)
-                .text_color(c.text_muted)
-                .child(shell),
+            "A program name or path. Empty: $SHELL on Linux and macOS, PowerShell on Windows. New terminals use it.",
+            "terminal.shell",
+            cx,
+        ))
+        .child(page.text_row(
+            "Arguments",
+            "Passed to the shell, separated by spaces. Put an argument with spaces in quotes: -c \"echo hi\" or -c 'echo hi'.",
+            "terminal.args",
             cx,
         ))
         .child(page.number_row(
@@ -85,7 +77,6 @@ pub(super) fn render_terminal(page: &SettingsPage, cx: &mut Context<SettingsPage
 
 pub(super) fn render_advanced(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div {
     let config = settings(cx).clone();
-    let w = &config.workspace;
     let c = theme(cx).colors.clone();
     let path = crate::prefs::store::config_path(cx)
         .map(|p| p.display().to_string())
@@ -115,57 +106,6 @@ pub(super) fn render_advanced(page: &SettingsPage, cx: &mut Context<SettingsPage
                 .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::ShowWelcome))),
         );
     div()
-        .child(group_title("Workspace", cx))
-        .child(page.bool_row(
-            "Restore sessions",
-            "Reopen a project's tabs, splits, cursors and panels.",
-            "workspace.restore_session",
-            w.restore_session,
-            cx,
-        ))
-        .child(page.bool_row(
-            "Reopen projects at start",
-            "",
-            "workspace.reopen_projects",
-            w.reopen_projects,
-            cx,
-        ))
-        .child(page.bool_row(
-            "Confirm deletes",
-            "",
-            "workspace.confirm_delete",
-            w.confirm_delete,
-            cx,
-        ))
-        .child(page.bool_row(
-            "Watch files",
-            "Show changes made outside Arcode (no polling).",
-            "workspace.watch_files",
-            w.watch_files,
-            cx,
-        ))
-        .child(page.bool_row(
-            "Package banner",
-            "Say when a project's packages are not installed (nothing installs by itself).",
-            "workspace.package_banner",
-            w.package_banner,
-            cx,
-        ))
-        .child(group_title("Search", cx))
-        .child(page.bool_row(
-            "Respect .gitignore",
-            "",
-            "search.respect_gitignore",
-            config.search.respect_gitignore,
-            cx,
-        ))
-        .child(page.bool_row(
-            "Include hidden files",
-            "",
-            "search.include_hidden",
-            config.search.include_hidden,
-            cx,
-        ))
         .child(group_title("Run and debug", cx))
         .child(page.bool_row(
             "Run buttons",
@@ -184,13 +124,27 @@ pub(super) fn render_advanced(page: &SettingsPage, cx: &mut Context<SettingsPage
         .child(group_title("Large files", cx))
         .child({
             let stepper = large_file_stepper(page, config.editor.large_file_bytes, cx);
-            setting_row(
+            page.keyed_row(
                 "Large file size (MB)",
                 "From this size only the visible part is parsed for highlighting.",
+                "editor.large_file_bytes",
                 stepper,
                 cx,
             )
         })
+        .child(page.number_row(
+            "Large file lines",
+            "Files with this many lines count as large too.",
+            "editor.large_file_lines",
+            config.editor.large_file_lines as f32,
+            Steps {
+                step: 10_000.,
+                min: 1000.,
+                max: 10_000_000.,
+                int: true,
+            },
+            cx,
+        ))
         .child(group_title("Configuration file", cx))
         .child(
             div()

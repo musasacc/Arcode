@@ -1,10 +1,13 @@
 //! The Settings page: a tab with sections (Appearance, Editor, Fonts,
-//! Terminal, Languages, Keymap, Plugins, Advanced). Every control edits
-//! `config.toml` in place through [`crate::prefs::store`], so comments and
-//! hand-written settings survive; the page redraws when the settings
-//! change, whatever changed them.
+//! Terminal, Workspace, Search, Languages, Keymap, Plugins, Advanced).
+//! Every control edits `config.toml` in place through
+//! [`crate::prefs::store`], so comments and hand-written settings survive;
+//! the page redraws when the settings change, whatever changed them. Each
+//! row shows its key, and a changed one can be reset to the default.
 
 mod appearance;
+#[cfg(test)]
+mod coverage_tests;
 mod editor;
 mod filter;
 mod fonts;
@@ -13,10 +16,14 @@ mod languages;
 mod nav;
 mod other;
 mod plugins;
+mod projects;
 mod rows;
+mod search;
 #[cfg(test)]
 mod tests;
+mod text_parse;
 mod text_rendering;
+mod text_rows;
 pub mod theme_card;
 pub mod widgets;
 
@@ -50,6 +57,8 @@ pub enum Section {
     Editor,
     Fonts,
     Terminal,
+    Workspace,
+    Search,
     Languages,
     Keymap,
     Plugins,
@@ -58,11 +67,13 @@ pub enum Section {
 
 impl Section {
     /// Every section in display order.
-    pub const ALL: [Section; 8] = [
+    pub const ALL: [Section; 10] = [
         Self::Appearance,
         Self::Editor,
         Self::Fonts,
         Self::Terminal,
+        Self::Workspace,
+        Self::Search,
         Self::Languages,
         Self::Keymap,
         Self::Plugins,
@@ -76,6 +87,8 @@ impl Section {
             Self::Editor => "Editor",
             Self::Fonts => "Fonts",
             Self::Terminal => "Terminal",
+            Self::Workspace => "Workspace",
+            Self::Search => "Search",
             Self::Languages => "Languages",
             Self::Keymap => "Keymap",
             Self::Plugins => "Plugins",
@@ -89,6 +102,8 @@ impl Section {
             Self::Editor => IconName::FileText,
             Self::Fonts => IconName::Type,
             Self::Terminal => IconName::Terminal,
+            Self::Workspace => IconName::Folder,
+            Self::Search => IconName::Search,
             Self::Languages => IconName::Puzzle,
             Self::Keymap => IconName::Keyboard,
             Self::Plugins => IconName::Package,
@@ -144,6 +159,11 @@ pub struct SettingsPage {
     /// drawing; a change redraws the page once.
     compact: bool,
     measured_compact: Rc<Cell<bool>>,
+    /// The text fields of the rows that take text.
+    texts: Vec<text_rows::TextSetting>,
+    /// The field with the focus, found while drawing.
+    focused_text: Option<&'static str>,
+    blur_subs: Vec<Subscription>,
     _subs: Vec<Subscription>,
 }
 
@@ -160,15 +180,20 @@ impl SettingsPage {
     pub fn new(workspace: WeakEntity<Workspace>, cx: &mut Context<Self>) -> Self {
         let keymap_filter = cx.new(|cx| TextField::new("Filter commands or keys", cx));
         let filter = cx.new(|cx| TextField::new("Filter settings", cx));
+        let _ = filter.focus_handle(cx).tab_stop(true);
+        let texts = text_rows::new_fields(cx);
         let subs = vec![
-            cx.observe_global::<arcode_ui_kit::Settings>(|_, cx| cx.notify()),
+            cx.observe_global::<arcode_ui_kit::Settings>(|page, cx| {
+                page.sync_text_fields(cx);
+                cx.notify()
+            }),
             cx.subscribe(&keymap_filter, |_, _, _: &TextChanged, cx| cx.notify()),
             cx.subscribe(&filter, |page, _, _: &TextChanged, cx| {
                 page.scroll.set_offset(gpui::point(px(0.), px(0.)));
                 cx.notify()
             }),
         ];
-        Self {
+        let mut page = Self {
             focus: cx.focus_handle(),
             section: Section::Appearance,
             writer: Writer(workspace),
@@ -178,8 +203,13 @@ impl SettingsPage {
             hover_preview: None,
             compact: false,
             measured_compact: Rc::default(),
+            texts,
+            focused_text: None,
+            blur_subs: Vec::new(),
             _subs: subs,
-        }
+        };
+        page.sync_text_fields(cx);
+        page
     }
 
     /// The shown section.
@@ -284,6 +314,8 @@ impl SettingsPage {
             Section::Editor => editor::render(self, cx),
             Section::Fonts => fonts::render(self, cx),
             Section::Terminal => other::render_terminal(self, cx),
+            Section::Workspace => projects::render(self, cx),
+            Section::Search => search::render(self, cx),
             Section::Languages => languages::render(self, cx),
             Section::Keymap => keymap::render(self, &self.keymap_filter, cx),
             Section::Plugins => plugins::render(self, cx),
@@ -310,6 +342,8 @@ pub(crate) fn group_title(text: &'static str, cx: &App) -> gpui::Div {
 impl Render for SettingsPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.compact = self.measured_compact.get();
+        self.focused_text = self.focused_text(window, cx);
+        self.watch_text_blur(window, cx);
         let c = theme(cx).colors.clone();
         let header = self.render_header(window, cx);
         let body = if self.filtering(cx) {
@@ -320,6 +354,7 @@ impl Render for SettingsPage {
         div()
             .id("settings-page")
             .track_focus(&self.focus)
+            .on_key_down(cx.listener(Self::tab_focus))
             .relative()
             .size_full()
             .flex()

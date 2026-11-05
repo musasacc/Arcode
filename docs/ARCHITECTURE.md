@@ -59,6 +59,16 @@ Several servers may serve one file. Diagnostics are stored per
 in the severity color, and hovering shows the message. The Problems panel
 lists all of them; clicking one opens the file and moves the cursor there.
 
+The client advertises diagnostic tags (`tagSupport` 1 and 2) and the
+bridge keeps them (`EditorDiagnostic::tags`). Unnecessary (unused) code is
+drawn at `UNNECESSARY_OPACITY` in its syntax colours and deprecated code
+struck through (`arcode-editor/src/diagnostic_tags.rs`): both only restyle
+the visible lines' text runs after `build_display_line` (the tagged
+diagnostics are collected once per layout), and GPUI's line cache keeps
+serving those lines as before. A hint whose only purpose is the tag
+draws just the fade, no gutter dot or lens; `editor.fade_unused = false`
+turns fading off and makes it a plain hint again.
+
 ## Several language servers per file
 
 `[language.<id>].servers` lists servers in priority order (e.g.
@@ -664,6 +674,24 @@ UI never walks the project or scans a file on the main thread.
 - **New Project** (`new_project.rs`, `arcode_project::templates`): creates
   the folder; a template only yields a command line, which the workspace
   types into the new project's terminal after the user clicked Create.
+- **Welcome screen** (`welcome/`, an entity the workspace keeps): recent
+  projects come from `AppState::recent_projects`; pinned ones
+  (`RecentProject::pinned`) sort first and are never dropped when the list
+  is capped at 20. Recent projects are no longer pruned at start: whether
+  each folder exists is checked on the background executor the first time
+  the list is drawn and whenever it changes, and a missing one is shown
+  dimmed. The view takes focus while focus is on the window root (or an
+  undrawn pane), so typing reaches its filter (`fuzzy::rank` on the
+  shown path). The bottom panel can show under it (Clone in Terminal).
+- **Clone** (`clone_dialog/`, `arcode_git::clone_command`): the one git
+  command that goes online, started only by the Clone button. It runs on
+  a thread of its own in its own process group (Cancel kills git, ssh and
+  remote helpers together), with `GIT_TERMINAL_PROMPT=0` and, unless the
+  user configured an ssh command, `ssh -o BatchMode=yes`, so nothing waits
+  on a prompt nobody sees. Progress lines from stderr reach the dialog
+  over a channel and redraw it only when the phase or percentage changes.
+  A failed or cancelled clone removes the folder it created (never one
+  that had files in it).
 
 ## Debugger and run buttons
 
@@ -779,6 +807,39 @@ asking for settings), and yaml-language-server is told to route schema
 downloads through the client while its schema store is off. The client
 answers `vscode/content`, the request JSON and YAML servers use for that,
 with an error, so linked remote schemas stay unloaded.
+
+A Rust file with no `Cargo.toml`, `rust-project.json` or
+`.rust-project.json` in any folder above it (`manager::detached`) is
+given to its rust-analyzer instance (the server is recognised by its
+name, command or an argument) as a detached file: the slot keeps the
+instance's loose files, the ones known when it starts go into
+`initializationOptions.detachedFiles` (with `checkOnSave: false` unless
+configured, since `cargo check` on a lone file needs nightly Cargo), and a
+later one is sent with `workspace/didChangeConfiguration`. rust-analyzer
+pulls settings with `workspace/configuration` and does not reload for a
+changed file list, so `LspClient::change_settings` resolves once that
+request was answered and only then is `rust-analyzer/reloadWorkspace`
+sent; the instance keeps running instead of restarting. Without this,
+rust-analyzer reports "Failed to discover workspace" and serves nothing.
+
+The list must only name files that exist: with a missing one
+rust-analyzer 1.97 rebuilds its workspace in a loop. The slot keeps the
+loose files open on it (`DetachedFiles`). A new one is sent as above
+(`UpdateDetached`, handled by the actor). When the list the server has
+names a file that is gone, noticed on the next open, on `files_changed`
+(a rename or delete in the file tree) or on `files_changed_on_disk` (the
+project watcher), the manager restarts the instance with the open files
+that exist, or stops it when none is left (`restart_stale`): a restart
+rather than a reload, because rust-analyzer reports no diagnostics for a
+file it only got through a reload. Closing a file alone sends nothing, and
+these instances get no `rebuildProcMacros` after a rename. For a detached
+file rust-analyzer reads every `.rs` file below the file's folder, so the
+actor counts the folder first on a blocking thread (`detached::folder`, at
+most 1,000 Rust files and 20,000 entries, 200 and 5,000 in low-end mode);
+a bigger folder is refused with a `ShowMessage` warning, and an instance
+with no usable file does not start (it is marked retired, and
+`DetachedFiles::add` refuses it under the same lock, so the next loose
+file for its root gets a new instance).
 
 ## Language packs, file associations and the package banner
 
@@ -944,6 +1005,28 @@ observes the `Settings` global, so it redraws on any change. Below 560 px
 control below the label; the width is measured by a `canvas` during
 prepaint and a change redraws the page once.
 
+Each row of the page is bound to one key (`SettingsPage::keyed_row` in
+`settings_ui/rows.rs`), which it shows after its label and which the
+filter matches together with a few synonyms (`settings_ui/filter.rs`).
+`arcode_config::config::keys` looks a key up in a `Config` and in the
+defaults (low-end mode has its own defaults for the settings it turns
+off), and gives the reset edit: the default value written in place, or,
+for a setting unset by default, the key removed with the comment lines
+above it moved to the next key of its table, or, for the last key, left
+in front of the next table header or at the end of the file
+(`config/edit_value/remove.rs`). Text settings (shell, arguments, lists)
+are `TextField`s the page keeps (`settings_ui/text_rows.rs`); a field
+shows the setting until it is typed into and is written on Enter or
+blur. `settings_ui/text_parse.rs` reads them: arguments with shell-like
+quotes, comma lists that keep a glob's `{a,b}` together. The text fields
+and the reset buttons are GPUI tab stops, and the page moves the focus
+on Tab and Shift+Tab. Table settings without a row (`files.associations`,
+the debug adapter tables) are listed in `filter::ELSEWHERE`, so the
+filter still finds them and points to `config.toml`.
+`settings_ui/coverage_tests.rs` draws every section and fails when a key
+of `known_keys` has no row and is not in its list of deliberately
+excluded keys or in `ELSEWHERE`.
+
 Live previews never touch the file. The theme picker (`prefs::pickers`,
 "Preferences: Select Theme", Ctrl+K Ctrl+T) re-reads the themes folder in the
 background when it opens, previews the highlighted row
@@ -961,6 +1044,30 @@ installing a modified copy of the settings; dismissing puts the saved copy
 back. The font preview of the Fonts section uses the editor's font family,
 size, line height, fallbacks and `calt`/`liga` features
 (`settings_ui::fonts::ligature_features`).
+
+The theme editor (`crates/arcode/src/theme_editor`, a page tab like the
+Settings page, opened by `workspace/theme_editor.rs`) keeps an
+`arcode_config::theme::ThemeEdit`: the theme it started from, the edited
+copy, and which derivable `[ui]` keys still follow their sources (a key
+whose colour equals its derivation counts as derived and is left out of
+a saved file, so it is derived again on load). Every change shows the
+copy with `theme_sync::show_edited`, which re-themes even when the copy
+keeps the theme's name (`theme_sync::apply` compares names, so a settings
+reload meanwhile leaves the preview alone); `theme_sync::restore` goes
+back to the configured theme on Discard and when the tab closes. A typed
+hex value applies at once; a picker drag applies on the next frame
+(`Window::on_next_frame`), once for all the moves of that frame. The
+picker's square and strips are GPUI linear gradients with a `canvas`
+that registers window mouse listeners while painted, so a drag keeps
+going outside the strip. `Theme::to_toml_string` writes the layout of the
+built-in files and `save_user_theme` writes `<themes dir>/<slug>.toml`
+(or the user theme's own file), refusing a built-in name; the saved theme
+is inserted into the `Themes` registry before the settings that select it
+are written. A page with unsaved work registers a close guard
+(`pane::set_close_guard`), asked by `Pane::close_page`; the editor asks
+with the app's Save / Don't Save / Cancel prompt and closes itself with
+`close_page_now`. Saving a `*.toml` of the themes folder in an editor tab
+re-reads the folder (`theme_sync::reload_and_restore`).
 
 "Follow system" uses `ui.dark_theme` / `ui.light_theme` and switches when
 GPUI reports a new window appearance (`observe_window_appearance` in the

@@ -26,6 +26,8 @@ pub struct EditorStyle {
     /// Width of the minimap when one is shown (`None`: minimaps are off,
     /// as always in low-end mode).
     pub minimap_width: Option<Pixels>,
+    /// Draw code a language server reports as unused faded.
+    pub fade_unused: bool,
 }
 
 impl EditorStyle {
@@ -61,6 +63,7 @@ impl EditorStyle {
             cursor_blink: ed.cursor_blink,
             minimap_width: (ed.minimap && !config.ui.low_end_mode)
                 .then(|| px(ed.minimap_width.clamp(40, 240) as f32)),
+            fade_unused: ed.fade_unused,
         }
     }
 }

@@ -266,6 +266,8 @@ pub fn window_closing(ws: &gpui::Entity<Workspace>, window: &mut gpui::Window, c
         app_state::set_session(root, session, cx);
     }
     app_state::record_window(window, cx);
+    // Its theme editor goes: the other windows show the configured theme.
+    ws.update(cx, |ws, cx| ws.end_theme_editing(window.appearance(), cx));
     let others = workspace_windows(cx).len().saturating_sub(1);
     let mut open = app_state::open_projects(cx);
     if let Some(root) = &root {
@@ -289,20 +291,20 @@ pub fn quit(cx: &mut App) {
 }
 
 fn quit_now(cx: &mut App) {
-    let mut dirty = 0;
+    let mut dirty = close_guard::Unsaved::default();
     let mut pids = Vec::new();
     let mut ask_in = None;
     for handle in workspace_windows(cx) {
         let Ok(ws) = handle.read(cx) else { continue };
-        let count = ws.dirty_count(cx);
+        let unsaved = ws.unsaved(cx);
         let shells = ws.shell_pids(cx);
-        if (count > 0 || !shells.is_empty()) && ask_in.is_none() {
+        if (!unsaved.is_empty() || !shells.is_empty()) && ask_in.is_none() {
             ask_in = Some(handle);
         }
-        dirty += count;
+        dirty.add(unsaved);
         pids.extend(shells);
     }
-    if dirty == 0 && pids.is_empty() {
+    if dirty.is_empty() && pids.is_empty() {
         record_all(cx);
         cx.quit();
         return;
@@ -318,7 +320,7 @@ fn quit_now(cx: &mut App) {
 
 /// Quits, first asking in `ask_in` when something would be lost.
 fn ask_before_quitting(
-    dirty: usize,
+    dirty: close_guard::Unsaved,
     busy: usize,
     ask_in: Option<WindowHandle<Workspace>>,
     cx: &mut App,

@@ -12,6 +12,7 @@ pub mod edit_value;
 mod files;
 mod git;
 mod inline_diagnostics;
+pub mod keys;
 mod language;
 mod plugins;
 mod presets;
@@ -377,13 +378,15 @@ fn for_each_entry(
 }
 
 /// Every key understood in each fixed section, for documentation checks.
-pub fn known_keys() -> [(&'static str, &'static [&'static str]); 11] {
+pub fn known_keys() -> [(&'static str, &'static [&'static str]); 13] {
     [
         ("editor", EditorSettings::KEYS),
         ("editor.completion", CompletionSettings::KEYS),
         ("ui", UiSettings::KEYS),
         ("terminal", TerminalSettings::KEYS),
         ("git", GitSettings::KEYS),
+        ("search", SearchSettings::KEYS),
+        ("todo", TodoSettings::KEYS),
         ("workspace", WorkspaceSettings::KEYS),
         ("debug", DebugSettings::KEYS),
         ("files", FilesSettings::KEYS),

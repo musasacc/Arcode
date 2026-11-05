@@ -220,6 +220,10 @@ other pickers: Up / Down move, Enter confirms, Esc closes. In the guided
 tour, Right or Enter goes to the next step, Left to the previous one, Esc
 ends it.
 
+On the welcome screen, typing starts filtering the recent projects (when
+there are more than eight); Up / Down select a project, Enter opens it
+(or the first match), Esc clears the filter.
+
 ## Plugins
 
 | Action | Keys |

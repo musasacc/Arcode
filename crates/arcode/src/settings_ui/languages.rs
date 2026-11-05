@@ -5,7 +5,7 @@ use arcode_config::SettingEdit;
 use arcode_ui_kit::{settings, theme, type_scale};
 use gpui::{Context, Div, SharedString, div, prelude::*};
 
-use super::widgets::{setting_row, toggle};
+use super::widgets::toggle;
 use super::{SettingsPage, group_title};
 
 /// The display name of a language id (`rust` → `Rust`), from the syntax
@@ -53,7 +53,9 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             lang.enabled,
             move |on, _, cx| writer.write(vec![enabled_edit(&id_owned, on)], cx),
         );
-        rows.push(setting_row(language_name(id), detail, control, cx));
+        let path = format!("language.{}.enabled", id.to_lowercase());
+        let reset = (!lang.enabled).then(|| vec![enabled_edit(id, true)]);
+        rows.push(page.keyed_row_with_reset(language_name(id), detail, &path, reset, control, cx));
     }
     div()
         .child(group_title("Language packs", cx))

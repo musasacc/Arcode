@@ -6,13 +6,15 @@
 //! change lane (14, always reserved so text never shifts), then a 6 px pad.
 
 use arcode_ui_kit::{IconName, ThemeColors};
-use gpui::{Bounds, Hsla, Path, Pixels, SharedString, fill, point, px, size};
+use gpui::{Bounds, Hsla, Path, Pixels, ShapedLine, SharedString, fill, point, px, size};
 
 use crate::Editor;
 use crate::diagnostics::line_severities;
+use crate::display::text_run;
 use crate::ext::{ChangeKind, DotStyle, GutterLane, GutterMark};
 use crate::layout::{LayoutSnapshot, MARKER_WIDTH};
 use crate::paint::{Decorations, GutterIcon};
+use crate::style::EditorStyle;
 
 /// Width of the breakpoint lane and of the run / light bulb column.
 pub(crate) const LANE_WIDTH: Pixels = px(16.);
@@ -101,6 +103,20 @@ pub(crate) fn number_font_size(font_size: Pixels) -> Pixels {
     (font_size - px(1.)).round().max(px(8.))
 }
 
+/// Shapes a gutter label with the editor font at `font_size`.
+fn shape_label(
+    text: SharedString,
+    style: &EditorStyle,
+    font_size: Pixels,
+    color: Hsla,
+    window: &mut gpui::Window,
+) -> ShapedLine {
+    let run = text_run(text.len(), &style.font, &Default::default(), color);
+    window
+        .text_system()
+        .shape_line(text, font_size, &[run], None)
+}
+
 /// Computes gutter decorations, markers and line numbers.
 pub(crate) fn paint_gutter(
     editor: &Editor,
@@ -119,7 +135,11 @@ pub(crate) fn paint_gutter(
     let left = layout.bounds.left();
     let lh = layout.line_height;
     let g = &layout.gutter;
-    let severities = line_severities(&editor.diagnostics, visible.clone());
+    let severities = line_severities(
+        &editor.diagnostics,
+        visible.clone(),
+        layout.style.fade_unused,
+    );
     let marks = editor.ext.gutter_in(visible.clone());
     let has_run = |line: usize| {
         marks
@@ -174,7 +194,7 @@ pub(crate) fn paint_gutter(
             colors.gutter_text
         };
         let label = SharedString::from((line + 1).to_string());
-        let shaped = Editor::shape_label(label, &layout.style, number_size, color, window);
+        let shaped = shape_label(label, &layout.style, number_size, color, window);
         let x = left + g.numbers_right - shaped.width;
         d.gutter_labels.push((point(x, top), shaped));
     }

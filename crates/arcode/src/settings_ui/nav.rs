@@ -1,11 +1,12 @@
 //! The section nav at the left of the Settings page (docs/DESIGN.md
 //! 6.14): 196 wide with a hairline at its right, 30 px rows, the selected
 //! one on a `pill` with its icon in `accent`; under a hairline, "Open
-//! config.toml". Icons only when the page is narrow.
+//! config.toml". Icons only when the page is narrow; it scrolls when the
+//! page is too short for every row.
 
 use arcode_ui_kit::metrics::{WEIGHT_MEDIUM, icon_size, type_scale};
 use arcode_ui_kit::{IconName, Tooltip, icon, theme};
-use gpui::{AnyView, Context, Div, SharedString, div, prelude::*, px};
+use gpui::{AnyView, Context, Div, SharedString, Stateful, div, prelude::*, px};
 
 use super::{Section, SettingsEvent, SettingsPage};
 
@@ -17,7 +18,7 @@ const NAV_W_COMPACT: f32 = 44.;
 const ROW_H: f32 = 30.;
 
 impl SettingsPage {
-    pub(super) fn render_nav(&self, cx: &mut Context<Self>) -> Div {
+    pub(super) fn render_nav(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let c = theme(cx).colors.clone();
         let body = type_scale(cx).body;
         let compact = self.compact;
@@ -50,6 +51,8 @@ impl SettingsPage {
                 })
         };
         let mut nav = div()
+            .id("settings-nav")
+            .overflow_y_scroll()
             .flex()
             .flex_col()
             .flex_none()
@@ -71,15 +74,22 @@ impl SettingsPage {
                 )),
             );
         }
-        nav.child(div().h(px(1.)).mx(px(2.)).my(px(7.)).bg(c.border))
-            .child(
-                row(
-                    "open-config-file".into(),
-                    IconName::ExternalLink,
-                    "Open config.toml",
-                    false,
-                )
-                .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::OpenFile))),
+        nav.child(
+            div()
+                .flex_none()
+                .h(px(1.))
+                .mx(px(2.))
+                .my(px(7.))
+                .bg(c.border),
+        )
+        .child(
+            row(
+                "open-config-file".into(),
+                IconName::ExternalLink,
+                "Open config.toml",
+                false,
             )
+            .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::OpenFile))),
+        )
     }
 }

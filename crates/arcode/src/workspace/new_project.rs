@@ -13,7 +13,7 @@ use crate::path_prompt::expand_home;
 impl Workspace {
     /// Where new projects go by default: `workspace.projects_folder`, else
     /// next to the current (or most recent) project, else the home folder.
-    fn default_projects_folder(&self, cx: &gpui::App) -> PathBuf {
+    pub(super) fn default_projects_folder(&self, cx: &gpui::App) -> PathBuf {
         if let Some(folder) = &arcode_ui_kit::settings(cx).workspace.projects_folder {
             return expand_home(folder);
         }

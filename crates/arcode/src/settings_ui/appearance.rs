@@ -2,7 +2,7 @@
 //! themes, UI size, animations, low-end mode and the menu bar.
 
 use arcode_config::{Appearance, ThemeChoice, low_end_edits};
-use arcode_ui_kit::{ButtonStyle, IconName, button, settings, switch, theme, type_scale};
+use arcode_ui_kit::{ButtonStyle, IconName, button, settings, theme, type_scale};
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use super::theme_card::{CardKind, card_subtitle, theme_card};
@@ -124,33 +124,54 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
 
     div()
         .children(theme_intro)
-        .child(setting_row(
+        .child(page.keyed_row(
             "Mode",
             "Follow the system appearance, or always use the dark or the light theme.",
+            "ui.theme",
             modes,
             cx,
         ))
-        .child(setting_row(
+        .child(page.keyed_row(
             "Dark theme",
             "Used in dark mode and when following a dark system.",
+            "ui.dark_theme",
             slot_button(ThemeSlot::Dark, &ui.dark_theme, cx),
             cx,
         ))
-        .child(setting_row(
+        .child(page.keyed_row(
             "Light theme",
             "Used in light mode and when following a light system.",
+            "ui.light_theme",
             slot_button(ThemeSlot::Light, &ui.light_theme, cx),
             cx,
         ))
         .child(setting_row(
             "All themes",
-            format!("Your own themes are .toml files in {themes_dir}."),
-            button("browse-themes", "Select Theme…")
-                .icon(IconName::Palette)
-                .style(ButtonStyle::Secondary)
-                .on_click(cx.listener(|_, _, _, cx| {
-                    cx.emit(SettingsEvent::PickTheme(ThemeSlot::Main))
-                })),
+            format!(
+                "Change any colour in the theme editor, or pick another theme. Your own themes are .toml files in {themes_dir}."
+            ),
+            div()
+                .flex()
+                .gap(px(8.))
+                .child(
+                    button("edit-theme", "Edit Theme…")
+                        .style(ButtonStyle::Secondary)
+                        .tooltip("Change the colours of the theme in use, with a live preview")
+                        .on_click(|_, window, cx| {
+                            window.dispatch_action(
+                                Box::new(crate::theme_editor::EditCurrentTheme),
+                                cx,
+                            )
+                        }),
+                )
+                .child(
+                    button("browse-themes", "Select Theme…")
+                        .icon(IconName::Palette)
+                        .style(ButtonStyle::Secondary)
+                        .on_click(cx.listener(|_, _, _, cx| {
+                            cx.emit(SettingsEvent::PickTheme(ThemeSlot::Main))
+                        })),
+                ),
             cx,
         ))
         .child(group_title("Interface", cx))
@@ -164,22 +185,14 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
         ))
         // Low-end mode turns animations off whatever the setting says: the
         // switch then shows them off and cannot be flipped.
-        .child(if low_end {
-            setting_row(
-                "Animations",
-                "Off while low-end mode is on.",
-                switch("ui.animations", false).disabled(true),
-                cx,
-            )
-        } else {
-            page.bool_row(
-                "Animations",
-                "Short (100–150 ms) transitions for panels, popups and messages.",
-                "ui.animations",
-                ui.animations,
-                cx,
-            )
-        })
+        .child(page.low_end_bool_row(
+            "Animations",
+            "Short (100–150 ms) transitions for panels, popups and messages.",
+            "Off while low-end mode is on.",
+            "ui.animations",
+            ui.animations,
+            cx,
+        ))
         .child(page.number_row(
             "Animation duration (ms)",
             "",
@@ -188,9 +201,11 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             Steps { step: 10., min: 50., max: 500., int: true },
             cx,
         ))
-        .child(setting_row(
+        .child(page.keyed_row_with_reset(
             "Low-end mode",
             "No animations or cursor blink, flat popups, no inlay hints or inline blame, slower background refreshes.",
+            "ui.low_end_mode",
+            low_end.then(|| low_end_edits(false)),
             low_end_switch,
             cx,
         ))

@@ -179,7 +179,10 @@ by convention and are not held to the text minimum.
    `triangle-alert`, info `info`, success `circle-check` or the play
    triangle. Error diagnostics are a 1 px **wavy** underline; warnings a
    1 px **straight** underline; info a straight underline in `info`; hints
-   have no underline (gutter dot and lens only).
+   have no underline (gutter dot and lens only). Code a server tags as
+   unused is drawn at 55 % opacity in its own syntax colours (a hint that
+   only carries the tag shows nothing else); deprecated code gets a 1 px
+   strikethrough in `text`.
 2. Deleted lines are always a **triangle** in the change lane, the
    overview ruler and diff views, never a bar. Breakpoints are circles;
    the ember mark is a **diamond**; Run is a triangle.
@@ -804,9 +807,11 @@ canvas ────────────────────────�
 - Opens as a "Settings" tab (settings icon) in the editor panel.
 - Left nav 196 wide with a hairline at its right: rows 30, radius 7,
   icon 15 + label 13; selected `pill`, Medium, icon `accent`; a hairline,
-  then "Open config.toml" with `external-link`.
+  then "Open config.toml" with `external-link`. The nav scrolls when the
+  page is too short for it.
 - Content max 740 wide, padding 22 36: title Inter 20 SemiBold, a filter
-  input (220) at the right.
+  input (220) at the right, then a 28 px `external-link` icon button
+  ("Open config.toml").
 - Group heading Inter 14 SemiBold, description 12 muted.
 - **Theme cards** (168 wide): an 84 tall preview with radius 9 drawn from
   the theme itself: canvas, two rail marks, a sidebar panel, an editor
@@ -816,8 +821,13 @@ canvas ────────────────────────�
   Selected card: 1.5 px `accent` edge, label SemiBold with the ember
   diamond; a muted sub-line ("Light · in use", "Classic · dark").
   Hover previews the theme.
-- Setting rows: label 13 Medium, description 12 muted, control at the
-  right, 14 px vertical padding, hairlines between rows.
+- Setting rows: label 13 Medium followed by the row's `config.toml` key
+  in mono 11 muted, description 12 muted, control at the right, 14 px
+  vertical padding, hairlines between rows. A value that is not the
+  default gets a 24 px `rotate-ccw` icon button left of the control
+  ("Reset to default (4)"); Tab reaches it (a 1 px `border_focused` ring)
+  and Enter or Space resets. Text settings use a 260 wide input; Tab and
+  Shift+Tab move between them.
 
 ### 6.15 Welcome screen
 
@@ -826,11 +836,19 @@ canvas ────────────────────────�
 - Content block 760 wide, 96 px from the top, two columns (56 px gap):
   - Left: the spark at 56 px, "Arcode" Inter 28 SemiBold, "A fast, native
     code editor" muted. Buttons: **Open Folder…** (Primary, the one solid
-    accent block), New Project… (Secondary). "Recent projects" 12
-    SemiBold, rows 40, radius 8: folder icon 16 (accent when selected),
-    name 13 Medium over the path in mono 11 muted, relative time 12 muted,
-    on hover / selection "Open in new window" (`external-link`) and remove
-    (`x`). Selected `pill`.
+    accent block), New Project… and Clone Repository… (Secondary).
+    "Pinned" (when any) then "Recent projects", 12 SemiBold; with more
+    than eight projects a 200 wide filter input (`search` icon) at the
+    right of the first title. Rows 40, radius 8: folder icon 16 (accent
+    when selected), name 13 Medium over the path in mono 11 muted,
+    relative time 12 muted, on hover / selection pin (`pin`, always shown
+    on a pinned row), "Open in new window" (`external-link`) and remove
+    (`x`). Selected `pill`. A missing folder: `folder-x` icon, name muted,
+    path `text_disabled`, "Folder not found" instead of the time.
+    Right-click: a menu (6.12).
+  - Clone dialog (6.12, 520 wide): URL, location with Browse…, folder
+    name, a muted "Clones into …" line; while cloning the phase, the
+    percentage in mono and a 4 px bar (`accent` on `pill`).
   - Right (250, 96 px lower): "Get going" with shortcut rows 32 tall and
     hairlines (Open folder, Find file, Commands, New window, Toggle
     terminal, Settings) and a muted note "No account, no telemetry.

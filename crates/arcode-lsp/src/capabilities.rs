@@ -31,7 +31,9 @@ pub fn client_capabilities() -> ClientCapabilities {
                 "relatedInformation": true,
                 "versionSupport": true,
                 "codeDescriptionSupport": true,
-                "dataSupport": true
+                "dataSupport": true,
+                // Unused code is drawn faded, deprecated code struck through.
+                "tagSupport": { "valueSet": [1, 2] }
             },
             "hover": { "contentFormat": markup },
             "completion": {
@@ -139,7 +141,7 @@ pub fn initialize_params(root: &Path, initialization_options: Option<Value>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lsp_types::{CodeActionKind, MarkupKind, PositionEncodingKind};
+    use lsp_types::{CodeActionKind, DiagnosticTag, MarkupKind, PositionEncodingKind};
 
     #[test]
     fn capabilities_parse_into_typed_struct() {
@@ -158,6 +160,10 @@ mod tests {
         assert_eq!(diag.related_information, Some(true));
         assert_eq!(diag.version_support, Some(true));
         assert_eq!(diag.code_description_support, Some(true));
+        assert_eq!(
+            diag.tag_support.as_ref().map(|t| t.value_set.clone()),
+            Some(vec![DiagnosticTag::UNNECESSARY, DiagnosticTag::DEPRECATED])
+        );
         let hover = td.hover.as_ref().unwrap();
         assert_eq!(
             hover.content_format.as_deref(),

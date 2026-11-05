@@ -45,6 +45,20 @@ impl LspBridge {
         }
     }
 
+    /// Files changed on disk outside Arcode (the project watcher saw
+    /// them): when Rust files or folders are among them, servers check
+    /// that the loose Rust files they were given still exist (see
+    /// [`arcode_lsp::LspManager::files_changed_on_disk`]).
+    pub fn files_changed_on_disk(&self, paths: &[PathBuf], overflow: bool) {
+        let rusty = overflow
+            || paths
+                .iter()
+                .any(|p| p.extension().is_none_or(|e| e == "rs"));
+        if rusty && let Some(manager) = &self.manager {
+            manager.files_changed_on_disk();
+        }
+    }
+
     /// The editor's language changed (language picker, file association):
     /// like [`Self::editor_path_changed`], and the diagnostics the old
     /// language's servers published for the file are dropped too (the new

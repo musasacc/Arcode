@@ -109,10 +109,12 @@ fn every_item_runs_a_registered_command(cx: &mut TestAppContext) {
                     keys: None,
                 })
         };
+        // One recent project, so Open Recent ends with its Clear command.
+        let recent = [(std::path::PathBuf::from("/p"), "p".to_owned())];
         let src = Sources {
             command: &lookup,
             facts: Facts::default(),
-            recent: &[],
+            recent: &recent,
             themes: &[],
         };
         let root = build_root(&src);

@@ -6,12 +6,12 @@
 use std::sync::Arc;
 
 use arcode_config::EditorSettings;
-use arcode_ui_kit::{settings, theme, type_scale};
+use arcode_ui_kit::{settings, theme};
 use gpui::{
     App, Context, Div, FontFallbacks, FontFeatures, FontWeight, SharedString, div, prelude::*, px,
 };
 
-use super::widgets::{picker_button, setting_row};
+use super::widgets::picker_button;
 use super::{SettingsEvent, SettingsPage, Steps, group_title};
 use crate::prefs::pickers::{FontTarget, ui_font_label};
 
@@ -62,7 +62,6 @@ pub(crate) fn font_preview(e: &EditorSettings, cx: &App) -> Div {
 pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div {
     let config = settings(cx).clone();
     let e = &config.editor;
-    let c = theme(cx).colors.clone();
     let pick = |target: FontTarget, value: String, cx: &mut Context<SettingsPage>| {
         picker_button(
             SharedString::from(format!("pick-{}", target.key())),
@@ -75,9 +74,10 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
     let ui_font = pick(FontTarget::Ui, ui_font_label(&config), cx);
     div()
         .child(group_title("Editor font", cx))
-        .child(setting_row(
+        .child(page.keyed_row(
             "Family",
             "System fonts and the bundled JetBrains Mono. The picker previews as you move.",
+            "editor.font_family",
             editor_font,
             cx,
         ))
@@ -127,19 +127,21 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             e.ligatures,
             cx,
         ))
-        .child(setting_row(
+        .child(page.text_row(
             "Fallback fonts",
-            "Tried in order for characters the font lacks (CJK, emoji). Edit them in config.toml.",
-            div()
-                .max_w(px(260.))
-                .text_size(type_scale(cx).meta)
-                .text_color(c.text_muted)
-                .child(e.font_fallbacks.join(", ")),
+            "Tried in order for characters the font lacks (CJK, emoji), separated by commas.",
+            "editor.font_fallbacks",
             cx,
         ))
         .child(font_preview(e, cx))
         .child(group_title("Interface font", cx))
-        .child(setting_row("Family", "", ui_font, cx))
+        .child(page.keyed_row(
+            "Family",
+            "Unset: the bundled Inter.",
+            "ui.font_family",
+            ui_font,
+            cx,
+        ))
         .child(page.number_row(
             "Size",
             "",

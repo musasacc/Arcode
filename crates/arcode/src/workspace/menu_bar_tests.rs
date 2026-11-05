@@ -258,7 +258,14 @@ fn recent_projects_are_a_submenu(cx: &mut TestAppContext) {
     let menus = shown(&ws, cx).unwrap();
     assert_eq!(menus.len(), 2, "{menus:#?}");
     let name = arcode_config::state::project_name(dir.path());
-    assert_eq!(menus[1], [format!("> {name}")]);
+    assert_eq!(
+        menus[1],
+        [
+            format!("> {name}"),
+            "-".into(),
+            "Clear Recent Projects".into()
+        ]
+    );
     cx.update(|window, cx| window.draw(cx).clear());
     assert!(
         cx.debug_bounds("menu-popup-1").is_some(),

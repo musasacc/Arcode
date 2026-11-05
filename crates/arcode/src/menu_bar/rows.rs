@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use gpui::{Action, SharedString};
 
-use super::model::{Facts, Item, MENUS, mnemonic};
+use super::model::{CLEAR_RECENT, Facts, Item, MENUS, mnemonic};
 
 /// A row of an open menu.
 pub struct Row {
@@ -149,7 +149,7 @@ pub fn build(items: &[Item], src: &Sources) -> Vec<Row> {
                 rows.push(row);
             }
             Item::Recent { label } => {
-                let children: Vec<Row> = src
+                let mut children: Vec<Row> = src
                     .recent
                     .iter()
                     .map(|(path, name)| {
@@ -159,6 +159,14 @@ pub fn build(items: &[Item], src: &Sources) -> Vec<Row> {
                         row
                     })
                     .collect();
+                if !children.is_empty()
+                    && let Some(clear) = (src.command)(CLEAR_RECENT)
+                {
+                    let mut row = Row::new("&Clear Recent Projects", RowKind::Run(clear.action));
+                    row.enabled = clear.available;
+                    children.push(Row::separator());
+                    children.push(row);
+                }
                 let mut row = Row::new(label, RowKind::Sub(Vec::new()));
                 row.enabled = !children.is_empty();
                 row.kind = RowKind::Sub(children);

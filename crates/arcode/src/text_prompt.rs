@@ -69,6 +69,12 @@ impl TextPrompt {
         }
     }
 
+    /// Replaces the hint under the input (e.g. why the text was refused).
+    pub fn set_hint(&mut self, hint: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.hint = hint.into();
+        cx.notify();
+    }
+
     fn confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
         let text = self.input.read(cx).text().trim().to_string();
         if !text.is_empty() {

@@ -62,6 +62,10 @@ code_action_lightbulb = true
 # Show diagnostics as a lens after the end of their line: "errors", "all"
 # or "off".
 inline_diagnostics = "errors"
+# Draw code that the language server reports as unused (imports,
+# variables, unreachable code) faded. Deprecated code is always struck
+# through.
+fade_unused = true
 # Show a minimap (the file scaled down) at the right edge of file editors;
 # click or drag it to scroll. Always hidden in low-end mode.
 minimap = true
@@ -160,7 +164,7 @@ reopen_projects = true
 confirm_delete = true
 # Show changes made outside Arcode in the file tree (no polling).
 watch_files = true
-# Folder offered for new projects. Unset: next to the current project.
+# Folder offered for new projects and clones. Unset: next to the current project.
 # projects_folder = "~/Projects"
 # Show a banner when the project's packages are not installed (e.g.
 # package.json without node_modules, requirements.txt without a

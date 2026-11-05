@@ -2,7 +2,7 @@
 //! messages and requests in the order the manager sent them. Messages sent
 //! before initialization completes are queued in the channel.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -12,9 +12,10 @@ use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
 
 use super::config::ServerConfig;
+use super::detached::{self, Added, DetachedFiles, FolderLimit, Launch, Update};
 use super::text::LazyText;
 use crate::client::{LspClient, ServerSpec};
-use crate::event::{EventSink, PositionEncoding};
+use crate::event::{EventSink, LspEvent, PositionEncoding};
 use crate::sync::TextChange;
 
 /// Adjusts a server's process spec right before it starts; see
@@ -51,6 +52,8 @@ pub(crate) enum Command {
     },
     /// Runs with the initialized client (used for requests).
     Run(Box<dyn FnOnce(&LspClient) + Send>),
+    /// A loose file was added: tell the server; see [`detached`].
+    UpdateDetached,
     Shutdown(oneshot::Sender<()>),
 }
 
@@ -62,6 +65,8 @@ pub(crate) struct ServerSlot {
     client: Arc<OnceLock<LspClient>>,
     /// Set when the server failed to start or its actor ended.
     stopped: Arc<AtomicBool>,
+    /// Loose Rust files it serves; see [`detached`].
+    detached: Arc<DetachedFiles>,
 }
 
 impl ServerSlot {
@@ -73,6 +78,43 @@ impl ServerSlot {
     /// The client, if initialized and still alive.
     pub(crate) fn running_client(&self) -> Option<&LspClient> {
         self.client.get().filter(|c| c.is_alive())
+    }
+
+    /// Adds a loose Rust file to the instance, telling the server if it
+    /// already started without it; see [`detached`]. Send the file's
+    /// `didOpen` first. False when the instance is retired: the file needs
+    /// a new one.
+    pub(crate) fn add_detached(&self, file: &Path) -> bool {
+        match self.detached.add(file) {
+            Added::New => self.send(Command::UpdateDetached),
+            Added::Known => {}
+            Added::Retired => return false,
+        }
+        true
+    }
+
+    /// The loose file `path` (or every file below the folder `path`) was
+    /// closed, renamed or deleted. The server keeps it until its list
+    /// changes for another reason.
+    pub(crate) fn close_detached(&self, path: &Path) {
+        self.detached.remove(path);
+    }
+
+    /// Whether the instance serves loose Rust files; see [`detached`].
+    pub(crate) fn serves_loose_files(&self) -> bool {
+        self.detached.is_loose()
+    }
+
+    /// Whether the server's list of loose files names a missing one; see
+    /// [`detached`].
+    pub(crate) fn detached_missing(&self) -> bool {
+        self.detached.names_missing()
+    }
+
+    /// Never started because none of its loose files can be analysed: a
+    /// file opened for it needs a new instance.
+    pub(crate) fn is_retired(&self) -> bool {
+        self.detached.is_retired()
     }
 
     /// Starting or running: not failed, stopped or exited.
@@ -93,6 +135,10 @@ pub(crate) struct Start {
     /// stopped) or after [`REPLACE_WAIT`]; commands queue meanwhile.
     pub(crate) after: Option<oneshot::Receiver<()>>,
     pub(crate) hook: Option<LaunchHook>,
+    /// The loose Rust file it is started for, if any.
+    pub(crate) loose: Option<PathBuf>,
+    /// How big a loose file's folder may be.
+    pub(crate) limit: FolderLimit,
 }
 
 /// Spawns the actor for `config` at `root` on `runtime`.
@@ -106,27 +152,107 @@ pub(crate) fn spawn(
         events,
         after,
         hook,
+        loose,
+        limit,
     } = start;
     let (tx, rx) = mpsc::unbounded_channel();
     let client = Arc::new(OnceLock::new());
     let stopped = Arc::new(AtomicBool::new(false));
+    let options = config.initialization_options.clone();
+    let detached = Arc::new(DetachedFiles::new(options, limit, loose.as_deref()));
     let slot = Arc::new(ServerSlot {
         name: config.name.clone(),
         root: root.clone(),
         tx,
         client: client.clone(),
         stopped: stopped.clone(),
+        detached: detached.clone(),
     });
     let config = config.clone();
     runtime.spawn(async move {
         if let Some(after) = after {
             let _ = tokio::time::timeout(REPLACE_WAIT, after).await;
         }
-        let spec = launch_spec(&config, hook).await;
-        run(spec, root, events, rx, client, &stopped).await;
+        let mut spec = launch_spec(&config, hook).await;
+        let instance = Instance {
+            name: config.name.clone(),
+            events,
+            client,
+            detached,
+        };
+        match instance.launch().await {
+            Launch::Configured => {}
+            Launch::Detached(options) => spec.initialization_options = Some(options),
+            Launch::Nothing => {
+                log::info!("[{}] no loose file to analyse, not started", spec.name);
+                stopped.store(true, Ordering::Relaxed);
+                return;
+            }
+        }
+        run(spec, root, instance, rx, &stopped).await;
         stopped.store(true, Ordering::Relaxed);
     });
     slot
+}
+
+/// What the actor shares with its [`ServerSlot`].
+struct Instance {
+    name: String,
+    events: EventSink,
+    client: Arc<OnceLock<LspClient>>,
+    detached: Arc<DetachedFiles>,
+}
+
+impl Instance {
+    /// How the server starts; counts loose files' folders off the runtime.
+    async fn launch(&self) -> Launch {
+        if !self.detached.is_loose() {
+            return self.detached.launch().action;
+        }
+        let detached = self.detached.clone();
+        match tokio::task::spawn_blocking(move || detached.launch()).await {
+            Ok(outcome) => {
+                self.refused(&outcome.refused);
+                outcome.action
+            }
+            Err(_) => Launch::Nothing,
+        }
+    }
+
+    /// Tells the running server about a loose file added to it.
+    async fn update(&self, client: &LspClient) {
+        let detached = self.detached.clone();
+        let Ok(outcome) = tokio::task::spawn_blocking(move || detached.update()).await else {
+            return;
+        };
+        self.refused(&outcome.refused);
+        if let Update::Send(options) = outcome.action {
+            detached::send_settings(client, options);
+        }
+    }
+
+    /// Tells the user about loose files' folders too big to analyse.
+    fn refused(&self, folders: &[PathBuf]) {
+        for dir in folders {
+            let message = detached::refused_message(dir);
+            log::info!("{message}");
+            self.events.send(LspEvent::ShowMessage {
+                server: self.name.clone(),
+                typ: lsp_types::MessageType::WARNING,
+                message,
+            });
+        }
+    }
+}
+
+/// Answers what is still queued for an instance that is not running, so
+/// queued requests resolve (their senders drop) and shutdowns are acked.
+async fn drain(mut rx: mpsc::UnboundedReceiver<Command>) {
+    while let Some(cmd) = rx.recv().await {
+        if let Command::Shutdown(ack) = cmd {
+            let _ = ack.send(());
+        }
+    }
 }
 
 /// The process spec of `config`, adjusted by `hook` on a blocking thread.
@@ -148,15 +274,15 @@ async fn launch_spec(config: &ServerConfig, hook: Option<LaunchHook>) -> ServerS
 async fn run(
     spec: ServerSpec,
     root: PathBuf,
-    events: EventSink,
+    instance: Instance,
     mut rx: mpsc::UnboundedReceiver<Command>,
-    slot: Arc<OnceLock<LspClient>>,
     stopped: &AtomicBool,
 ) {
     // The slot is filled before `Running` is emitted, so a UI reacting to
     // that event can route requests to this server right away.
     let name = spec.name.clone();
-    let started = LspClient::start_then(spec, root, events, |client| {
+    let slot = instance.client.clone();
+    let started = LspClient::start_then(spec, root, instance.events.clone(), |client| {
         let _ = slot.set(client.clone());
     });
     let client = match started.await {
@@ -164,25 +290,25 @@ async fn run(
         Err(e) => {
             log::warn!("[{name}] failed to start: {e}");
             stopped.store(true, Ordering::Relaxed);
-            // Keep draining so queued requests resolve (their senders drop).
-            while let Some(cmd) = rx.recv().await {
-                if let Command::Shutdown(ack) = cmd {
-                    let _ = ack.send(());
-                }
-            }
+            drain(rx).await;
             return;
         }
     };
     while let Some(cmd) = rx.recv().await {
-        if let Command::Shutdown(ack) = cmd {
-            if let Err(e) = client.shutdown().await {
-                log::debug!("[{name}] shutdown: {e}");
+        match cmd {
+            Command::Shutdown(ack) => {
+                if let Err(e) = client.shutdown().await {
+                    log::debug!("[{name}] shutdown: {e}");
+                }
+                let _ = ack.send(());
+                break;
             }
-            let _ = ack.send(());
-            break;
-        }
-        if let Err(e) = apply(&client, cmd) {
-            log::debug!("[{name}] {e}");
+            Command::UpdateDetached => instance.update(&client).await,
+            cmd => {
+                if let Err(e) = apply(&client, cmd) {
+                    log::debug!("[{name}] {e}");
+                }
+            }
         }
     }
 }
@@ -225,6 +351,6 @@ fn apply(client: &LspClient, cmd: Command) -> crate::Result<()> {
             f(client);
             Ok(())
         }
-        Command::Shutdown(_) => Ok(()),
+        Command::Shutdown(_) | Command::UpdateDetached => Ok(()),
     }
 }

@@ -53,6 +53,11 @@ impl Workspace {
             );
         }))
         .on_action(cx.listener(|ws, _: &StartTour, window, cx| ws.start_tour(window, cx)))
+        .on_action(cx.listener(
+            |ws, _: &crate::theme_editor::EditCurrentTheme, window, cx| {
+                ws.open_theme_editor(window, cx)
+            },
+        ))
         .on_action(
             cx.listener(|ws, _: &ShowWelcomeSetup, window, cx| ws.show_first_run(window, cx)),
         )

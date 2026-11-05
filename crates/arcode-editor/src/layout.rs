@@ -13,7 +13,8 @@ use gpui::{App, Bounds, Context, Pixels, ShapedLine, SharedString, Window, point
 
 use crate::Editor;
 use crate::api::ScrollAnchor;
-use crate::display::{DisplayLine, InlayText, MAX_DISPLAY_CHARS, build_display_line, text_run};
+use crate::diagnostic_tags::LineTags;
+use crate::display::{DisplayLine, InlayText, MAX_DISPLAY_CHARS, build_display_line};
 use crate::editor::Autoscroll;
 use crate::ext::{BlockMap, RowKind};
 use crate::gutter::{GutterGeometry, number_font_size};
@@ -308,6 +309,7 @@ impl Editor {
             .map(|f| f.fallback_list().iter().map(|s| s.clone().into()).collect())
             .unwrap_or_default();
         let mut text = String::new();
+        let tags = LineTags::new(&self.diagnostics, range.clone(), style.fade_unused);
         range
             .map(|line| {
                 text.clear();
@@ -348,6 +350,7 @@ impl Editor {
                 ) {
                     display.runs = runs;
                 }
+                tags.restyle(&mut display, line, self.buffer.line_len(line), colors.text);
                 let shaped = window.text_system().shape_line(
                     display.text.clone(),
                     style.font_size,
@@ -389,19 +392,5 @@ impl Editor {
         };
         let col = col.min(self.buffer.line_len(line));
         self.buffer.line_start(line) + col
-    }
-
-    /// Shapes a gutter label with the editor font at `font_size`.
-    pub(crate) fn shape_label(
-        text: SharedString,
-        style: &EditorStyle,
-        font_size: Pixels,
-        color: gpui::Hsla,
-        window: &mut Window,
-    ) -> ShapedLine {
-        let run = text_run(text.len(), &style.font, &Default::default(), color);
-        window
-            .text_system()
-            .shape_line(text, font_size, &[run], None)
     }
 }

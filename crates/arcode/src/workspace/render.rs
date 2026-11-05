@@ -17,7 +17,7 @@ use crate::bottom_panel;
 use crate::prefs::tour::TourTarget;
 use crate::sidebar;
 use crate::status_bar;
-use crate::{title_bar, welcome};
+use crate::title_bar;
 
 /// Drawn last inside a panel: canvas-coloured slivers outside its rounded
 /// corners and the 1 px edge again on top. GPUI clips children to a
@@ -149,7 +149,7 @@ impl Workspace {
             )
     }
 
-    fn render_bottom_panel(&self, framed: bool, cx: &mut Context<Self>) -> Div {
+    pub(super) fn render_bottom_panel(&self, framed: bool, cx: &mut Context<Self>) -> Div {
         self.bottom_panel
             .update(cx, |panel, _| panel.set_framed(framed));
         // The gap above the panel holds the handle and slides with it.
@@ -229,14 +229,7 @@ impl Render for Workspace {
         let ui = settings(cx).ui.clone();
         let welcome = self.shows_welcome(cx);
         let body = if welcome {
-            // One unframed panel fills the body, 6 px of canvas at the sides.
-            div().flex().flex_1().min_h_0().px(GAP).child(
-                panel(false, cx)
-                    .relative()
-                    .flex_1()
-                    .child(welcome::render(self, cx))
-                    .child(corner_caps(false, cx)),
-            )
+            self.render_welcome_body(window, cx)
         } else {
             let activity = self.activity;
             #[cfg(feature = "plugins")]
@@ -375,12 +368,14 @@ impl Render for Workspace {
         let root = self.register_language_actions(root, cx);
         let root = self.register_prefs_actions(root, cx);
         let root = self.register_packages_actions(root, cx);
+        let root = self.register_clone_actions(root, cx);
         let root = self.register_menu_bar(root, window, cx);
         #[cfg(feature = "plugins")]
         let root = self.register_plugin_actions(root, cx);
         let root = self.render_overlays(root, cx);
         let root = self.render_run_overlays(root, cx);
         let root = self.render_new_project_overlay(root, cx);
+        let root = self.render_clone_overlay(root, cx);
         let root = self.render_palette_overlay(root, cx);
         let root = self.render_nav_overlay(root, cx);
         let root = self.render_prefs_overlays(root, cx);

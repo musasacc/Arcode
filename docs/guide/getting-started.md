@@ -47,12 +47,73 @@ A project is a folder. Open one with:
   to open the file and the project around it (the nearest folder that is
   a git repository, else the nearest one with a project file such as
   `Cargo.toml` or `package.json`, else the file's own folder);
-- **File: New Project** to create a folder from a template.
+- **File: New Project** to create a folder from a template;
+- **Git: Clone Repository…** to clone a repository (see
+  [below](#clone-a-repository)).
 
 Each window shows one project. **File: New Window** (Ctrl+Shift+N) and
 **File: Open Folder in New Window** open more. **File: Close Project**
 closes the project but keeps the window; Arcode asks first if a file has
 unsaved changes.
+
+### The welcome screen
+
+A window without a project shows the welcome screen: Open Folder…, New
+Project… and Clone Repository… at the top, your recent projects below
+them.
+
+- Click a project to open it; the arrow button opens it in a new window.
+- Hover a project and click the **pin** to keep it at the top, in the
+  **Pinned** group. Pinned projects are never dropped from the list,
+  however many others you open.
+- The **x** removes a project from the list. The folder itself is not
+  touched.
+- Right-click a project for the same actions, **Copy Path** and **Clear
+  Recent Projects**, which removes every project that is not pinned
+  (also in the File > Open Recent menu and the command palette as
+  **File: Clear Recent Projects**).
+- With more than eight projects a filter field appears at the top of the
+  list. Just start typing: the filter matches project names fuzzily, best
+  match first, and the folders they are in by the start of their name
+  (`work` finds everything under `~/work`; type a `/` to match the path as
+  written). Up and Down select a project, Enter opens it (or the best
+  match), Esc clears the filter.
+- A project whose folder no longer exists (deleted, moved, or on a drive
+  that is not mounted) stays in the list, dimmed and marked "Folder not
+  found", until you remove it. If the folder comes back, so does the
+  project, with its session: clicking it looks again and opens it.
+
+### Clone a repository
+
+**Clone Repository…** on the welcome screen, in the File menu or as
+**Git: Clone Repository…** asks for:
+
+- the **repository URL**: `https://host/owner/repo.git`,
+  `git@host:owner/repo.git`, or a local path (which may contain spaces);
+- the **location**, the folder the clone goes into (the folder of your
+  most recent project, else `~/Projects` if you have one, else your home
+  folder; `workspace.projects_folder` in
+  [Configuration](configuration.md#workspace) overrides it);
+- the **folder name**, taken from the URL until you change it.
+
+Tab and Shift+Tab move between the fields, Enter starts the clone and Esc
+closes the dialog.
+
+**Clone** runs your system `git clone`, shows its progress and opens the
+clone when it is done. **Cancel** stops it and removes what it had
+downloaded. This is the only network access Arcode starts for git, and
+only when you click Clone. You need git installed; Arcode tells you if it
+is not.
+
+Arcode cannot type a password for git. If the server asks you to sign
+in, either set up an SSH key (loaded in your ssh agent) or a git
+[credential helper](https://git-scm.com/docs/gitcredentials), or click
+**Clone in Terminal**: it runs the same `git clone` in a terminal tab,
+where git can ask for your user name, password or token and where ssh
+can ask you to accept a new server's host key. Open the folder when it
+is done.
+
+### Sessions
 
 When you reopen a project, its tabs, splits, cursors, scroll positions
 and panels come back. When you start Arcode without a path, the projects

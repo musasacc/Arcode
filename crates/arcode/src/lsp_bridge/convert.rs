@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use arcode_buffer::{Buffer, Edit};
 use arcode_config::Config;
-use arcode_editor::{DiagnosticSeverity, EditorDiagnostic};
+use arcode_editor::{DiagnosticSeverity, DiagnosticTags, EditorDiagnostic};
 use arcode_lsp::lsp_types::{self, Diagnostic, Position, Range};
 use arcode_lsp::{PositionEncoding, ServerConfig, ServerStatus, TextChange, source_label};
 
@@ -107,6 +107,17 @@ pub fn editor_diagnostic(
             lsp_types::NumberOrString::Number(n) => n.to_string(),
             lsp_types::NumberOrString::String(s) => s.clone(),
         }),
+        tags: tags(diagnostic),
+    }
+}
+
+/// The unused / deprecated tags of an LSP diagnostic (unknown tags are
+/// ignored).
+pub fn tags(diagnostic: &Diagnostic) -> DiagnosticTags {
+    let has = |tag| diagnostic.tags.as_ref().is_some_and(|t| t.contains(&tag));
+    DiagnosticTags {
+        unnecessary: has(lsp_types::DiagnosticTag::UNNECESSARY),
+        deprecated: has(lsp_types::DiagnosticTag::DEPRECATED),
     }
 }
 
@@ -288,6 +299,42 @@ mod tests {
         let e = editor_diagnostic(&buffer, "ra", &far, PositionEncoding::Utf16);
         assert_eq!(e.range.start, e.range.end);
         assert_eq!(e.severity, DiagnosticSeverity::Warning);
+    }
+
+    #[test]
+    fn diagnostic_tags_are_kept() {
+        use lsp_types::DiagnosticTag;
+        let buffer = Buffer::new("use std::fmt;\nold();\n");
+        let unused = Diagnostic {
+            range: Range::new(Position::new(0, 0), Position::new(0, 13)),
+            severity: Some(lsp_types::DiagnosticSeverity::HINT),
+            message: "unused import".into(),
+            tags: Some(vec![DiagnosticTag::UNNECESSARY]),
+            ..Default::default()
+        };
+        let e = editor_diagnostic(&buffer, "ra", &unused, PositionEncoding::Utf16);
+        assert_eq!(e.severity, DiagnosticSeverity::Hint);
+        assert!(e.tags.unnecessary && !e.tags.deprecated);
+        let both = Diagnostic {
+            tags: Some(vec![DiagnosticTag::DEPRECATED, DiagnosticTag::UNNECESSARY]),
+            ..unused.clone()
+        };
+        let e = editor_diagnostic(&buffer, "ra", &both, PositionEncoding::Utf16);
+        assert!(e.tags.unnecessary && e.tags.deprecated);
+        let none = Diagnostic {
+            tags: None,
+            ..unused
+        };
+        let e = editor_diagnostic(&buffer, "ra", &none, PositionEncoding::Utf16);
+        assert_eq!(e.tags, DiagnosticTags::default());
+        // A server's JSON with an unknown tag still parses.
+        let parsed: Diagnostic = serde_json::from_value(serde_json::json!({
+            "range": {"start": {"line": 1, "character": 0}, "end": {"line": 1, "character": 3}},
+            "message": "use of deprecated function `old`",
+            "tags": [2, 99]
+        }))
+        .expect("diagnostic");
+        assert!(tags(&parsed).deprecated && !tags(&parsed).unnecessary);
     }
 
     #[test]

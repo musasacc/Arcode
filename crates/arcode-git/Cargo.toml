@@ -1,6 +1,6 @@
 [package]
 name = "arcode-git"
-description = "Local git integration (no network): branch, status, diff, blame."
+description = "Local git integration (no network except a clone the user starts): branch, status, diff, blame, clone."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

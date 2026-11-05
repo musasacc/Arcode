@@ -85,6 +85,10 @@ pub struct EditorSettings {
     /// Which diagnostics get an inline lens after their line: `"errors"`,
     /// `"all"` or `"off"`.
     pub inline_diagnostics: InlineDiagnostics,
+    /// Draw code that a language server reports as unused (imports,
+    /// variables, unreachable code) faded. Deprecated code is always
+    /// struck through.
+    pub fade_unused: bool,
     /// Show a minimap (the file scaled down) at the right edge of file
     /// editors. Always off in low-end mode.
     pub minimap: bool,
@@ -130,6 +134,7 @@ impl Default for EditorSettings {
             inlay_hints: true,
             code_action_lightbulb: true,
             inline_diagnostics: InlineDiagnostics::Errors,
+            fade_unused: true,
             minimap: true,
             minimap_width: Self::DEFAULT_MINIMAP_WIDTH,
             completion: CompletionSettings::default(),
@@ -164,6 +169,7 @@ impl_section!(EditorSettings {
     inlay_hints,
     code_action_lightbulb,
     inline_diagnostics,
+    fade_unused,
     minimap,
     minimap_width,
 });

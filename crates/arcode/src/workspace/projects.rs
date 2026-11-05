@@ -27,6 +27,11 @@ impl Workspace {
     ) {
         let project = match Project::open(path) {
             Ok(project) => project,
+            Err(_) if !path.exists() => {
+                let message = format!("{} no longer exists.", path.display());
+                self.show_toast_as(message, super::ToastLevel::Warning, cx);
+                return;
+            }
             Err(err) => {
                 self.show_toast(format!("Cannot open {}: {err}", path.display()), cx);
                 return;
@@ -130,6 +135,7 @@ impl Workspace {
             ws.branch_picker = None;
             ws.langs.banner = Default::default();
             ws.langs.picker = None;
+            ws.welcome.update(cx, |welcome, cx| welcome.recheck(cx));
             window.set_window_title("Arcode");
             window.focus(&ws.focus_handle);
             ws.refresh_status(cx);

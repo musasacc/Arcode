@@ -54,6 +54,9 @@ and Windows. Linux gets the most testing.
 - Sessions: open tabs, splits, cursors, scroll positions and panels come
   back when you reopen a project, and the projects you had open come back
   when you restart.
+- A welcome screen with your recent projects: pin the ones you use most,
+  remove old ones, filter a long list by typing, and see at a glance which
+  folders no longer exist.
 
 ### Language intelligence
 
@@ -69,7 +72,11 @@ and Windows. Linux gets the most testing.
 - Several language servers per file. For example rust-analyzer plus a spell
   checker: diagnostics, completion and code actions are merged, other
   requests go to the servers in the order you set.
-- Diagnostics as squiggles, inline messages and a Problems panel.
+- Diagnostics as squiggles, inline messages and a Problems panel; unused
+  code is faded and deprecated code struck through.
+- A single `.rs` file outside any Cargo project still gets completion,
+  hover and diagnostics from rust-analyzer (see
+  [Files outside a project](docs/guide/languages.md#files-outside-a-project)).
 - Without a language server you still get words from open files, file path
   completion and a tree-sitter outline for symbol navigation.
 - Saving `config.toml` applies server changes immediately and restarts only
@@ -103,8 +110,12 @@ See [docs/DEBUGGING.md](docs/DEBUGGING.md) for details.
   open diffs.
 - Merge conflicts with Accept Current / Incoming / Both actions above each
   conflict.
-- Arcode works with your local repository only. It never fetches, pulls or
-  pushes; use the terminal for that.
+- Clone a repository from the welcome screen, File > Clone Repository… or
+  "Git: Clone Repository…": Arcode runs your `git clone`, shows its
+  progress and opens the clone. "Clone in Terminal" runs it in the
+  terminal when the server asks for a password.
+- Apart from a clone you start, Arcode works with your local repository
+  only. It never fetches, pulls or pushes; use the terminal for that.
 
 ### Search and navigation
 
@@ -160,9 +171,14 @@ See [docs/DEBUGGING.md](docs/DEBUGGING.md) for details.
   (light), plus the classic Arcode Dark, Arcode Light and Arcode Midnight.
   Follow the system appearance or pick one.
 - A Settings page with live previews of themes and fonts. Every change is
-  written to `config.toml`, keeping your comments.
+  written to `config.toml`, keeping your comments. Every single-value
+  setting has a row that shows its key, the filter finds rows by key, and
+  a changed row has a button that resets it to the default.
 - Your own themes as TOML files in the `themes` folder next to
   `config.toml`.
+- A theme editor: change any colour of a theme with a colour picker or a
+  hex value and see the whole app update as you go, with contrast hints
+  for text, then save it as your own theme.
 - Bundled fonts: JetBrains Mono for code and Inter for the interface,
   with an editor font weight and, on Linux, text gamma and contrast
   settings for thin or blurry text (see
@@ -550,7 +566,9 @@ Network access only happens as a direct result of something you do:
   YAML, TOML, JSON and TypeScript servers, including schemas a file
   links to.
 
-Git operations stay local; Arcode never fetches, pulls or pushes.
+Git operations stay local; Arcode never fetches, pulls or pushes. The
+one exception is **Clone Repository**, which runs `git clone` when you
+click Clone.
 
 Settings, session state and plugin permissions are stored only in your
 user config and data folders, never in the project. A file inside a

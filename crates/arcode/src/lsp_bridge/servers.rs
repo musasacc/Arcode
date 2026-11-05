@@ -267,6 +267,7 @@ impl LspBridge {
     /// registered again.
     pub(super) fn settings_changed(&mut self, cx: &mut Context<Self>) {
         if let Some(manager) = self.manager.clone() {
+            manager.set_low_end_mode(settings(cx).ui.low_end_mode);
             let (servers, languages) = convert::server_configs(settings(cx));
             let configured: Vec<String> = servers.iter().map(|s| s.name.clone()).collect();
             for name in manager.reconfigure(servers, languages) {

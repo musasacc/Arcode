@@ -22,7 +22,8 @@ pub use session::{
     ProjectSession, SavedBreakpoint, SavedSelection,
 };
 
-/// Maximum number of entries kept in [`AppState::recent_projects`].
+/// Maximum number of unpinned entries kept in
+/// [`AppState::recent_projects`] (pinned ones are never dropped).
 pub const MAX_RECENT_PROJECTS: usize = 20;
 /// Maximum number of entries kept in [`AppState::recent_commands`].
 pub const MAX_RECENT_COMMANDS: usize = 30;
@@ -39,6 +40,14 @@ pub struct RecentProject {
     pub name: String,
     /// Last time the project was opened, in seconds since the Unix epoch.
     pub last_opened: u64,
+    /// Pinned to the top of the welcome screen and never dropped from the
+    /// list. Missing in files written before pinning existed.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pinned: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Main window placement, in logical pixels.
@@ -63,7 +72,8 @@ pub struct WindowState {
 pub struct AppState {
     /// The first-run flow has been completed.
     pub first_run_complete: bool,
-    /// Most recently opened first, at most [`MAX_RECENT_PROJECTS`].
+    /// Most recently opened first, at most [`MAX_RECENT_PROJECTS`]
+    /// unpinned ones plus the pinned ones.
     pub recent_projects: Vec<RecentProject>,
     /// Projects open when Arcode last exited (restored on start).
     pub open_projects: Vec<PathBuf>,
@@ -139,9 +149,13 @@ impl AppState {
     }
 
     /// Moves `path` to the front of the recent list (adding it if needed)
-    /// with the given timestamp, and caps the list at
-    /// [`MAX_RECENT_PROJECTS`].
+    /// with the given timestamp, keeping its pin, and caps the list (see
+    /// [`AppState::trim_recent`]).
     pub fn touch_recent_at(&mut self, path: &Path, unix_secs: u64) {
+        let pinned = self
+            .recent_projects
+            .iter()
+            .any(|p| p.path == path && p.pinned);
         self.recent_projects.retain(|p| p.path != path);
         self.recent_projects.insert(
             0,
@@ -149,9 +163,46 @@ impl AppState {
                 path: path.to_path_buf(),
                 name: project_name(path),
                 last_opened: unix_secs,
+                pinned,
             },
         );
-        self.recent_projects.truncate(MAX_RECENT_PROJECTS);
+        self.trim_recent();
+    }
+
+    /// Drops the oldest unpinned projects beyond [`MAX_RECENT_PROJECTS`];
+    /// pinned projects always stay.
+    pub fn trim_recent(&mut self) {
+        let mut unpinned = 0;
+        self.recent_projects.retain(|p| {
+            if p.pinned {
+                return true;
+            }
+            unpinned += 1;
+            unpinned <= MAX_RECENT_PROJECTS
+        });
+    }
+
+    /// Pins or unpins `path`. Returns whether it is in the list and
+    /// changed.
+    pub fn set_pinned(&mut self, path: &Path, pinned: bool) -> bool {
+        match self.recent_projects.iter_mut().find(|p| p.path == path) {
+            Some(project) if project.pinned != pinned => {
+                project.pinned = pinned;
+                if !pinned {
+                    self.trim_recent();
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Removes every unpinned project from the recent list. Returns how
+    /// many were removed.
+    pub fn clear_recent(&mut self) -> usize {
+        let before = self.recent_projects.len();
+        self.recent_projects.retain(|p| p.pinned);
+        before - self.recent_projects.len()
     }
 
     /// Moves the command `name` to the front of [`AppState::recent_commands`]
@@ -169,14 +220,22 @@ impl AppState {
         self.recent_projects.len() != before
     }
 
-    /// Drops recent and open projects whose folder no longer exists, and
-    /// their sessions. Returns how many recent entries were removed.
+    /// Drops open projects whose folder no longer exists, and the sessions
+    /// of such projects unless they are in the recent list. Recent
+    /// projects stay: the welcome screen shows a missing one dimmed, so a
+    /// folder on an unmounted drive comes back with its session. Returns
+    /// how many entries were removed.
     pub fn prune_missing(&mut self) -> usize {
-        let before = self.recent_projects.len();
-        self.recent_projects.retain(|p| p.path.exists());
+        let before = self.open_projects.len() + self.sessions.len();
         self.open_projects.retain(|p| p.exists());
-        self.sessions.retain(|key, _| Path::new(key).exists());
-        before - self.recent_projects.len()
+        let recent: std::collections::HashSet<String> = self
+            .recent_projects
+            .iter()
+            .map(|p| Self::session_key(&p.path))
+            .collect();
+        self.sessions
+            .retain(|key, _| recent.contains(key) || Path::new(key).exists());
+        before - self.open_projects.len() - self.sessions.len()
     }
 
     /// `self` without the paths that TOML cannot represent (non-Unicode).

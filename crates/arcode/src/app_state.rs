@@ -57,7 +57,7 @@ pub fn init(cx: &mut App) {
     };
     let removed = state.prune_missing();
     if removed > 0 {
-        log::info!("dropped {removed} recent project(s) that no longer exist");
+        log::info!("dropped {removed} open project(s) or session(s) that no longer exist");
     }
     cx.set_global(PersistedState {
         state,
@@ -96,6 +96,27 @@ pub fn remove_recent(path: &Path, cx: &mut App) {
     if cx.global_mut::<PersistedState>().state.remove_recent(path) {
         save_in_background(cx);
     }
+}
+
+/// Pins or unpins the recent project `path` and saves the state.
+pub fn set_pinned(path: &Path, pinned: bool, cx: &mut App) {
+    if cx
+        .global_mut::<PersistedState>()
+        .state
+        .set_pinned(path, pinned)
+    {
+        save_in_background(cx);
+    }
+}
+
+/// Removes every unpinned project from the recent list and saves the
+/// state. Returns how many were removed.
+pub fn clear_recent(cx: &mut App) -> usize {
+    let removed = cx.global_mut::<PersistedState>().state.clear_recent();
+    if removed > 0 {
+        save_in_background(cx);
+    }
+    removed
 }
 
 /// Records that the palette command `label` was run and saves the state.

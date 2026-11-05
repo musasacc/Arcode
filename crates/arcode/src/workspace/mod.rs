@@ -104,9 +104,17 @@ mod subs;
 mod tab_menu_tests;
 #[cfg(test)]
 mod tests;
+mod theme_editor;
+#[cfg(test)]
+mod theme_editor_close_tests;
+#[cfg(test)]
+mod theme_editor_tests;
 mod tour;
 #[cfg(test)]
 mod vim_tests;
+#[cfg(test)]
+mod welcome_tests;
+mod welcome_ui;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -209,6 +217,10 @@ pub struct Workspace {
     session: session::SessionState,
     /// The New Project dialog, while open.
     new_project: Option<Entity<crate::new_project::NewProjectDialog>>,
+    /// The Clone Repository dialog, while open.
+    clone_dialog: Option<Entity<crate::clone_dialog::CloneDialog>>,
+    /// The welcome screen (shown while no project is open).
+    welcome: Entity<crate::welcome::Welcome>,
     /// Languages page, status bar pickers and the package banner.
     langs: crate::languages::LangParts,
     /// The Packages view and its store.
@@ -276,6 +288,10 @@ impl Workspace {
         subscriptions.extend(lang_subs);
         subscriptions.push(Self::watch_snippet_errors(cx));
         let focus_handle = cx.focus_handle();
+        let welcome = {
+            let weak = cx.weak_entity();
+            cx.new(|cx| crate::welcome::Welcome::new(weak, cx))
+        };
         let menu_bar = {
             let (weak, root) = (cx.weak_entity(), focus_handle.clone());
             cx.new(|cx| crate::menu_bar::MenuBar::new(weak, root, window, cx))
@@ -319,6 +335,8 @@ impl Workspace {
             subs: Default::default(),
             session: Default::default(),
             new_project: None,
+            clone_dialog: None,
+            welcome,
             langs,
             prefs: Default::default(),
             pkgs,
@@ -506,6 +524,7 @@ impl Workspace {
             });
             self.subs.tie(editor.downgrade().into(), sub);
         }
+        self.watch_theme_file(&editor, &path, cx);
         self.lsp
             .update(cx, |lsp, cx| lsp.register_editor(&editor, cx));
         self.git
