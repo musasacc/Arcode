@@ -20,10 +20,9 @@ fn clones_a_local_repository() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert_eq!(
-        std::fs::read_to_string(target.join("hello.txt")).unwrap(),
-        "hi\n"
-    );
+    // Git for Windows may check text out with CRLF (core.autocrlf).
+    let text = std::fs::read_to_string(target.join("hello.txt")).unwrap();
+    assert_eq!(text.replace("\r\n", "\n"), "hi\n");
     assert!(target.join(".git").is_dir());
 }
 

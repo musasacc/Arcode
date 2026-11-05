@@ -42,24 +42,36 @@ fn a_million_rows_page_fast_and_a_group_by_cancels() {
         db.activate(&v, key);
         eprintln!("{table}: selected in {:?}", started.elapsed());
         let (data, props) = db.table(true).expect("data grid");
-        // Counting 1M rows through WASI takes longer than the 200 ms rule
-        // (§10), so the count starts unknown and pages run until at-end.
-        assert_eq!(props.row_count, None, "{table}");
+        // Counting 1M rows through WASI usually takes longer than the
+        // 200 ms rule (§10), so the count starts unknown and pages run
+        // until at-end. A fast machine can finish within it.
+        assert!(
+            matches!(props.row_count, None | Some(ROWS)),
+            "{table}: {:?}",
+            props.row_count
+        );
+        let counted = props.row_count.is_some();
         for start in [0, 500_000, 500_200, 250_000, 999_800] {
-            page(&v, &db, data, table, start, false);
+            page(&v, &db, data, table, start, counted);
         }
         let past = db.fetch(&v, data, ROWS, 200).expect("past the end");
         assert!(past.rows.is_empty() && past.at_end);
 
-        // "Count" counts as a cancellable task; then pages seek directly
-        // (dense rowids) or walk back from the end.
-        let button = db.find(|w| matches!(w, Widget::Button(b) if b.label == "Count"));
-        let started = Instant::now();
-        let r = db.event(&v, button, EventKind::Click, vec![]).wait();
-        assert_eq!(r, Ok(CallOutput::Done));
-        eprintln!("{table}: counted on request in {:?}", started.elapsed());
-        let (data, props) = db.table(true).expect("data grid");
-        assert_eq!(props.row_count, Some(ROWS), "{table}");
+        // "Count" (shown only while the count is unknown) counts as a
+        // cancellable task; then pages seek directly (dense rowids) or
+        // walk back from the end.
+        let data = if counted {
+            data
+        } else {
+            let button = db.find(|w| matches!(w, Widget::Button(b) if b.label == "Count"));
+            let started = Instant::now();
+            let r = db.event(&v, button, EventKind::Click, vec![]).wait();
+            assert_eq!(r, Ok(CallOutput::Done));
+            eprintln!("{table}: counted on request in {:?}", started.elapsed());
+            let (data, props) = db.table(true).expect("data grid");
+            assert_eq!(props.row_count, Some(ROWS), "{table}");
+            data
+        };
         for start in [750_000, 999_800, 400_000] {
             page(&v, &db, data, table, start, true);
         }
