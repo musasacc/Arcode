@@ -240,14 +240,17 @@ fn cloning_a_local_repository_opens_it(cx: &mut TestAppContext) {
     }
     let root = ws.read_with(cx, |ws, _| ws.project_root().map(Path::to_path_buf));
     let state = dialog.read_with(cx, |d, _| (d.is_running(), d.error().map(str::to_owned)));
+    // The project root is canonical (`\\?\C:\...` on Windows).
+    let canonical = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     assert_eq!(
-        root.as_deref(),
-        Some(target.as_path()),
+        root.as_deref().map(canonical),
+        Some(canonical(&target)),
         "(running, error) = {state:?}"
     );
     assert!(target.join("README.md").is_file());
     assert!(ws.read_with(cx, |ws, _| ws.clone_dialog().is_none()));
-    cx.update(|_, cx| assert_eq!(app_state::recent_projects(cx)[0].path, target));
+    let recent = cx.update(|_, cx| app_state::recent_projects(cx)[0].path.clone());
+    assert_eq!(canonical(&recent), canonical(&target));
 }
 
 #[gpui::test]
@@ -262,7 +265,10 @@ fn a_failed_clone_keeps_the_dialog_with_the_reason(cx: &mut TestAppContext) {
     let dialog = ws
         .read_with(cx, |ws, _| ws.clone_dialog().cloned())
         .expect("the dialog is open");
-    let missing = dest.path().join("no-such-repo");
+    // Somewhere other than the destination, so the clone target (named
+    // after the address) is not the address itself.
+    let elsewhere = tempfile::tempdir().unwrap();
+    let missing = elsewhere.path().join("no-such-repo");
     dialog.update(cx, |d, cx| {
         d.set_location(&dest.path().display().to_string(), cx);
         d.set_url(&missing.display().to_string(), cx);
@@ -278,7 +284,10 @@ fn a_failed_clone_keeps_the_dialog_with_the_reason(cx: &mut TestAppContext) {
         std::thread::sleep(Duration::from_millis(50));
     }
     let running = dialog.read_with(cx, |d, _| d.is_running());
-    let error = error.unwrap_or_else(|| panic!("no error shown after 60 s; running: {running}"));
+    let opened = ws.read_with(cx, |ws, _| ws.project_root().map(Path::to_path_buf));
+    let error = error.unwrap_or_else(|| {
+        panic!("no error shown after 60 s; running: {running}, opened: {opened:?}")
+    });
     assert!(error.contains("not found"), "{error}");
     assert!(!dialog.read_with(cx, |d, _| d.is_running()));
     assert!(!dest.path().join("no-such-repo").exists());

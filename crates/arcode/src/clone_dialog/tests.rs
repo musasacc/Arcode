@@ -33,6 +33,8 @@ fn requests_are_checked() {
     assert!(err("https://h/r", &parent, "..").contains("cannot contain"));
     assert!(err("https://h/r", "", "r").contains("where"));
     assert!(err("https://h/r", "relative/dir", "r").contains("full path"));
+    let itself = dir.path().join("r").display().to_string();
+    assert!(err(&itself, &parent, "r").contains("the same"));
 
     // An empty folder is fine (git clones into it); one with files is not.
     std::fs::create_dir(dir.path().join("empty")).unwrap();

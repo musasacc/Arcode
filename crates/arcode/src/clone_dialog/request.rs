@@ -92,6 +92,11 @@ pub fn check_request(url: &str, location: &str, folder: &str) -> Result<CloneReq
         folder: folder.to_owned(),
     };
     let target = request.target();
+    if local && same_folder(std::path::Path::new(&request.url), &target) {
+        return Err("The repository and the clone folder are the same. \
+                    Choose another folder name."
+            .into());
+    }
     if job::Before::of(&target) == job::Before::Occupied {
         let home = std::env::home_dir();
         return Err(format!(
@@ -100,6 +105,15 @@ pub fn check_request(url: &str, location: &str, folder: &str) -> Result<CloneReq
         ));
     }
     Ok(request)
+}
+
+/// Whether `a` and `b` name the same folder (compared canonically when
+/// both exist, else as written).
+fn same_folder(a: &std::path::Path, b: &std::path::Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
 }
 
 /// The command line "Clone in Terminal" types, quoted for `shell`:
