@@ -268,6 +268,12 @@ fn validation_checks_commands_and_layout() {
     );
 }
 
+/// `path` with `/` separators, so tests written with one layout compare
+/// the same on Windows, where joined paths use backslashes.
+fn slashes(path: impl AsRef<str>) -> String {
+    path.as_ref().replace('\\', "/")
+}
+
 /// A bundle in a temp folder with the given files.
 fn bundle_with(files: &[&str]) -> (tempfile::TempDir, Bundle) {
     let dir = tempfile::tempdir().unwrap();
@@ -348,18 +354,19 @@ fn jdtls_runs_with_the_users_java() {
         .unwrap();
     assert_eq!(with_java.program, Path::new("/jdk/bin/java"));
     assert_eq!(with_java.missing_runtime, None);
-    let args = with_java.args.join(" ");
+    let args = slashes(with_java.args.join(" "));
     let config = dir.path().join("lib/jdtls/config_linux");
-    assert!(args.contains(&format!(
+    assert!(args.contains(&slashes(format!(
         "-Dosgi.sharedConfiguration.area={}",
         config.display()
-    )));
-    assert!(args.contains(&format!("-jar {}", dir.path().join(launcher).display())));
-    let configuration = Path::new("/state/jdtls/configuration");
-    assert!(args.contains(&format!("-configuration {}", configuration.display())));
-    let data = Path::new("/state/jdtls/${workspaceFolderHash}");
+    ))));
+    assert!(args.contains(&slashes(format!(
+        "-jar {}",
+        dir.path().join(launcher).display()
+    ))));
+    assert!(args.contains("-configuration /state/jdtls/configuration"));
     assert!(
-        args.ends_with(&format!("-data {}", data.display())),
+        args.ends_with("-data /state/jdtls/${workspaceFolderHash}"),
         "{args}"
     );
     let arm = LaunchContext {
@@ -454,8 +461,8 @@ fn resolution_prefers_config_then_path_then_bundle() {
     let bundled = resolve_server("pyright-langserver", &args, |_| false, launch);
     assert_eq!(bundled.source, ServerSource::Bundled);
     assert_eq!(
-        bundled.command,
-        dir.path().join("node/bin/node").to_string_lossy()
+        slashes(bundled.command.clone()),
+        slashes(dir.path().join("node/bin/node").display().to_string())
     );
     assert_eq!(bundled.args.len(), 2);
     assert!(bundled.args[0].ends_with("langserver.index.js"));

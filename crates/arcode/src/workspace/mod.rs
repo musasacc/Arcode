@@ -41,7 +41,8 @@ mod git_regression_tests;
 #[cfg(test)]
 mod lang_packs_tests;
 mod menu_bar;
-#[cfg(test)]
+// macOS uses the native menu bar; the in-window one is not drawn there.
+#[cfg(all(test, not(target_os = "macos")))]
 mod menu_bar_tests;
 mod packages;
 #[cfg(test)]
