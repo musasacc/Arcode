@@ -15,6 +15,8 @@ fn folder_names_follow_git() {
         ("file:///srv/git/demo.git", "demo"),
         ("/srv/git/demo/", "demo"),
         (r"C:\src\demo.git", "demo"),
+        (r"\\?\C:\Users\me\AppData\Local\Temp\demo-repo", "demo-repo"),
+        ("/srv/what?/demo#1", "demo#1"),
         ("  https://example.com/a/b.git?ref=x  ", "b"),
         ("", "repository"),
         ("git@host:", "repository"),

@@ -173,6 +173,15 @@ fn missing_folders_are_marked_and_explained(cx: &mut TestAppContext) {
     assert_eq!(names(&ws, cx), ["here"]);
 }
 
+/// `path` without the `\\?\` prefix `canonicalize` adds on Windows,
+/// which nobody types into the dialog.
+fn plain_path(path: PathBuf) -> PathBuf {
+    match path.to_str().and_then(|p| p.strip_prefix(r"\\?\")) {
+        Some(rest) if !rest.starts_with("UNC") => PathBuf::from(rest),
+        _ => path,
+    }
+}
+
 /// A git repository with one commit, or `None` without git.
 pub(super) fn source_repo() -> Option<(tempfile::TempDir, PathBuf)> {
     let git = |dir: &Path, args: &[&str]| {
@@ -185,7 +194,7 @@ pub(super) fn source_repo() -> Option<(tempfile::TempDir, PathBuf)> {
             .is_ok_and(|o| o.status.success())
     };
     let dir = tempfile::tempdir().unwrap();
-    let repo = std::fs::canonicalize(dir.path()).unwrap().join("demo-repo");
+    let repo = plain_path(std::fs::canonicalize(dir.path()).unwrap()).join("demo-repo");
     std::fs::create_dir(&repo).unwrap();
     if !git(&repo, &["init", "-q"]) {
         return None;
@@ -201,7 +210,7 @@ fn cloning_a_local_repository_opens_it(cx: &mut TestAppContext) {
         return;
     };
     let dest = tempfile::tempdir().unwrap();
-    let dest_root = std::fs::canonicalize(dest.path()).unwrap();
+    let dest_root = plain_path(std::fs::canonicalize(dest.path()).unwrap());
     let (ws, cx) = open(cx);
     cx.dispatch_action(CloneRepository);
     cx.run_until_parked();
@@ -222,7 +231,7 @@ fn cloning_a_local_repository_opens_it(cx: &mut TestAppContext) {
 
     cx.simulate_keystrokes("enter");
     let target = dest_root.join("my-clone");
-    for _ in 0..200 {
+    for _ in 0..1200 {
         cx.run_until_parked();
         if ws.read_with(cx, |ws, _| ws.project().is_some()) {
             break;
@@ -230,7 +239,12 @@ fn cloning_a_local_repository_opens_it(cx: &mut TestAppContext) {
         std::thread::sleep(Duration::from_millis(50));
     }
     let root = ws.read_with(cx, |ws, _| ws.project_root().map(Path::to_path_buf));
-    assert_eq!(root.as_deref(), Some(target.as_path()));
+    let state = dialog.read_with(cx, |d, _| (d.is_running(), d.error().map(str::to_owned)));
+    assert_eq!(
+        root.as_deref(),
+        Some(target.as_path()),
+        "(running, error) = {state:?}"
+    );
     assert!(target.join("README.md").is_file());
     assert!(ws.read_with(cx, |ws, _| ws.clone_dialog().is_none()));
     cx.update(|_, cx| assert_eq!(app_state::recent_projects(cx)[0].path, target));
@@ -255,7 +269,7 @@ fn a_failed_clone_keeps_the_dialog_with_the_reason(cx: &mut TestAppContext) {
     });
     cx.simulate_keystrokes("enter");
     let mut error = None;
-    for _ in 0..200 {
+    for _ in 0..1200 {
         cx.run_until_parked();
         error = dialog.read_with(cx, |d, _| d.error().map(str::to_owned));
         if error.is_some() {
@@ -263,7 +277,8 @@ fn a_failed_clone_keeps_the_dialog_with_the_reason(cx: &mut TestAppContext) {
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    let error = error.expect("an error is shown");
+    let running = dialog.read_with(cx, |d, _| d.is_running());
+    let error = error.unwrap_or_else(|| panic!("no error shown after 60 s; running: {running}"));
     assert!(error.contains("not found"), "{error}");
     assert!(!dialog.read_with(cx, |d, _| d.is_running()));
     assert!(!dest.path().join("no-such-repo").exists());

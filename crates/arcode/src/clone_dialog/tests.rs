@@ -148,3 +148,40 @@ fn a_failed_clone_never_touches_an_occupied_folder() {
     assert!(empty.is_dir());
     assert_eq!(std::fs::read_dir(&empty).unwrap().count(), 0);
 }
+
+#[test]
+fn cloning_a_missing_local_repository_fails_as_not_found() {
+    let git_works = std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !git_works {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("no-such-repo");
+    let target = dir.path().join("clone");
+    let (_job, events) = job::CloneJob::start(missing.display().to_string(), target.clone());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let mut seen = Vec::new();
+    let finished = loop {
+        match events.try_recv() {
+            Ok(job::JobEvent::Finished(result)) => break Some(result),
+            Ok(event) => seen.push(event),
+            Err(async_channel::TryRecvError::Closed) => break None,
+            Err(async_channel::TryRecvError::Empty) => {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "the clone did not finish in 60 s; events: {seen:?}"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        }
+    };
+    assert_eq!(
+        finished,
+        Some(Err(job::JobError::Failed(CloneFailure::NotFound))),
+        "events: {seen:?}"
+    );
+    assert!(!target.exists());
+}

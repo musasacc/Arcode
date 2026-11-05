@@ -24,7 +24,13 @@ pub const BATCH_SSH_COMMAND: &str = "ssh -o BatchMode=yes";
 /// to `"repository"` when nothing usable is left.
 pub fn folder_name_from_url(url: &str) -> String {
     let url = url.trim();
-    let url = url.split(['?', '#']).next().unwrap_or(url);
+    // Only a URL has a query or fragment; in a local path `?` and `#` are
+    // part of a name (and Windows paths can start with `\\?\`).
+    let url = if url.contains("://") && !url.starts_with("file://") {
+        url.split(['?', '#']).next().unwrap_or(url)
+    } else {
+        url
+    };
     let trimmed = url.trim_end_matches(['/', '\\']);
     let trimmed = trimmed.strip_suffix(".git").unwrap_or(trimmed);
     let trimmed = trimmed.trim_end_matches(['/', '\\']);
