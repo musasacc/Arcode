@@ -37,8 +37,8 @@ welcome screen, or the confirm button of a dialog. **Run is not solid**
 while idle: it is an outlined button with an ember play icon.
 Everything else is warm neutrals plus the status colours.
 
-The logo is **`</>`**: cream angle brackets with the slash in ember. The
-ember diamond, the other signature, follows your focus around the window. A quieter second signature: every number the app
+The logo is **`</>`** in one plain colour: white on dark themes, black on
+light ones. The ember diamond, the other signature, follows your focus around the window. A quieter second signature: every number the app
 reports (Ln/Col, counts, exit codes, durations, memory, line numbers in
 lists) is set in JetBrains Mono, like readings on an instrument.
 
@@ -59,7 +59,7 @@ These rules exist so later changes do not drift back:
 - **Not Zed, Sublime or Nova.** No blue-grey flat UI, no Monokai or
   Mariana syntax, no translucent sidebars.
 - **Keep the light theme neutral.** Chalk's canvas is a neutral grey-sand
-  and its accent is amber-brown; the logo is the two-tone `</>`, never a filled tile.
+  and its accent is amber-brown; the logo is the one-colour `</>`, never a filled tile.
 - The syntax palette is checked against 18 dark and 9 light schemes in
   section 3.4; a change to it must keep "near roles" at 1 or less per scheme.
 
@@ -260,7 +260,7 @@ every test run.
 | border_focused vs panel | 3.69 | 5.89 |
 | ember mark on panel | 7.66 | 5.89 |
 | ember mark on pill (active tab) | 5.97 | 5.03 |
-| ember mark / logo slash on canvas | 9.39 | 4.36 |
+| ember mark on canvas | 9.39 | 4.36 |
 | accent fill (Continue) vs canvas | 9.39 | 4.36 |
 | rail icon (inactive, text_muted) on canvas | 8.09 | 5.29 |
 | rail icon (active, accent) on pill tile | 5.97 | 5.03 |
@@ -548,8 +548,8 @@ canvas ────────────────────────�
 
 ### 6.2 Title bar (40, on the canvas)
 
-- **Logo:** `</>`, 22 px, centred in the rail column. Brackets in `text`,
-  slash in `accent`. No tile.
+- **Logo:** `</>`, 22 px, centred in the rail column. One colour, `text`.
+  No tile.
 - **Menu bar** (Linux and Windows; macOS uses its system menu bar):
   right after the logo, the titles File, Edit, Selection, View, Go, Run,
   Terminal, Git and Help as quiet chips: Inter 13 `text_muted`, 28 tall,
@@ -865,15 +865,14 @@ canvas ────────────────────────�
 
 - Mark: `</>` in a 24-unit viewBox, stroke 2.6, round caps and joins.
   Brackets `M7.5 7 2.5 12l5 5` and `m16.5 7 5 5-5 5`; slash `M14 4.5 10 19.5`.
-  Two monochrome SVGs so GPUI can tint them separately:
-  `icons/logo-brackets.svg` (tinted `text`) and `icons/logo-slash.svg`
-  (tinted `accent`), stacked in one box.
+  One monochrome SVG, `icons/logo.svg`, tinted `text`: white on dark
+  themes, black on light ones. No accent colour in the logo.
 - It is bolder than the 1.75-stroke `code-xml` icon used in code contexts,
-  and always two-tone, so the two are not confused. It stays readable at
+  so the two are not confused. It stays readable at
   16 px.
 - App icon: an Ember `panel` rounded square (radius 22 %) with a 1 px
-  `border`, the brackets in Ember `text`, the slash in `accent`. Never an
-  orange tile. Full-colour files: `assets/logo/`.
+  `border` and a white `</>`. Never an orange tile. Files:
+  `assets/logo/`.
 
 ## 7. Where it lives in the code
 
@@ -1307,8 +1306,7 @@ abbreviated: `Str` is `impl Into<SharedString>`, `Id` is
 - `unsaved_ring(color: Option<Hsla>, cx) -> Div`: the 8 px hollow ring,
   1.5 px `accent_alt` (or `color`) stroke.
 - `status_dot(color) -> Div`: a 7 px dot.
-- `logo(size: Pixels) -> Logo`: `</>` (brackets in `text`, slash in
-  `accent`); 22 in the title bar, 56 on the welcome screen.
+- `logo(size: Pixels) -> Logo`: `</>` in `text`; 22 in the title bar, 56 on the welcome screen.
 
 ### Pill tabs (`components/pill_tab.rs`, `components/tab_layout.rs`)
 

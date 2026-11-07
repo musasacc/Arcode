@@ -63,9 +63,9 @@ pub fn status_dot(color: Hsla) -> Div {
     div().flex_none().size(px(7.)).rounded_full().bg(color)
 }
 
-/// The logo `</>`: the brackets in `text` with the slash in `accent`,
-/// drawn from two monochrome SVGs stacked in one `size` box (22 in the
-/// title bar, 56 on the welcome screen). No tile behind it.
+/// The logo `</>` in one colour, the theme's `text` (white on dark themes,
+/// black on light ones), `size` square (22 in the title bar, 56 on the
+/// welcome screen). No tile behind it.
 #[derive(IntoElement)]
 pub struct Logo {
     size: Pixels,
@@ -79,17 +79,6 @@ pub fn logo(size: Pixels) -> Logo {
 impl RenderOnce for Logo {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let c = &theme(cx).colors;
-        div()
-            .relative()
-            .flex_none()
-            .size(self.size)
-            .child(icon(IconName::LogoBrackets).size(self.size).color(c.text))
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .child(icon(IconName::LogoSlash).size(self.size).color(c.accent)),
-            )
+        icon(IconName::Logo).size(self.size).color(c.text)
     }
 }

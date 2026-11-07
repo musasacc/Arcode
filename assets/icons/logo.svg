@@ -1,4 +1,4 @@
-<!-- Arcode logo, part 2: the slash of `</>` (tinted with the ember accent). -->
+<!-- The Arcode logo `</>`, one colour (tinted `text`: white on dark, black on light). -->
 <svg
   xmlns="http://www.w3.org/2000/svg"
   width="24"
@@ -10,5 +10,7 @@
   stroke-linecap="round"
   stroke-linejoin="round"
 >
+  <path d="M7.5 7 2.5 12l5 5" />
+  <path d="m16.5 7 5 5-5 5" />
   <path d="M14 4.5 10 19.5" />
 </svg>

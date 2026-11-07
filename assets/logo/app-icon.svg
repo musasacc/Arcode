@@ -1,8 +1,7 @@
-<!-- The Arcode app icon: `</>` on an Ember panel tile (radius 22 %, 1 px border). -->
+<!-- The Arcode app icon: a white `</>` on an Ember panel tile (radius 22 %, 1 px border). -->
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <rect x="8" y="8" width="496" height="496" rx="110" fill="#25201b" stroke="#3a322b" stroke-width="10.67" />
-  <g transform="translate(96 96) scale(13.333)" fill="none" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M7.5 7 2.5 12l5 5m9-10 5 5-5 5" stroke="#efe7da" />
-    <path d="M14 4.5 10 19.5" stroke="#f0a24a" />
+  <g transform="translate(96 96) scale(13.333)" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M7.5 7 2.5 12l5 5m9-10 5 5-5 5M14 4.5 10 19.5" />
   </g>
 </svg>
