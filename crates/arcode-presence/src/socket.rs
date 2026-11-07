@@ -221,23 +221,23 @@ mod tests {
             "TEMP" => Some("  ".to_owned()),
             _ => None,
         };
-        let dirs = socket_dirs(env);
-        let shown: Vec<_> = dirs.iter().map(|d| d.to_string_lossy()).collect();
-        assert_eq!(
-            shown,
-            [
-                "/run/user/1000",
-                "/run/user/1000/app/com.discordapp.Discord",
-                "/run/user/1000/snap.discord",
-                "/run/user/1000/.flatpak/com.discordapp.Discord/xdg-run",
-                "/run/user/1000/.flatpak/dev.vencord.Vesktop/xdg-run",
-                "/tmp",
-                "/tmp/app/com.discordapp.Discord",
-                "/tmp/snap.discord",
-                "/tmp/.flatpak/com.discordapp.Discord/xdg-run",
-                "/tmp/.flatpak/dev.vencord.Vesktop/xdg-run",
-            ]
-        );
+        // Built with `join` so the separator matches the platform's.
+        let expected: Vec<PathBuf> = ["/run/user/1000", "/tmp"]
+            .into_iter()
+            .flat_map(|base| {
+                let base = PathBuf::from(base);
+                std::iter::once(base.clone()).chain(
+                    [
+                        "app/com.discordapp.Discord",
+                        "snap.discord",
+                        ".flatpak/com.discordapp.Discord/xdg-run",
+                        ".flatpak/dev.vencord.Vesktop/xdg-run",
+                    ]
+                    .map(|sub| base.join(sub)),
+                )
+            })
+            .collect();
+        assert_eq!(socket_dirs(env), expected);
         assert_eq!(socket_dirs(|_| None).len(), 1 + SANDBOX_SUBDIRS.len());
     }
 
