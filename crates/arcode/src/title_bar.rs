@@ -1,5 +1,5 @@
 //! The title bar (docs/DESIGN.md 6.2), drawn on the canvas with no fill of
-//! its own: the spark logo over the rail column, the menu bar, the project
+//! its own: the `</>` logo over the rail column, the menu bar, the project
 //! and branch chips, the search field, and at the right the Paused chip,
 //! the Run split button and the Debug and Settings buttons.
 
@@ -194,7 +194,7 @@ pub fn render(
             })
     });
 
-    // The spark sits centred over the rail column (no tile behind it).
+    // The logo sits centred over the rail column (no tile behind it).
     // The two sides and the search field share the width equally (so the
     // field stays centred) but a side never gets narrower than its content
     // with every label truncated: in a narrow window the field gives way

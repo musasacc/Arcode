@@ -1,5 +1,5 @@
 //! The welcome screen shown when no project is open (docs/DESIGN.md
-//! 6.15): the spark logo and the ways in (Open Folder, New Project, Clone
+//! 6.15): the `</>` logo and the ways in (Open Folder, New Project, Clone
 //! Repository) on the left with the recent projects under them, "Get
 //! going" shortcuts on the right.
 //!

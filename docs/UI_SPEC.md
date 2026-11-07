@@ -59,7 +59,7 @@ section 1):
 
 ```
 canvas ────────────────────────────────────────────────────────────────────
- [spark] project ⌄  ⑂ branch    [ Search files  > commands Ctrl P ]  [▷ Run ⌄] 🐞 ⚙   title bar (40px, no fill)
+ [</>] project ⌄  ⑂ branch    [ Search files  > commands Ctrl P ]  [▷ Run ⌄] 🐞 ⚙   title bar (40px, no fill)
  ┌rail┐ ╭ Files project ─╮ ╭ ◆ tab ×  tab ○  tab ──────── breadcrumb ⧉ … ╮
  │ ▣  │ │ file tree      │ │ editor (split panes share this one panel)   │
  │ ⌕  │ │                │ ╰─────────────────────────────────────────────╯

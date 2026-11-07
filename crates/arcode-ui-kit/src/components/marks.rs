@@ -1,5 +1,5 @@
 //! Small marks of the Ember/Chalk identity (docs/DESIGN.md 1, 2.4, 6.17):
-//! the ember diamond, the unsaved ring, status dots and the spark logo.
+//! the ember diamond, the unsaved ring, status dots and the `</>` logo.
 
 use gpui::{App, Div, Hsla, IntoElement, Pixels, RenderOnce, Window, div, prelude::*, px};
 
@@ -23,7 +23,7 @@ pub fn ember() -> EmberMark {
 }
 
 impl EmberMark {
-    /// Overrides the size (the logo uses a larger spark).
+    /// Overrides the size.
     pub fn size(mut self, size: Pixels) -> Self {
         self.size = size;
         self
@@ -63,7 +63,7 @@ pub fn status_dot(color: Hsla) -> Div {
     div().flex_none().size(px(7.)).rounded_full().bg(color)
 }
 
-/// The spark logo: the arc in `text` with the ember diamond in `accent`,
+/// The logo `</>`: the brackets in `text` with the slash in `accent`,
 /// drawn from two monochrome SVGs stacked in one `size` box (22 in the
 /// title bar, 56 on the welcome screen). No tile behind it.
 #[derive(IntoElement)]
@@ -71,49 +71,25 @@ pub struct Logo {
     size: Pixels,
 }
 
-/// The spark logo at `size`.
+/// The logo at `size`.
 pub fn logo(size: Pixels) -> Logo {
     Logo { size }
-}
-
-/// Where the spark sits in the logo's 24-unit box: `(left, top, side)`.
-/// The diamond `M19.5 14l3 3-3 3-3-3z` spans x 16.5..22.5, y 14..20.
-pub fn logo_spark_box(size: Pixels) -> (Pixels, Pixels, Pixels) {
-    let unit = size / 24.;
-    (unit * 16.5, unit * 14., unit * 6.)
 }
 
 impl RenderOnce for Logo {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let c = &theme(cx).colors;
-        let (left, top, side) = logo_spark_box(self.size);
         div()
             .relative()
             .flex_none()
             .size(self.size)
-            .child(icon(IconName::LogoArc).size(self.size).color(c.text))
+            .child(icon(IconName::LogoBrackets).size(self.size).color(c.text))
             .child(
                 div()
                     .absolute()
-                    .left(left)
-                    .top(top)
-                    .child(ember().size(side)),
+                    .top_0()
+                    .left_0()
+                    .child(icon(IconName::LogoSlash).size(self.size).color(c.accent)),
             )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn spark_sits_below_the_arc_end() {
-        let (left, top, side) = logo_spark_box(px(24.));
-        assert_eq!((left, top, side), (px(16.5), px(14.), px(6.)));
-        let (left, top, side) = logo_spark_box(px(48.));
-        assert_eq!((left, top, side), (px(33.), px(28.), px(12.)));
-        // The spark stays inside the box at every size.
-        let (left, _, side) = logo_spark_box(px(22.));
-        assert!(left + side <= px(22.));
     }
 }

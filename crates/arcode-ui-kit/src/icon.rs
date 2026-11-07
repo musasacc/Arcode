@@ -26,8 +26,9 @@ pub enum IconName {
     CircleDot,
     CirclePlay,
     CircleX,
-    /// `</>`: for code contexts only (the logo is [`IconName::LogoArc`]
-    /// plus [`IconName::Ember`]).
+    /// `</>`: for code contexts (the logo has the same shape but is drawn
+    /// bolder and two-tone from [`IconName::LogoBrackets`] and
+    /// [`IconName::LogoSlash`]).
     CodeXml,
     Columns,
     Command,
@@ -53,9 +54,10 @@ pub enum IconName {
     Lightbulb,
     ListTodo,
     Loader,
-    /// The arc of the Arcode logo (tint it `text`; the spark is
-    /// [`IconName::Ember`]).
-    LogoArc,
+    /// The angle brackets of the Arcode logo `</>` (tint it `text`).
+    LogoBrackets,
+    /// The slash of the Arcode logo `</>` (tint it `accent`).
+    LogoSlash,
     /// Three lines: the menu button of a collapsed menu bar.
     Menu,
     Minus,
@@ -137,7 +139,8 @@ impl IconName {
             Self::Lightbulb => "icons/lightbulb.svg",
             Self::ListTodo => "icons/list-todo.svg",
             Self::Loader => "icons/loader.svg",
-            Self::LogoArc => "icons/logo-arc.svg",
+            Self::LogoBrackets => "icons/logo-brackets.svg",
+            Self::LogoSlash => "icons/logo-slash.svg",
             Self::Menu => "icons/menu.svg",
             Self::Minus => "icons/minus.svg",
             Self::Monitor => "icons/monitor.svg",

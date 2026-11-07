@@ -37,9 +37,8 @@ welcome screen, or the confirm button of a dialog. **Run is not solid**
 while idle: it is an outlined button with an ember play icon.
 Everything else is warm neutrals plus the status colours.
 
-The signature is the **spark**: the logo is the arc of a thrown spark
-that lands as the ember diamond, and that same diamond follows your focus
-around the window. A quieter second signature: every number the app
+The logo is **`</>`**: cream angle brackets with the slash in ember. The
+ember diamond, the other signature, follows your focus around the window. A quieter second signature: every number the app
 reports (Ln/Col, counts, exit codes, durations, memory, line numbers in
 lists) is set in JetBrains Mono, like readings on an instrument.
 
@@ -53,14 +52,14 @@ These rules exist so later changes do not drift back:
   Dark+ / Light+ syntax colours.
 - **Not JetBrains (including the "Islands" look) or Fleet.** Floating
   panels on a canvas are shared structure, so identity must come from
-  the palette, the spark logo, the ember diamond, the mono readouts and
+  the palette, the `</>` logo, the ember diamond, the mono readouts and
   the type. Do not add tool-window stripes or side tool-window buttons
   with text labels, do not use square-cornered tabs with a coloured
   bottom line, do not use Darcula orange keywords.
 - **Not Zed, Sublime or Nova.** No blue-grey flat UI, no Monokai or
   Mariana syntax, no translucent sidebars.
 - **Keep the light theme neutral.** Chalk's canvas is a neutral grey-sand
-  and its accent is amber-brown; the logo is the spark, never a filled tile.
+  and its accent is amber-brown; the logo is the two-tone `</>`, never a filled tile.
 - The syntax palette is checked against 18 dark and 9 light schemes in
   section 3.4; a change to it must keep "near roles" at 1 or less per scheme.
 
@@ -261,7 +260,7 @@ every test run.
 | border_focused vs panel | 3.69 | 5.89 |
 | ember mark on panel | 7.66 | 5.89 |
 | ember mark on pill (active tab) | 5.97 | 5.03 |
-| ember mark / logo spark on canvas | 9.39 | 4.36 |
+| ember mark / logo slash on canvas | 9.39 | 4.36 |
 | accent fill (Continue) vs canvas | 9.39 | 4.36 |
 | rail icon (inactive, text_muted) on canvas | 8.09 | 5.29 |
 | rail icon (active, accent) on pill tile | 5.97 | 5.03 |
@@ -525,7 +524,7 @@ All sizes in px at `ui.font_size = 13`. "Mono" means JetBrains Mono.
 
 ```
 canvas ─────────────────────────────────────────────────────────────────
- [spark] demo ⌄  ⑂ master ~2 +1     [ Search files   > commands Ctrl P ]   [Paused] [▷ Run cargo run ⌄] 🐞 ⚙ │ – □ ×
+ [</>] demo ⌄  ⑂ master ~2 +1     [ Search files   > commands Ctrl P ]   [Paused] [▷ Run cargo run ⌄] 🐞 ⚙ │ – □ ×
  ┌rail┐ ╭ Files demo ─────╮ ╭ ◆ main.rs ×  shapes.rs ○ ──── src › main.rs › fn broken ⧉ … ╮
  │ ▣  │ │ tree            │ │ editor (split panes share this one panel)                 │
  │ ⌕  │ │                 │ ╰───────────────────────────────────────────────────────────╯
@@ -542,15 +541,15 @@ canvas ────────────────────────�
 - Hidden sidebar: the editor panel starts at the rail. Hidden bottom
   panel: the editor panel runs down to the footer.
 - macOS: the traffic lights occupy the rail column and 26 px more; the
-  spark logo is not drawn in the title bar there. Windows: native caption
+  logo is not drawn in the title bar there. Windows: native caption
   buttons at the right, the same 40 px height. Linux with client-side
   decorations: minimize / maximize / close as plain 28 px icon buttons
   after a hairline.
 
 ### 6.2 Title bar (40, on the canvas)
 
-- **Logo:** the spark, 22 px, centred in the rail column. Arc in `text`,
-  diamond in `accent`. No tile.
+- **Logo:** `</>`, 22 px, centred in the rail column. Brackets in `text`,
+  slash in `accent`. No tile.
 - **Menu bar** (Linux and Windows; macOS uses its system menu bar):
   right after the logo, the titles File, Edit, Selection, View, Go, Run,
   Terminal, Git and Help as quiet chips: Inter 13 `text_muted`, 28 tall,
@@ -834,7 +833,7 @@ canvas ────────────────────────�
 - Title bar shows "No project" and the search; no rail.
 - One panel fills the body (6 px canvas around it, not focused-framed).
 - Content block 760 wide, 96 px from the top, two columns (56 px gap):
-  - Left: the spark at 56 px, "Arcode" Inter 28 SemiBold, "A fast, native
+  - Left: the `</>` logo at 56 px, "Arcode" Inter 28 SemiBold, "A fast, native
     code editor" muted. Buttons: **Open Folder…** (Primary, the one solid
     accent block), New Project… and Clone Repository… (Secondary).
     "Pinned" (when any) then "Recent projects", 12 SemiBold; with more
@@ -864,17 +863,17 @@ canvas ────────────────────────�
 
 ### 6.17 Logo and app icon
 
-- Mark: a 24-unit viewBox. Arc `M4 20.5C4.8 11 9 5 13.5 5c3.6 0 5.4 3 5.9 6.2`,
-  stroke 2.6, round caps; spark `M19.5 14l3 3-3 3-3-3z` filled. Two
-  monochrome SVGs so GPUI can tint them separately: `icons/logo-arc.svg`
-  (arc, tinted `text`) and `icons/ember.svg` (diamond, tinted `accent`),
-  stacked in one 22 px box.
-- It is an arc with a landing spark, not a letter C and not a reload arrow
-  (no arrowhead, the spark is detached and below the arc's end). It stays
-  readable at 16 px.
+- Mark: `</>` in a 24-unit viewBox, stroke 2.6, round caps and joins.
+  Brackets `M7.5 7 2.5 12l5 5` and `m16.5 7 5 5-5 5`; slash `M14 4.5 10 19.5`.
+  Two monochrome SVGs so GPUI can tint them separately:
+  `icons/logo-brackets.svg` (tinted `text`) and `icons/logo-slash.svg`
+  (tinted `accent`), stacked in one box.
+- It is bolder than the 1.75-stroke `code-xml` icon used in code contexts,
+  and always two-tone, so the two are not confused. It stays readable at
+  16 px.
 - App icon: an Ember `panel` rounded square (radius 22 %) with a 1 px
-  `border`, the arc in Ember `text`, the spark in `accent`. Never an orange
-  tile.
+  `border`, the brackets in Ember `text`, the slash in `accent`. Never an
+  orange tile. Full-colour files: `assets/logo/`.
 
 ## 7. Where it lives in the code
 
@@ -1308,9 +1307,8 @@ abbreviated: `Str` is `impl Into<SharedString>`, `Id` is
 - `unsaved_ring(color: Option<Hsla>, cx) -> Div`: the 8 px hollow ring,
   1.5 px `accent_alt` (or `color`) stroke.
 - `status_dot(color) -> Div`: a 7 px dot.
-- `logo(size: Pixels) -> Logo`: the spark (arc in `text`, diamond in
+- `logo(size: Pixels) -> Logo`: `</>` (brackets in `text`, slash in
   `accent`); 22 in the title bar, 56 on the welcome screen.
-  `logo_spark_box(size)` gives the diamond's box.
 
 ### Pill tabs (`components/pill_tab.rs`, `components/tab_layout.rs`)
 

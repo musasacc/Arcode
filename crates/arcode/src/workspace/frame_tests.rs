@@ -89,7 +89,7 @@ fn bottom_focused(
 #[gpui::test]
 fn a_click_on_bare_chrome_keeps_the_keys_and_the_frame(cx: &mut TestAppContext) {
     let (_dir, ws, cx) = bottom_focused(cx);
-    // The spark in the title bar, centred over the rail column: no handler.
+    // The logo in the title bar, centred over the rail column: no handler.
     cx.update(|window, cx| window.draw(cx).clear());
     let rail = cx.debug_bounds("rail-toggle-sidebar").expect("rail");
     cx.simulate_click(point(rail.center().x, px(20.)), Modifiers::none());

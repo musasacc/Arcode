@@ -1,4 +1,4 @@
-<!-- Arcode logo: the arc of a thrown spark (the spark is ember.svg). -->
+<!-- Arcode logo, part 2: the slash of `</>` (tinted with the ember accent). -->
 <svg
   xmlns="http://www.w3.org/2000/svg"
   width="24"
@@ -10,5 +10,5 @@
   stroke-linecap="round"
   stroke-linejoin="round"
 >
-  <path d="M4 20.5C4.8 11 9 5 13.5 5c3.6 0 5.4 3 5.9 6.2" />
+  <path d="M14 4.5 10 19.5" />
 </svg>
