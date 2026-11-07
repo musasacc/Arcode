@@ -35,6 +35,7 @@ pub fn setting_value(config: &Config, path: &str) -> Option<Value> {
         "debug" => Value::try_from(&config.debug),
         "files" => Value::try_from(&config.files),
         "plugins" => Value::try_from(&config.plugins),
+        "discord" => Value::try_from(&config.discord),
         _ => return None,
     }
     .ok()?;
@@ -301,6 +302,7 @@ mod tests {
             "search.max_results",
             "todo.tags",
             "plugins.network",
+            "discord.application_id",
         ] {
             assert!(keys.iter().any(|k| k == key), "{key} missing");
         }

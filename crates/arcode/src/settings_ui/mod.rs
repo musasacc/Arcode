@@ -8,6 +8,7 @@
 mod appearance;
 #[cfg(test)]
 mod coverage_tests;
+mod discord;
 mod editor;
 mod filter;
 mod fonts;
@@ -19,6 +20,7 @@ mod plugins;
 mod projects;
 mod rows;
 mod search;
+mod synonyms;
 #[cfg(test)]
 mod tests;
 mod text_parse;
@@ -187,6 +189,7 @@ impl SettingsPage {
                 page.sync_text_fields(cx);
                 cx.notify()
             }),
+            discord::observe_status(cx),
             cx.subscribe(&keymap_filter, |_, _, _: &TextChanged, cx| cx.notify()),
             cx.subscribe(&filter, |page, _, _: &TextChanged, cx| {
                 page.scroll.set_offset(gpui::point(px(0.), px(0.)));
@@ -330,6 +333,11 @@ pub(crate) fn group_title(text: &'static str, cx: &App) -> gpui::Div {
     if filter::active() {
         return div();
     }
+    group_heading(text, cx)
+}
+
+/// A group heading shown also while filtering.
+pub(crate) fn group_heading(text: &'static str, cx: &App) -> gpui::Div {
     div()
         .pt(px(22.))
         .pb(px(2.))

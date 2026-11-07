@@ -35,6 +35,7 @@ arcode-editor.workspace = true
 arcode-completion.workspace = true
 arcode-terminal-view.workspace = true
 arcode-ui-kit.workspace = true
+arcode-presence.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true
 log.workspace = true

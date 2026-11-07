@@ -1,5 +1,5 @@
 //! Workspace: sessions, reopening projects, the projects folder and the
-//! file tree (`[workspace]`).
+//! file tree (`[workspace]`), and the Discord presence (`[discord]`).
 
 use arcode_ui_kit::settings;
 use gpui::{Context, Div, div, prelude::*};
@@ -52,4 +52,5 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             w.watch_files,
             cx,
         ))
+        .child(super::discord::render(page, cx))
 }

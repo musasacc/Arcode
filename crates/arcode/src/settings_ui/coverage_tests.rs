@@ -135,6 +135,31 @@ fn filter_finds_new_rows_and_synonyms(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn filter_finds_every_discord_row_under_its_heading(cx: &mut TestAppContext) {
+    let cx = filtered(cx, "rich presence");
+    for row in [
+        "setting-row-Show in Discord",
+        "setting-row-File name",
+        "setting-row-Project name",
+        "setting-row-Elapsed time",
+        "setting-row-Application ID",
+    ] {
+        assert!(cx.debug_bounds(row).is_some(), "{row}");
+    }
+    assert!(
+        cx.debug_bounds("setting-group-discord").is_some(),
+        "heading"
+    );
+    assert!(cx.debug_bounds("setting-row-Tab size").is_none());
+}
+
+#[gpui::test]
+fn filter_hides_the_discord_heading_without_a_match(cx: &mut TestAppContext) {
+    let cx = filtered(cx, "caret");
+    assert!(cx.debug_bounds("setting-group-discord").is_none());
+}
+
+#[gpui::test]
 fn filter_searches_the_new_sections(cx: &mut TestAppContext) {
     let cx = filtered(cx, "todo.tags");
     assert!(cx.debug_bounds("setting-row-Tags").is_some());

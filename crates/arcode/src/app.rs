@@ -91,6 +91,7 @@ pub fn run() {
             arcode_ui_kit::set_settings(config, cx);
             theme_sync::init(cx);
             theme_sync::apply(cx.window_appearance(), cx);
+            crate::presence::init(cx);
             app_state::init(cx);
             arcode_editor::init(cx);
             crate::vim_glue::init(cx);
@@ -148,6 +149,7 @@ pub fn run() {
             .detach();
 
             let opened = open_startup_windows(target, cx);
+            crate::presence::start(cx);
             if opened == 0 {
                 log::error!("failed to open the main window");
                 cx.quit();

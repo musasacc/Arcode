@@ -1,0 +1,14 @@
+[package]
+name = "arcode-presence"
+description = "Discord Rich Presence over the local Discord IPC socket: frames, activity and a background client."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+serde_json.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

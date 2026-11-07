@@ -69,6 +69,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        crate::presence::touch(cx);
         let Some(resizing) = self.resizing else {
             return;
         };
@@ -333,6 +334,7 @@ impl Render for Workspace {
                 })
             })
             .on_mouse_move(cx.listener(Self::on_mouse_move))
+            .child(crate::presence::input_watcher())
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|ws, _, _, cx| {

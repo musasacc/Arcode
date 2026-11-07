@@ -213,7 +213,7 @@ impl Render for Welcome {
                     .pt(px(18.))
                     .text_size(scale.meta)
                     .text_color(c.text_muted)
-                    .child("No account, no telemetry. Everything stays on this machine."),
+                    .child("No account, no telemetry. Nothing leaves this machine unless you ask."),
             );
 
         let main = div()

@@ -28,6 +28,7 @@ pub mod picker_frame;
 #[cfg(feature = "plugins")]
 pub mod plugins;
 pub mod prefs;
+pub mod presence;
 pub mod problems;
 pub mod project;
 pub mod prompt;

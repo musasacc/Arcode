@@ -7,6 +7,7 @@
 
 mod completion;
 mod debug;
+mod discord;
 pub mod edit;
 pub mod edit_value;
 mod files;
@@ -35,6 +36,7 @@ use crate::paths;
 
 pub use completion::CompletionSettings;
 pub use debug::DebugSettings;
+pub use discord::DiscordSettings;
 pub use edit_value::{Guard, PRESET_MARK, SettingEdit, SettingValue, apply_edits};
 pub use files::FilesSettings;
 pub use git::GitSettings;
@@ -88,6 +90,8 @@ pub struct Config {
     pub files: FilesSettings,
     /// `[plugins]`
     pub plugins: PluginSettings,
+    /// `[discord]`
+    pub discord: DiscordSettings,
     /// `[language.<id>]`, keyed by language id (e.g. `rust`). Ids read from
     /// TOML are lowercased.
     #[serde(rename = "language")]
@@ -109,6 +113,7 @@ impl Default for Config {
             debug: DebugSettings::default(),
             files: FilesSettings::default(),
             plugins: PluginSettings::default(),
+            discord: DiscordSettings::default(),
             languages: builtin_languages(),
             lsp: builtin_servers(),
         }
@@ -278,6 +283,7 @@ impl Config {
                 "debug" => apply_table(&mut self.debug, value, "debug", warnings),
                 "files" => apply_table(&mut self.files, value, "files", warnings),
                 "plugins" => apply_table(&mut self.plugins, value, "plugins", warnings),
+                "discord" => apply_table(&mut self.discord, value, "discord", warnings),
                 "language" => self.apply_languages(value, warnings),
                 "lsp" => self.apply_servers(value, warnings),
                 other => warnings.push(format!("unknown section `{other}` (ignored)")),
@@ -291,6 +297,7 @@ impl Config {
         self.todo.validate(warnings);
         self.workspace.validate(warnings);
         self.files.validate(warnings);
+        self.discord.validate(warnings);
         presets::apply_low_end_defaults(self, table);
     }
 
@@ -378,7 +385,7 @@ fn for_each_entry(
 }
 
 /// Every key understood in each fixed section, for documentation checks.
-pub fn known_keys() -> [(&'static str, &'static [&'static str]); 13] {
+pub fn known_keys() -> [(&'static str, &'static [&'static str]); 14] {
     [
         ("editor", EditorSettings::KEYS),
         ("editor.completion", CompletionSettings::KEYS),
@@ -391,6 +398,7 @@ pub fn known_keys() -> [(&'static str, &'static [&'static str]); 13] {
         ("debug", DebugSettings::KEYS),
         ("files", FilesSettings::KEYS),
         ("plugins", PluginSettings::KEYS),
+        ("discord", DiscordSettings::KEYS),
         ("language.<id>", LanguageSettings::KEYS),
         ("lsp.<name>", LspServerSettings::KEYS),
     ]

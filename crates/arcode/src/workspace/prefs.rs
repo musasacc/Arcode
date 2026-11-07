@@ -52,6 +52,9 @@ impl Workspace {
                 cx,
             );
         }))
+        .on_action(
+            cx.listener(|ws, _: &ToggleDiscordPresence, _, cx| ws.toggle_discord_presence(cx)),
+        )
         .on_action(cx.listener(|ws, _: &StartTour, window, cx| ws.start_tour(window, cx)))
         .on_action(cx.listener(
             |ws, _: &crate::theme_editor::EditCurrentTheme, window, cx| {
@@ -61,6 +64,28 @@ impl Workspace {
         .on_action(
             cx.listener(|ws, _: &ShowWelcomeSetup, window, cx| ws.show_first_run(window, cx)),
         )
+    }
+
+    /// Flips `discord.enabled` in `config.toml`; the presence follows the
+    /// settings once they are reloaded.
+    fn toggle_discord_presence(&mut self, cx: &mut Context<Self>) {
+        let discord = &settings(cx).discord;
+        let on = !discord.enabled;
+        let has_id = crate::presence::settings_of(discord)
+            .effective_application_id()
+            .is_some();
+        let edit = arcode_config::SettingEdit::set("discord.enabled", on);
+        write_and_report(vec![edit], cx.weak_entity(), cx);
+        self.show_toast(
+            match (on, has_id) {
+                (true, true) => "Discord Rich Presence on",
+                (true, false) => {
+                    "Discord Rich Presence on; it needs an application ID (Settings → Workspace)"
+                }
+                (false, _) => "Discord Rich Presence off",
+            },
+            cx,
+        );
     }
 
     /// Shows the Settings page tab (activating it where it is open).

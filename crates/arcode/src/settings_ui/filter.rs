@@ -13,6 +13,7 @@ use arcode_ui_kit::metrics::{WEIGHT_SEMIBOLD, icon_size, type_scale};
 use arcode_ui_kit::{IconName, button, icon, icon_button, input_frame, theme};
 use gpui::{Context, Focusable, SharedString, Window, div, prelude::*, px};
 
+use super::synonyms::synonyms;
 use super::widgets::{RowKey, keyed_setting_row};
 use super::{Section, SettingsEvent, SettingsPage};
 
@@ -27,40 +28,6 @@ thread_local! {
     static DRAWN_KEYS: RefCell<Option<std::collections::BTreeSet<String>>> =
         const { RefCell::new(None) };
 }
-
-/// Other words people use for a setting, matched like its label.
-const SYNONYMS: &[(&str, &str)] = &[
-    ("ui.theme", "colour color scheme dark light"),
-    ("ui.font_size", "zoom scale interface"),
-    ("ui.low_end_mode", "performance slow battery power saving"),
-    ("editor.font_size", "zoom text"),
-    ("editor.word_wrap", "soft wrap line wrap"),
-    ("editor.minimap", "overview"),
-    ("editor.cursor_blink", "caret"),
-    ("editor.show_line_numbers", "gutter"),
-    ("editor.insert_spaces", "indent indentation soft tabs"),
-    (
-        "editor.keymap",
-        "vim bindings shortcuts modal editor.vim_mode",
-    ),
-    ("editor.format_on_save", "formatter prettier rustfmt black"),
-    ("editor.inlay_hints", "types parameter names"),
-    ("editor.inline_diagnostics", "errors warnings problems lens"),
-    (
-        "editor.fade_unused",
-        "dim grey gray opacity strikethrough strike deprecated",
-    ),
-    (
-        "editor.completion.auto_trigger",
-        "autocomplete intellisense suggestions",
-    ),
-    ("git.inline_blame", "annotate author"),
-    ("terminal.shell", "bash zsh fish powershell cmd"),
-    ("search.exclude", "ignore skip globs"),
-    ("todo.tags", "fixme hack note"),
-    ("workspace.confirm_delete", "trash remove"),
-    ("plugins.network", "internet http offline"),
-];
 
 /// Settings without a row of their own (tables of patterns or adapters):
 /// the filter finds them by key, label or note and points to
@@ -83,14 +50,6 @@ pub(crate) const ELSEWHERE: &[(&str, &str, &str)] = &[
     ),
 ];
 
-/// The synonyms of the setting at `key` (empty when it has none).
-pub(crate) fn synonyms(key: &str) -> &'static str {
-    SYNONYMS
-        .iter()
-        .find(|(k, _)| *k == key)
-        .map_or("", |(_, words)| words)
-}
-
 /// The lower-case words of `query` (empty when it is blank).
 pub(crate) fn words(query: &str) -> Vec<String> {
     query.split_whitespace().map(str::to_lowercase).collect()
@@ -106,7 +65,8 @@ pub(crate) fn row_matches(
     key: Option<&str>,
 ) -> bool {
     let key = key.unwrap_or("");
-    let text = format!("{label} {description} {key} {}", synonyms(key)).to_lowercase();
+    let (own, group) = synonyms(key);
+    let text = format!("{label} {description} {key} {own} {group}").to_lowercase();
     words.iter().all(|w| text.contains(w.as_str()))
 }
 
@@ -131,6 +91,11 @@ impl Drop for Scope {
     fn drop(&mut self) {
         QUERY.with(|q| q.borrow_mut().take());
     }
+}
+
+/// Rows admitted so far in this draw (without resetting the count).
+pub(crate) fn hits() -> usize {
+    HITS.with(Cell::get)
 }
 
 /// Whether a filter is active (group headings and decorations hide then).
@@ -356,7 +321,7 @@ mod tests {
         }
         // Synonyms belong to a key: a row without one has none.
         assert!(!row_matches(&words("caret"), "Cursor blink", "", None));
-        for (key, words) in SYNONYMS {
+        for (key, words) in super::super::synonyms::SYNONYMS {
             assert!(key.contains('.') && !words.is_empty(), "{key}");
         }
     }

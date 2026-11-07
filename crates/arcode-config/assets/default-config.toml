@@ -198,6 +198,21 @@ adapter_paths = {}
 # contacts a host for the first time.
 network = true
 
+[discord]
+# Discord Rich Presence: show what you are working on in your Discord status
+# ("Editing a Rust file"). Arcode only talks to the Discord app running on
+# this machine, which shows it to your Discord friends. Off by default.
+enabled = false
+# Show the active file's name instead of only its language.
+show_file_name = false
+# Show the project's folder name.
+show_project_name = false
+# Show how long the current project has been open.
+show_elapsed = true
+# Discord application ID (from the Discord developer portal). Empty: Arcode's
+# built-in application, when there is one.
+application_id = ""
+
 # Per-language settings. Built-in assignments:
 #   rust -> rust-analyzer, typescript/javascript (and their React variants)
 #   -> typescript-language-server, python -> pyright-langserver,

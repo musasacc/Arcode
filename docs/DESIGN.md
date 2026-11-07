@@ -851,7 +851,7 @@ canvas ────────────────────────�
   - Right (250, 96 px lower): "Get going" with shortcut rows 32 tall and
     hairlines (Open folder, Find file, Commands, New window, Toggle
     terminal, Settings) and a muted note "No account, no telemetry.
-    Everything stays on this machine."
+    Nothing leaves this machine unless you ask."
 - Footer: only memory at the right.
 
 ### 6.16 First run and tour

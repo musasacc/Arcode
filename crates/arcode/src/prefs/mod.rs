@@ -33,6 +33,8 @@ actions!(
         SelectTerminalFont,
         /// Turns low-end mode on or off.
         ToggleLowEndMode,
+        /// Turns Discord Rich Presence on or off (`discord.enabled`).
+        ToggleDiscordPresence,
         /// Starts the interactive tour of the workspace.
         StartTour,
         /// Shows the first-run setup dialog again.
@@ -60,6 +62,10 @@ pub fn commands() -> Vec<(&'static str, Box<dyn gpui::Action>)> {
         (
             "Preferences: Toggle Low-End Mode",
             Box::new(ToggleLowEndMode),
+        ),
+        (
+            "Preferences: Toggle Discord Rich Presence",
+            Box::new(ToggleDiscordPresence),
         ),
         ("Help: Start Tour", Box::new(StartTour)),
         ("Help: Show Welcome Setup", Box::new(ShowWelcomeSetup)),

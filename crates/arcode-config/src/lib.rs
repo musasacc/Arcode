@@ -20,12 +20,12 @@ mod fsutil;
 mod lenient;
 
 pub use config::{
-    CompletionSettings, Config, DebugSettings, EditorSettings, FilesSettings, FirstRunChoices,
-    GitSettings, InlineDiagnostics, Keymap, LanguageSettings, LspFeatures, LspServerSettings,
-    NamedServer, PluginSettings, SearchSettings, SettingEdit, SettingValue, TEXT_CONTRAST_ENV,
-    TEXT_GAMMA_ENV, TEXT_RENDERING_OUTER_ENV, TEXT_RENDERING_TUNABLE, TerminalSettings,
-    TextRenderingEnv, ThemeChoice, TodoSettings, UiSettings, WorkspaceSettings, apply_edits,
-    keymap_edits, low_end_edits,
+    CompletionSettings, Config, DebugSettings, DiscordSettings, EditorSettings, FilesSettings,
+    FirstRunChoices, GitSettings, InlineDiagnostics, Keymap, LanguageSettings, LspFeatures,
+    LspServerSettings, NamedServer, PluginSettings, SearchSettings, SettingEdit, SettingValue,
+    TEXT_CONTRAST_ENV, TEXT_GAMMA_ENV, TEXT_RENDERING_OUTER_ENV, TEXT_RENDERING_TUNABLE,
+    TerminalSettings, TextRenderingEnv, ThemeChoice, TodoSettings, UiSettings, WorkspaceSettings,
+    apply_edits, keymap_edits, low_end_edits,
 };
 pub use state::{
     AppState, FileSession, LayoutSession, PaneSession, ProjectSession, RecentProject,

@@ -14,7 +14,8 @@ runs well on laptops with integrated graphics.
   Anything that does go online (a plugin request, a package update check)
   only happens when you click for it.
 - **No telemetry, no account.** There is nothing to sign in to and nothing
-  is reported anywhere.
+  is reported anywhere, unless you turn on Discord presence, which tells
+  your local Discord app what you are editing.
 
 Arcode is in early development (version 0.0.1). There are no prebuilt
 releases yet, so for now you build it from source. It runs on Linux, macOS
@@ -185,6 +186,10 @@ See [docs/DEBUGGING.md](docs/DEBUGGING.md) for details.
   [Text rendering](docs/guide/themes.md#text-rendering)).
 - A short first-run setup (theme, font, keymap, performance) and an
   optional guided tour.
+- Optional Discord presence ("Editing a Rust file"), off by default: it
+  talks only to the Discord app on your computer, and file and project
+  names are shown only if you allow them (see
+  [Discord presence](docs/guide/discord.md)).
 - A menu bar with every command and its shortcut: File, Edit, Selection,
   View, Go, Run, Terminal, Git and Help, opened by click or Alt+letter,
   folding into one menu button in narrow windows (the system menu bar on
@@ -570,6 +575,12 @@ Git operations stay local; Arcode never fetches, pulls or pushes. The
 one exception is **Clone Repository**, which runs `git clone` when you
 click Clone.
 
+**Discord presence** is off by default. Once you turn it on, Arcode tells
+the Discord app on your computer what you are editing (file and project
+names only if you allow them), and Discord shows it to your friends.
+Arcode itself makes no network connection for it. See
+[Discord presence](docs/guide/discord.md).
+
 Settings, session state and plugin permissions are stored only in your
 user config and data folders, never in the project. A file inside a
 repository cannot install, enable or grant permissions to a plugin.
@@ -638,6 +649,7 @@ and a sidebar panel. Copy it and change it. The two bundled plugins in
 | `crates/arcode-config` | `config.toml`, themes, fonts and saved state |
 | `crates/arcode-ui-kit` | Shared UI layer: theme, metrics, icons, components |
 | `crates/arcode-vim` | Vim mode state machine |
+| `crates/arcode-presence` | Discord presence over the local Discord IPC socket (no network) |
 | `crates/arcode-plugin-api` | Plugin SDK and WIT interface for plugin authors |
 | `crates/arcode-plugin-host` | Sandboxed WebAssembly plugin host (wasmtime) |
 | `crates/arcode-spike` | Standalone benchmark: scrolls a 100k-line file and reports frame times |

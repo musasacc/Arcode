@@ -235,6 +235,18 @@ Debug adapters are never downloaded; install them yourself. See
 
 See [Plugins](plugins.md) and [Privacy](privacy.md).
 
+## `[discord]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | Show what you are working on in your Discord status. Arcode only talks to the Discord app on this computer. |
+| `show_file_name` | `false` | "Editing main.rs" instead of "Editing a Rust file". Only the active editor's file name, never a path. |
+| `show_project_name` | `false` | "In my-app" (the project folder's name). Off: the project is never named. |
+| `show_elapsed` | `true` | Show the time since the current project was opened. |
+| `application_id` | `""` | The Discord application the status belongs to (from the Discord developer portal). Empty: Arcode's built-in application; there is none yet, so presence needs an ID for now. |
+
+See [Discord presence](discord.md).
+
 ## `[language.<id>]`
 
 Per-language settings, keyed by language id (`rust`, `python`,

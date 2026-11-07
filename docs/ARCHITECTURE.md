@@ -24,6 +24,7 @@ that is not drawing lives in small, UI-agnostic crates with their own tests.
 | `arcode-terminal`      | no  | PTY + VT emulation (alacritty_terminal), grid snapshots, key encoding |
 | `arcode-config`        | no  | TOML config, themes (TOML), fonts, persisted state (recent projects, session) |
 | `arcode-git`           | no  | local git (branch, status, diff, blame, stage/unstage hunks, commit, conflicts) via the `git` CLI / `.git` files; never fetches |
+| `arcode-presence`      | no  | Discord Rich Presence: IPC frames, activity JSON and privacy rules, one background thread with rate limit and retries; local socket or pipe only |
 | `arcode-editor`        | yes | `EditorView`: GPUI element that renders an `arcode-buffer` with highlights, diagnostics, cursor |
 | `arcode-terminal-view` | yes | `TerminalView`: GPUI view rendering an `arcode-terminal` grid and forwarding input |
 | `arcode`               | yes | the app binary: workspace shell (title bar, activity bar, sidebar, panes, panels, status bar), welcome screen, wiring |
@@ -1131,6 +1132,49 @@ no frame over 30 s; a sidebar toggle draws about 6 frames with animations
 and 1 to 2 in low-end mode. The memory sampler reads `/proc` on the
 background executor every 2 s, redraws only when the shown MiB value
 changes, and starts or stops when `ui.show_perf_stats` changes.
+
+## Discord presence
+
+Off by default (`[discord]`, docs/guide/discord.md). `arcode-presence`
+holds everything that is not GPUI: the frame format (opcode and length as
+little-endian u32, then JSON), the endpoints (`discord-ipc-0..9` in
+`$XDG_RUNTIME_DIR`, `$TMPDIR`, `$TMP`, `$TEMP` or `/tmp` and their Flatpak
+and Snap sub-folders; `\\.\pipe\discord-ipc-N` on Windows, read only as
+far as `PeekNamedPipe` reports and written in `PIPE_NOWAIT` mode), the
+handshake and ping answers (`client.rs`), the
+activity built from a `Shown` value and the privacy switches
+(`activity.rs`: only a file's base name and the project folder's name can
+appear, each only when allowed; text is cut to 128 chars), and
+`engine.rs`, a state machine that takes the time as an argument: at most
+one `SET_ACTIVITY` per 15 s, always ending with the latest state;
+connection attempts every 30 s while Discord is absent (turning the
+presence on or changing the application ID tries at once); a null
+activity and a close when turned off; "Idle" after 5 minutes without
+input. Every client operation (handshake, check, update, close) ends
+within the answer timeout through a per-operation deadline on the
+stream, so a silent, flooding or half-written Discord never holds the
+thread; a check reads at most 16 frames.
+
+`Presence` (the handle) starts one thread the first time the presence is
+turned on with an application ID (`DEFAULT_APPLICATION_ID` is empty until
+the project registers one, so an empty setting means no thread and no
+connection attempt). The handle sends a message only when the settings or
+the shown value change; input stamps an atomic (`Presence::touch`), and
+only input after "Idle" wakes the thread. The thread sleeps on its channel
+until the next due time. It reports its `Status` (off, waiting, refused
+ID, connected) through a callback only when that changes.
+
+In the app, `presence.rs` follows the `Settings` global, intercepts
+keystrokes, the workspace's mouse moves and (in the capture phase, since
+editors stop them) scrolls and clicks for the input time, and each
+workspace reports its view on `ProjectChanged`, `ActiveEditorChanged` and
+window activation; the window that reported last stays the source until
+another one is activated. Nothing here notifies a view or redraws, except
+that a status change sets the `DiscordStatus` global, which the Settings
+page observes (the Application ID row says when Discord refused the ID).
+On quit the activity is cleared (the quit waits up to GPUI's
+`SHUTDOWN_TIMEOUT`, 100 ms, on the background executor; past that the
+socket closes with the process and Discord drops the activity).
 
 ## Minimap
 

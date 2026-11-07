@@ -20,6 +20,7 @@ day to day.
 | [Packages](packages.md) | The Packages view and the package managers it supports |
 | [Plugins](plugins.md) | Installing, enabling and trusting plugins |
 | [Low-end mode](low-end-mode.md) | Settings for older and slower machines |
+| [Discord presence](discord.md) | Showing what you are editing in your Discord status (off by default) |
 | [Privacy](privacy.md) | Exactly what can use the network, and when |
 | [Troubleshooting](troubleshooting.md) | Logs and common problems |
 

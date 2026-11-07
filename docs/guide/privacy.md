@@ -11,7 +11,11 @@ them would otherwise make, including schemas a YAML, JSON or TOML file
 links to (see [Server settings](languages.md#server-settings)).
 
 Everything that can use the network does so only as a direct result of
-something you do. This page lists all of it.
+something you do. This page lists all of it. The one thing Arcode can
+share without a click, once you turn it on, is your
+[Discord presence](#discord-presence): Arcode hands it to the Discord app
+on your computer, and the Discord app sends it to Discord's servers so
+your Discord friends can see it.
 
 ## Things Arcode itself starts, only when you ask
 
@@ -43,6 +47,20 @@ something you do. This page lists all of it.
 
 The two bundled plugins: the **HTTP Client** sends only the requests you
 click "Send" for. The **Database Viewer** never uses the network.
+
+## Discord presence
+
+Off by default. When you turn it on (`[discord] enabled = true`, the
+switch in Settings → Workspace, or **Preferences: Toggle Discord Rich
+Presence**), Arcode tells the Discord app running on your computer, over
+its local socket or pipe, what you are doing: "Editing a Rust file",
+"Browsing files", "Choosing a project" or "Idle", the Arcode logo and the
+file's language icon, and how long the project has been open
+(`show_elapsed`). The file's name (`show_file_name`) and the project
+folder's name (`show_project_name`) are sent only if you turn them on.
+Paths, file contents, branch names and other files' names are never
+sent. Discord then shows this to your Discord friends. Arcode itself
+makes no network connection for it. See [Discord presence](discord.md).
 
 ## Programs you run
 

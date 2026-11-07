@@ -193,6 +193,7 @@ dependencies = [
  "arcode-git",
  "arcode-lsp",
  "arcode-plugin-host",
+ "arcode-presence",
  "arcode-project",
  "arcode-search",
  "arcode-syntax",
@@ -338,6 +339,15 @@ dependencies = [
  "ureq",
  "wasmtime",
  "wasmtime-wasi",
+]
+
+[[package]]
+name = "arcode-presence"
+version = "0.0.1"
+dependencies = [
+ "log",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

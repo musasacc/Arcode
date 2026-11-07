@@ -88,6 +88,8 @@ mod prefs_pickers;
 mod prefs_regression_tests;
 #[cfg(test)]
 mod prefs_tests;
+#[cfg(test)]
+mod presence_tests;
 mod project_menu;
 mod projects;
 mod reload;
@@ -276,6 +278,7 @@ impl Workspace {
         let (git, git_subs) = git::GitParts::new(window, cx);
         subscriptions.extend(git_subs);
         subscriptions.push(crate::navigation::Navigator::track(cx));
+        subscriptions.extend(crate::presence::track(window, cx));
         subscriptions.push(Self::subscribe_refactor(&lsp, window, cx));
         let (features, feature_subs) = features::Features::new(&bottom_panel, window, cx);
         subscriptions.extend(feature_subs);

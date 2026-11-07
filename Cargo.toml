@@ -30,6 +30,7 @@ arcode-project = { path = "crates/arcode-project" }
 arcode-vim = { path = "crates/arcode-vim" }
 arcode-plugin-api = { path = "crates/arcode-plugin-api" }
 arcode-plugin-host = { path = "crates/arcode-plugin-host" }
+arcode-presence = { path = "crates/arcode-presence" }
 
 ropey = "1.6.1"
 tree-sitter = "0.25"

@@ -28,10 +28,12 @@ pub(crate) enum TextKind {
     /// Command arguments, separated by spaces; `"…"` or `'…'` keeps
     /// spaces in one.
     Args,
+    /// A string whose default is empty; an empty field writes `""`.
+    Text,
 }
 
 /// The text settings: key, kind and the placeholder of an empty field.
-const TEXT_SETTINGS: [(&str, TextKind, &str); 6] = [
+const TEXT_SETTINGS: [(&str, TextKind, &str); 7] = [
     ("terminal.shell", TextKind::Optional, SHELL_PLACEHOLDER),
     ("terminal.args", TextKind::Args, "No arguments"),
     (
@@ -42,7 +44,14 @@ const TEXT_SETTINGS: [(&str, TextKind, &str); 6] = [
     ("search.exclude", TextKind::List, "e.g. *.min.js, dist"),
     ("todo.tags", TextKind::List, "No tags"),
     ("editor.font_fallbacks", TextKind::List, "No fallback fonts"),
+    ("discord.application_id", TextKind::Text, APP_ID_PLACEHOLDER),
 ];
+
+const APP_ID_PLACEHOLDER: &str = if arcode_presence::DEFAULT_APPLICATION_ID.is_empty() {
+    "Discord application ID"
+} else {
+    "Arcode's own"
+};
 
 const SHELL_PLACEHOLDER: &str = if cfg!(windows) {
     "PowerShell (default)"
@@ -117,7 +126,7 @@ pub(crate) fn shown(config: &Config, path: &str, kind: TextKind) -> String {
             .unwrap_or_default()
     };
     match kind {
-        TextKind::Optional => value
+        TextKind::Optional | TextKind::Text => value
             .as_ref()
             .and_then(|v| v.as_str())
             .unwrap_or_default()
@@ -134,6 +143,7 @@ pub(crate) fn edit_for(path: &str, kind: TextKind, text: &str) -> SettingEdit {
         TextKind::Optional => SettingEdit::set(path, text.trim()),
         TextKind::List => SettingEdit::set(path, SettingValue::List(split_list(text))),
         TextKind::Args => SettingEdit::set(path, SettingValue::List(split_args(text))),
+        TextKind::Text => SettingEdit::set(path, text.trim()),
     }
 }
 
@@ -336,6 +346,16 @@ mod tests {
         assert_eq!(
             edit_for("terminal.shell", TextKind::Optional, " fish "),
             SettingEdit::set("terminal.shell", "fish")
+        );
+        // Emptied, a text setting keeps its key (its default is "").
+        assert_eq!(
+            edit_for("discord.application_id", TextKind::Text, " "),
+            SettingEdit::set("discord.application_id", "")
+        );
+        let (config, _) = Config::from_toml_str("[discord]\napplication_id = \"42\"\n");
+        assert_eq!(
+            shown(&config, "discord.application_id", TextKind::Text),
+            "42"
         );
         for (path, kind, _) in TEXT_SETTINGS {
             // Every text setting is a key the configuration knows.
