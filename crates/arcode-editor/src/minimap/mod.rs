@@ -74,6 +74,8 @@ pub(crate) struct MinimapState {
     pub hovered: bool,
     /// Window y of the mouse while it is over the minimap.
     pub hover_y: Option<Pixels>,
+    /// The window's hover state seen at the last frame (Windows only).
+    window_hovered: bool,
     /// The hover preview drawn in the last frame.
     preview: Option<preview::PreviewPlan>,
     /// The tiles of the minimap's view, kept between frames.

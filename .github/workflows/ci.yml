@@ -105,9 +105,9 @@ jobs:
         id: test
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
-            python3 -I scripts/check-test-leaks.py cargo test --workspace --locked
+            python3 -I scripts/check-test-leaks.py cargo test --workspace --locked --no-fail-fast
           else
-            cargo test --workspace --locked
+            cargo test --workspace --locked --no-fail-fast
           fi
       # Lints and formatting are reported even when tests fail.
       - name: Clippy

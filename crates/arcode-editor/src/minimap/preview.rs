@@ -99,10 +99,17 @@ pub(crate) fn defer_minimap_preview(
 ) {
     let dragging = matches!(editor.drag, Some(DragState::Minimap(_)));
     // Windows reports the mouse leaving the window only as the window's
-    // hover state (with a redraw), not as a mouse exit event.
-    let in_window = !cfg!(target_os = "windows") || window.is_window_hovered();
+    // hover state turning off (with a redraw), not as a mouse exit event.
+    if cfg!(target_os = "windows") {
+        let now = window.is_window_hovered();
+        if editor.minimap.window_hovered && !now {
+            editor.minimap.hovered = false;
+            editor.minimap.hover_y = None;
+        }
+        editor.minimap.window_hovered = now;
+    }
     let plan = match editor.minimap.hover_y {
-        Some(y) if editor.minimap.hovered && !dragging && in_window => preview_plan(
+        Some(y) if editor.minimap.hovered && !dragging => preview_plan(
             layout,
             y,
             editor.buffer.line_count(),
