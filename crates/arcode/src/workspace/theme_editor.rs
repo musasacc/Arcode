@@ -5,6 +5,7 @@
 use std::path::Path;
 use std::rc::Rc;
 
+use arcode_config::Theme;
 use arcode_editor::{Editor, EditorEvent};
 use arcode_ui_kit::IconName;
 use gpui::{App, AppContext, Context, Entity, Focusable, Window, WindowAppearance};
@@ -18,19 +19,34 @@ impl Workspace {
     /// Shows the theme editor tab (activating it where it is open), or
     /// opens it on the theme in use.
     pub fn open_theme_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_theme_editor_on(None, window, cx);
+    }
+
+    /// Shows the theme editor tab on `theme` (a theme just made; the open
+    /// page asks first when it has unsaved edits), or, with `None`, as
+    /// [`Workspace::open_theme_editor`].
+    pub(super) fn open_theme_editor_on(
+        &mut self,
+        theme: Option<Theme>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.project_menu_open = false;
         self.close_prefs_picker(true, window, cx);
         for (ix, pane) in self.panes.clone().into_iter().enumerate() {
             if let Some(page_ix) = pane.read(cx).page_position(PAGE_KEY) {
                 self.active_pane = ix;
                 pane.update(cx, |pane, cx| pane.activate_page(page_ix, window, cx));
+                if let (Some(theme), Some(editor)) = (theme, self.prefs.theme_editor.clone()) {
+                    editor.update(cx, |e, cx| e.start_from(theme, window, cx));
+                }
                 return;
             }
         }
         if let Some(old) = self.prefs.theme_editor.take() {
             set_close_guard(old.entity_id(), None, cx);
         }
-        let theme = configured_theme(window, cx);
+        let theme = theme.unwrap_or_else(|| configured_theme(window, cx));
         let editor = cx.new(|cx| ThemeEditor::new(theme, cx));
         let sub = cx.subscribe_in(
             &editor,

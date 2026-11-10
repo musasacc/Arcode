@@ -9,7 +9,8 @@ use crate::lenient::impl_section;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GitSettings {
-    /// Show added / modified / deleted bars in the editor gutter.
+    /// Show added / modified / deleted bars in the editor gutter and the
+    /// minimap. Off by default.
     pub gutter: bool,
     /// Show who last changed the cursor line at its end.
     pub inline_blame: bool,
@@ -20,7 +21,7 @@ pub struct GitSettings {
 impl Default for GitSettings {
     fn default() -> Self {
         Self {
-            gutter: true,
+            gutter: false,
             inline_blame: true,
             inline_blame_delay_ms: 500,
         }
@@ -57,9 +58,11 @@ mod tests {
         let (config, warnings) =
             Config::from_toml_str("[git]\ninline_blame = false\ninline_blame_delay_ms = 99999\n");
         assert!(!config.git.inline_blame);
-        assert!(config.git.gutter);
+        assert!(!config.git.gutter, "change bars are off by default");
         assert_eq!(config.git.inline_blame_delay_ms, 10_000);
         assert_eq!(warnings.len(), 1, "{warnings:?}");
         assert_eq!(Config::default().git.inline_blame_delay_ms, 500);
+        let (config, _) = Config::from_toml_str("[git]\ngutter = true\n");
+        assert!(config.git.gutter);
     }
 }

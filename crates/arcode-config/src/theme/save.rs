@@ -97,8 +97,19 @@ pub fn validate_theme_name(name: &str) -> Result<String, SaveError> {
 /// key, else its file stem), the last one in path order as the loader
 /// keeps the last. `None` when no file does or `dir` cannot be read.
 pub fn find_user_theme_file(dir: &Path, name: &str) -> Option<PathBuf> {
-    let mut paths: Vec<PathBuf> = fs::read_dir(dir)
-        .ok()?
+    user_theme_files(dir)
+        .into_iter()
+        .rev()
+        .find_map(|(path, n)| (n == name).then_some(path))
+}
+
+/// Every `*.toml` file in `dir` that parses, with the name of the theme it
+/// defines (its `name` key, else its file stem), in path order.
+pub(crate) fn user_theme_files(dir: &Path) -> Vec<(PathBuf, String)> {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut paths: Vec<PathBuf> = entries
         .filter_map(|entry| entry.ok().map(|e| e.path()))
         .filter(|p| {
             p.extension()
@@ -107,14 +118,17 @@ pub fn find_user_theme_file(dir: &Path, name: &str) -> Option<PathBuf> {
         })
         .collect();
     paths.sort();
-    paths.into_iter().rev().find(|path| {
-        let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned());
-        fs::read_to_string(path)
-            .ok()
-            .and_then(|source| parse::parse_table(&source).ok())
-            .and_then(|table| parse::theme_name(&table, stem.as_deref()))
-            .is_some_and(|n| n == name)
-    })
+    paths
+        .into_iter()
+        .filter_map(|path| {
+            let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned());
+            let name = fs::read_to_string(&path)
+                .ok()
+                .and_then(|source| parse::parse_table(&source).ok())
+                .and_then(|table| parse::theme_name(&table, stem.as_deref()))?;
+            Some((path, name))
+        })
+        .collect()
 }
 
 /// Where a theme is written.

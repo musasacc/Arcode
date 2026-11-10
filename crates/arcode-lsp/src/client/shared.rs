@@ -17,6 +17,9 @@ use crate::rpc;
 
 type PendingSender = oneshot::Sender<Result<Value>>;
 
+/// How long an exited server's stderr is read before it is reported.
+const STDERR_GRACE: Duration = Duration::from_millis(500);
+
 struct State {
     alive: bool,
     reason: String,
@@ -46,6 +49,11 @@ pub(crate) struct Shared {
     next_id: AtomicI64,
     shutting_down: AtomicBool,
     terminated: watch::Sender<bool>,
+    /// Whether stderr is still being read (see [`Shared::terminate_exited`]).
+    stderr_open: watch::Sender<bool>,
+    /// Why the server cannot run, as its stderr said (a rustup proxy
+    /// without its component); replaces the reason of an early exit.
+    exit_note: Mutex<Option<String>>,
 }
 
 impl Shared {
@@ -77,6 +85,8 @@ impl Shared {
             next_id: AtomicI64::new(1),
             shutting_down: AtomicBool::new(false),
             terminated: watch::channel(false).0,
+            stderr_open: watch::channel(false).0,
+            exit_note: Mutex::new(None),
         });
         (shared, rx)
     }
@@ -288,6 +298,40 @@ impl Shared {
             let _ = tx.send(Err(LspError::ServerStopped(reason.clone())));
         }
         self.terminated.send_replace(true);
+    }
+
+    /// Stderr is being read from now on.
+    pub(crate) fn stderr_opened(&self) {
+        self.stderr_open.send_replace(true);
+    }
+
+    /// Stderr reached its end.
+    pub(crate) fn stderr_closed(&self) {
+        self.stderr_open.send_replace(false);
+    }
+
+    /// Looks at a stderr line for a reason the server cannot run.
+    pub(crate) fn note_stderr(&self, line: &str) {
+        let mut note = self.exit_note.lock().unwrap_or_else(|e| e.into_inner());
+        if note.is_none() {
+            *note = crate::missing::rustup_missing_component(line);
+        }
+    }
+
+    /// Terminates after the server exited or closed stdout: waits a moment
+    /// for the rest of stderr, so a server that said why it cannot run
+    /// (see [`Shared::note_stderr`]) fails with that reason, not `reason`.
+    pub(crate) async fn terminate_exited(&self, reason: impl Into<String>) {
+        if self.is_alive() {
+            let mut open = self.stderr_open.subscribe();
+            let _ = tokio::time::timeout(STDERR_GRACE, open.wait_for(|open| !*open)).await;
+        }
+        let note = self
+            .exit_note
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        self.terminate(note.unwrap_or_else(|| reason.into()));
     }
 
     /// Resolves once the connection has terminated.

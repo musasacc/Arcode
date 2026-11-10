@@ -71,8 +71,8 @@ fn cursor(editor: &Entity<Editor>, cx: &mut VisualTestContext) -> Point {
     editor.read_with(cx, |e, _| e.cursor_position())
 }
 
-/// Line height with default settings (14px * 1.5).
-const LH: f32 = 21.;
+/// Line height with default settings (14px * 1.6, rounded).
+const LH: f32 = 22.;
 
 #[gpui::test]
 fn gutter_clicks_emit_events(cx: &mut TestAppContext) {

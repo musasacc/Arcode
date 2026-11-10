@@ -3,7 +3,9 @@
 //! Themes are authored as TOML (`arcode_config::theme`); this module converts
 //! the active one once, so views read ready-to-use [`Hsla`] values.
 
-use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use arcode_config::theme::{Appearance, Color, Theme};
 use gpui::{App, FontStyle, FontWeight, Global, HighlightStyle, Hsla, Rgba, UnderlineStyle, px};
@@ -136,6 +138,8 @@ pub struct UiTheme {
     /// The source theme, e.g. for the terminal palette in `u8` form.
     pub source: Arc<Theme>,
     syntax_cache: RefCell<HashMap<String, HighlightStyle>>,
+    /// Different for every `UiTheme` made in this process.
+    id: u64,
 }
 
 impl UiTheme {
@@ -201,7 +205,15 @@ impl UiTheme {
             terminal,
             source: theme,
             syntax_cache: RefCell::default(),
+            id: NEXT_THEME_ID.fetch_add(1, Ordering::Relaxed),
         }
+    }
+
+    /// Identifies this theme value for caches of what was drawn with it:
+    /// unlike its address, never reused for a later theme, even one with
+    /// the same name (the theme editor makes a new one on every change).
+    pub fn id(&self) -> u64 {
+        self.id
     }
 
     /// Style for a tree-sitter capture name such as `function.method`, with
@@ -234,6 +246,8 @@ impl UiTheme {
     }
 }
 
+static NEXT_THEME_ID: AtomicU64 = AtomicU64::new(0);
+
 /// Global holding the active theme.
 pub struct ActiveTheme(pub Rc<UiTheme>);
 
@@ -253,6 +267,16 @@ pub fn set_theme(theme: Arc<Theme>, cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_theme_value_has_its_own_id() {
+        let first = ui_theme("Arcode Ember");
+        let id = first.id();
+        drop(first);
+        // A new value may reuse the freed address, never the id.
+        let second = ui_theme("Arcode Ember");
+        assert_ne!(second.id(), id);
+    }
 
     fn ui_theme(name: &str) -> UiTheme {
         let registry = arcode_config::ThemeRegistry::builtin();

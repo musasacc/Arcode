@@ -18,6 +18,7 @@ pub mod actions;
 pub mod bundle;
 pub mod indent;
 pub mod resolve;
+mod server_row;
 pub mod status_items;
 pub mod view;
 
@@ -82,6 +83,11 @@ pub enum PickPurpose {
         editor: WeakEntity<Editor>,
         /// The rows.
         choices: Vec<IndentChoice>,
+    },
+    /// A missing language server to install.
+    InstallServer {
+        /// Server names, one per row.
+        servers: Vec<String>,
     },
 }
 

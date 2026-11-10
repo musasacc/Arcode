@@ -4,6 +4,8 @@
 //! theme is saved in its own file. Discarding, or closing the tab without
 //! saving, shows the configured theme again.
 
+mod manage;
+pub mod new_theme;
 mod picker;
 mod preview;
 mod render;
@@ -19,31 +21,21 @@ use arcode_config::{Color, Theme};
 use arcode_ui_kit::settings;
 use gpui::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, Pixels, Point,
-    PromptLevel, ScrollHandle, SharedString, Subscription, Window, actions,
+    PromptLevel, ScrollHandle, SharedString, Subscription, Window,
 };
 
 use crate::text_field::{TextChanged, TextField};
 use crate::text_prompt::TextPrompt;
 use crate::theme_sync::{self, Themes};
 
+pub use manage::{
+    DeleteTheme, EditCurrentTheme, NewTheme, RenameTheme, commands, delete_edits, rename_edits,
+};
 pub use save::selection_edits;
 pub(crate) use save::themes_dir;
 
 /// Key of the page tab.
 pub const PAGE_KEY: &str = "theme-editor";
-
-actions!(
-    theme_editor,
-    [
-        /// Opens the theme editor on the theme in use.
-        EditCurrentTheme,
-    ]
-);
-
-/// Palette entries.
-pub fn commands() -> Vec<(&'static str, Box<dyn gpui::Action>)> {
-    vec![("Theme: Edit Current Theme…", Box::new(EditCurrentTheme))]
-}
 
 /// Requests the page passes to the workspace.
 #[derive(Clone, Debug, PartialEq)]

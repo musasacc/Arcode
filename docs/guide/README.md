@@ -13,7 +13,7 @@ day to day.
 | [Getting started](getting-started.md) | Opening a folder, the finder, the command palette, the terminal, running code |
 | [Configuration](configuration.md) | Where files live, and every setting in `config.toml` |
 | [Key bindings](keybindings.md) | Every default shortcut on macOS and on Linux / Windows |
-| [Themes](themes.md) | The built-in themes and writing your own |
+| [Themes](themes.md) | Creating, editing and writing your own themes; the built-in ones |
 | [Languages](languages.md) | Built-in languages, language servers, language packs |
 | [Run and debug](run-and-debug.md) | Run buttons, the Run button, debugging, `launch.toml` |
 | [Git](git.md) | Change bars, blame, staging, committing, branches, conflicts |

@@ -38,7 +38,7 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
         ))
         .child(page.number_row(
             "Contrast",
-            "Thickens dark and mid-tone text: light themes, muted text, syntax colours. Light text is left as it is. Default 1.0. Takes effect after a restart.",
+            "Thickens dark and mid-tone text: light themes, muted text, syntax colours. Light text is left as it is. Default 2.0. Takes effect after a restart.",
             "ui.text_contrast",
             ui.text_contrast,
             Steps {

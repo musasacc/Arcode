@@ -6,7 +6,7 @@
 
 use arcode_ui_kit::metrics::{TITLE_BAR_H, WEIGHT_MEDIUM, WEIGHT_SEMIBOLD};
 use arcode_ui_kit::{
-    Icon, IconName, Truncated, icon, kbd, list_row, overlay, readout, theme, type_scale,
+    FileIcon, Icon, IconName, Truncated, icon, kbd, list_row, overlay, readout, theme, type_scale,
     ui_font_family,
 };
 use gpui::{
@@ -141,6 +141,18 @@ pub fn row_icon(name: IconName, selected: bool, color: Option<gpui::Hsla>, cx: &
         color.unwrap_or(c.text_muted)
     };
     icon(name).size(px(15.)).color(color)
+}
+
+/// The 15 px icon of a file row ([`crate::file_icons::file_icon`]): a plain
+/// icon or tinted logo turns `accent` on the selected row; colour logos
+/// keep their colours.
+pub fn row_file_icon(path: &str, selected: bool, cx: &App) -> FileIcon {
+    let el = crate::file_icons::file_icon(path, cx).size(px(15.));
+    if selected {
+        el.color(theme(cx).colors.accent)
+    } else {
+        el
+    }
 }
 
 /// Matched characters: `accent` SemiBold.

@@ -1,5 +1,52 @@
 # Themes
 
+## Creating a theme
+
+To make a theme of your own, choose **Theme: New Theme…** in the command
+palette, **New Theme…** under Settings > Appearance > All themes, **File >
+Preferences > New Theme…** in the menu bar, or **New Theme…** at the end
+of the theme list in the theme editor.
+
+A small dialog asks for two things:
+
+- **Name**: what the theme is called. It suggests a free one ("My Ember",
+  "My Ember 2", ...). The name follows the same rules as **Save As…** in
+  the theme editor: at most 60 characters, with letters or digits, and
+  not the name of a built-in theme. When one of your own themes already
+  has the name, Arcode asks before replacing it.
+- **Start from**: every built-in theme and every theme of yours, each
+  marked dark or light. The theme in use is picked at first; click
+  another one or move with the arrow keys.
+
+**Create** (or Enter) writes `<name>.toml` into your `themes` folder
+(lowercase, words joined by `-`: `my-ember.toml` for "My Ember") with
+every colour of the theme you started from, makes it the theme in use the
+way **Save As…** does (the dark or light theme of your mode when it
+matches, else the theme by name), and opens the
+[theme editor](#editing-a-theme) on it so you can start changing colours.
+Escape or **Cancel** closes the dialog without writing anything.
+
+### Renaming and deleting your themes
+
+Your own themes have **Rename…** and **Delete…** buttons in the theme
+editor's header (while it edits one of them) and on their rows under
+Settings > Appearance, below All themes. Built-in themes cannot be
+renamed or deleted.
+
+- **Rename…** asks for the new name (the same rules as above). The theme's
+  file gets the new name in its `name` key (and in the first comment line
+  the editor writes), keeping everything else in it, and moves to the
+  matching file name. Settings that named the theme
+  (`theme`, `dark_theme`, `light_theme`) are changed to the new name, and
+  an open theme editor keeps your unsaved edits. When another of your
+  themes already has the new name (in any upper or lower case), Arcode
+  asks first; replacing it deletes that theme's file, whatever the file
+  is called, so it cannot come back after a restart.
+- **Delete…** asks first, then deletes the theme's file. When the theme
+  was in use, Arcode falls back to the default for its mode: a theme
+  picked by name gives way to the dark or light mode it was shown in, and
+  a deleted dark or light theme goes back to Arcode Ember or Arcode Chalk.
+
 ## Built-in themes
 
 | Theme | Appearance | |
@@ -32,8 +79,10 @@ theme; there is nothing else to configure.
 The theme editor changes the colours of a theme while you watch the whole
 app follow. Open it with **Theme: Edit Current Theme…** in the command
 palette, **Edit Theme…** under Settings > Appearance > All themes, or
-**File > Preferences > Customize Theme…** in the menu bar. It opens as a tab on the theme
-in use; the button with the theme's name at the top edits another one.
+**File > Preferences > Customize Theme…** in the menu bar. It opens as a
+tab on the theme in use; the button with the theme's name at the top
+edits another one, and **New Theme…** at the end of its list makes one
+(see [Creating a theme](#creating-a-theme)).
 
 The list on the left holds every colour of the theme, grouped as
 Surfaces, Borders, Text and accent, Syntax, Git and diagnostics, Terminal
@@ -73,6 +122,8 @@ and the caret, which need 3:1.
   file are not kept.
 - **Discard** drops the changes and shows the theme in use again.
 - **Open File** opens your theme's TOML file in an editor tab.
+- **Rename…** and **Delete…** (your own themes) are described under
+  [Renaming and deleting your themes](#renaming-and-deleting-your-themes).
 - Closing the tab with changes asks whether to save them first.
   Closing the project, opening another one in the window, closing the
   window or quitting asks before dropping them too.
@@ -85,7 +136,8 @@ default theme until the file is fixed and saved again.
 
 ## Text rendering
 
-On Linux, Arcode draws text with grayscale anti-aliasing. Two settings
+On Linux, Arcode draws text with grayscale anti-aliasing (no coloured
+subpixel anti-aliasing) and light, vertical-only hinting. Two settings
 change how the edges of glyphs are blended, which is what makes text look
 thin, heavy or soft. Both are in **Settings > Fonts > Text rendering**,
 with a sample of light text on Ember and dark text on Chalk, and in
@@ -94,7 +146,7 @@ with a sample of light text on Ember and dark text on Chalk, and in
 ```toml
 [ui]
 text_gamma = 1.8      # 1.0 - 2.2
-text_contrast = 1.0   # 0 - 8
+text_contrast = 2.0   # 0 - 8
 ```
 
 - **Gamma** works on all text. Raising it (2.0, 2.2) makes light text on a
@@ -104,8 +156,9 @@ text_contrast = 1.0   # 0 - 8
   theme, muted labels and syntax colours. Light text on a dark theme does
   not change.
 
-So for thin text on a dark theme, raise the gamma; on a light theme, raise
-the contrast (2 to 4). The renderer reads both when Arcode starts, so a
+The default contrast is 2.0, above the renderer's own 1.0, which draws
+dark text on Chalk thin and grey. So for thin text on a dark theme, raise
+the gamma; on a light theme, raise the contrast (3 or 4). The renderer reads both when Arcode starts, so a
 change takes effect after a restart; the Settings page says when one is
 needed. While a setting is at its default, `ZED_FONTS_GAMMA` or
 `ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST` set in your environment applies
@@ -114,6 +167,37 @@ the system's own settings (on Windows, the ClearType Text Tuner), so the
 two settings are not shown there.
 
 The editor font weight is `editor.font_weight` (Settings > Fonts > Weight).
+
+## File icons
+
+Files in the file tree, the tabs and the tab list, the breadcrumb, Quick
+Open and the other file pickers, project search, Problems, TODO and the
+Source Control list show the logo of their language: `.rs` files the Rust
+logo, `.py` files the Python logo, and so on. Settings → Appearance →
+**File icons** switches between **Language logos** and **Plain**; in
+`config.toml` it is `ui.file_icons = "logos"` or `"plain"`.
+
+- The language is the one Arcode uses for highlighting, so a
+  `[files] associations` entry changes the logo too
+  (`"*.mdx" = "markdown"` gives `.mdx` files the Markdown logo). A few file
+  names have their own: `Cargo.toml` and `Cargo.lock` (Rust),
+  `package.json` (npm), `.gitignore` (Git), `Dockerfile` (Docker),
+  `CMakeLists.txt` (CMake), `requirements.txt` and `pyproject.toml`
+  (Python), `go.mod` (Go), `tsconfig.json` (TypeScript).
+- Logos are also shown for common languages Arcode has no highlighting
+  for: Kotlin, Swift, C#, Zig, Dart, Haskell, Elixir, Erlang, Scala, Vue,
+  Svelte, GraphQL, Nix, Terraform, PowerShell, R, Sass, Perl, OCaml,
+  Clojure, Julia, F#, Vim script and WebAssembly.
+- Logos in colour keep their colours in every theme. Black logos (Rust,
+  Markdown, JSON, YAML, shell, Lua, Perl, Gradle, PowerShell) would
+  disappear on a dark theme, so they are drawn in the theme's text colour,
+  like the plain icons.
+- Files without a logo (TOML, plain text, Makefiles, SQL, images, ...) and
+  folders keep the plain icons.
+
+The logos come from [Devicon](https://devicon.dev) (MIT licence) and are
+built into Arcode; they are trademarks of their owners. See
+`docs/THIRD-PARTY.md`.
 
 ## Writing your own theme
 
@@ -274,9 +358,11 @@ The captures the built-in themes style:
 The built-in theme files are a good template; they set every key:
 [`crates/arcode-config/themes/`](../../crates/arcode-config/themes/)
 (`arcode-ember.toml`, `arcode-chalk.toml`, `arcode-dark.toml`,
-`arcode-light.toml`, `arcode-midnight.toml`). Copy one into your `themes`
-folder, change `name`, and edit the colors. Or start small with `extends`
-and only the colors you want to change.
+`arcode-light.toml`, `arcode-midnight.toml`). **Theme: New Theme…** does
+this for you: it writes a complete copy of the theme you pick under a new
+name. Or copy one into your `themes` folder by hand, change `name`, and
+edit the colors, or start small with `extends` and only the colors you
+want to change.
 
 Keep text readable: aim for a contrast ratio of at least 4.5:1 between
 text colors and their backgrounds, and 3:1 for borders and icons. The

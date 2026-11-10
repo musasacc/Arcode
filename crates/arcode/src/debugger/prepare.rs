@@ -193,7 +193,8 @@ fn target_config(
         }
         Some(compile) => {
             let program = target.program.clone().unwrap_or_default();
-            compile_file(compile, &program, cancel, log)?;
+            let record = super::runnables::built_record();
+            compile_file(compile, &program, &record, cancel, log)?;
             program
         }
         None => target.program.clone().unwrap_or_default(),
@@ -248,21 +249,61 @@ fn cargo_build(
     Ok(pick.path.clone())
 }
 
-/// Compiles a single source file into `program` (Debug Current File).
+/// Compiles a single source file into `program` (Debug Current File). A
+/// program next to its source is only written over when the record at
+/// `record` says Arcode built it, and is then noted there as Arcode's.
 fn compile_file(
     compile: &RunCommand,
     program: &Path,
+    record: &Path,
     cancel: &Cancel,
     log: Log<'_>,
 ) -> Result<(), String> {
-    if let Some(dir) = program.parent() {
+    let next_to_source = program.parent() == Some(compile.cwd.as_path());
+    if next_to_source {
+        let built = arcode_project::BuiltPrograms::load(record);
+        if let Err(taken) = arcode_project::check_next_to(program, &built) {
+            return Err(taken_message(compile, program, taken));
+        }
+    } else if let Some(dir) = program.parent() {
         std::fs::create_dir_all(dir)
             .map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
     }
     log(format!("> {}", compile.command_line()));
     let mut command = Command::new(&compile.program);
     command.args(&compile.args).current_dir(&compile.cwd);
-    run_streaming(command, cancel, log, false).map(|_| ())
+    run_streaming(command, cancel, log, false)?;
+    if next_to_source && let Err(e) = arcode_project::record_built(record, program) {
+        log(format!(
+            "cannot note {} as built by Arcode: {e}",
+            program.display()
+        ));
+    }
+    Ok(())
+}
+
+/// Why a program next to its source was not built: its name is taken by
+/// something Arcode did not build (it changed after the command was made).
+fn taken_message(compile: &RunCommand, program: &Path, taken: arcode_project::NameTaken) -> String {
+    let name = program
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let why = match taken {
+        arcode_project::NameTaken::Folder => "a folder has that name",
+        arcode_project::NameTaken::NotAProgram => "a file that is not a program has that name",
+        arcode_project::NameTaken::NotBuiltByArcode => "Arcode did not build the program there",
+        arcode_project::NameTaken::DebugFiles => {
+            "debug files that Arcode did not build are beside it"
+        }
+    };
+    let source = super::runnables::compile_step_source(compile)
+        .and_then(|s| s.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| "the file".into());
+    format!(
+        "Not building {name}: {why}, and it is left as it is. Debug Current File on {source} \
+         builds it in Arcode's cache instead."
+    )
 }
 
 /// Runs a configured build command line in the platform shell.

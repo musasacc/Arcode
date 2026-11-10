@@ -77,10 +77,8 @@ struct Mini {
     canvas: Hsla,
     panel: Hsla,
     border: Hsla,
-    focused: Hsla,
     pill: Hsla,
     muted: Hsla,
-    accent: Hsla,
     bars: [Hsla; 5],
 }
 
@@ -92,10 +90,8 @@ impl Mini {
             canvas: hsla(u.canvas),
             panel: hsla(u.background),
             border: hsla(u.border),
-            focused: hsla(u.border_focused),
             pill: hsla(u.pill),
             muted: hsla(u.text_muted),
-            accent: hsla(u.accent),
             bars: [
                 syntax("keyword"),
                 syntax("function"),
@@ -114,8 +110,9 @@ fn at(x: f32, y: f32, w: f32, h: f32) -> Div {
 
 /// The workbench in miniature, `CARD_W` x `PREVIEW_H`, without the canvas
 /// fill (the caller paints it with rounded corners): two rail marks, the
-/// sidebar, the focused editor with a tab pill, the ember diamond and five
-/// syntax bars, and the bottom panel.
+/// sidebar, the editor with its active tab filled with `pill` and five
+/// syntax bars, and the bottom panel. Panels keep the neutral `border`
+/// edge, focused or not, as in the workbench.
 fn miniature(m: &Mini) -> Div {
     let bar = |x: f32, y: f32, w: f32, color: Hsla| at(x, y, w, 3.).rounded(px(1.5)).bg(color);
     let [keyword, function, ty, string, number] = m.bars;
@@ -137,22 +134,14 @@ fn miniature(m: &Mini) -> Div {
                 .border_1()
                 .border_color(m.border),
         )
-        // Editor panel, framed as focused.
+        // Editor panel; the focused pane's active tab is the `pill` chip.
         .child(
             at(62., 8., 100., 50.)
                 .rounded(px(4.))
                 .bg(m.panel)
                 .border_1()
-                .border_color(m.focused)
-                .child(
-                    at(4., 4., 30., 9.)
-                        .rounded(px(3.))
-                        .bg(m.pill)
-                        .flex()
-                        .items_center()
-                        .pl(px(3.))
-                        .child(ember().size(px(5.)).color(m.accent)),
-                )
+                .border_color(m.border)
+                .child(at(4., 4., 30., 9.).rounded(px(3.)).bg(m.pill))
                 .child(bar(8., 20., 14., keyword))
                 .child(bar(25., 20., 18., function))
                 .child(bar(14., 28., 12., ty))

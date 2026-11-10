@@ -101,11 +101,42 @@ fn change_marks(editor: &Entity<Editor>, cx: &mut VisualTestContext) -> Vec<(usi
     })
 }
 
+/// Sets `git.gutter` (change bars are off by default).
+fn set_change_bars(cx: &mut VisualTestContext, on: bool) {
+    cx.update(|_, cx| {
+        let mut config = arcode_ui_kit::settings(cx).clone();
+        config.git.gutter = on;
+        arcode_ui_kit::set_settings(config, cx);
+    });
+}
+
+#[gpui::test]
+fn change_bars_are_off_by_default_and_follow_the_setting(cx: &mut TestAppContext) {
+    let Some(repo) = TestRepo::new() else { return };
+    repo.commit("src/lib.rs", "one\ntwo\nthree\n");
+    let (_ws, editor, cx) = open_repo_file(cx, &repo, "src/lib.rs");
+    editor.update(cx, |e, cx| {
+        e.apply_edits(vec![(Point::new(1, 0)..Point::new(1, 3), "TWO".into())], cx);
+    });
+    settle(cx);
+    assert!(change_marks(&editor, cx).is_empty(), "no bars by default");
+    // Turning them on shows the change without another edit, and turning
+    // them off again clears it.
+    set_change_bars(cx, true);
+    settle(cx);
+    assert_eq!(change_marks(&editor, cx).len(), 1);
+    set_change_bars(cx, false);
+    settle(cx);
+    assert!(change_marks(&editor, cx).is_empty());
+}
+
 #[gpui::test]
 fn change_bars_and_staging_a_hunk(cx: &mut TestAppContext) {
     let Some(repo) = TestRepo::new() else { return };
     repo.commit("src/lib.rs", "one\ntwo\nthree\n");
     let (ws, editor, cx) = open_repo_file(cx, &repo, "src/lib.rs");
+    set_change_bars(cx, true);
+    settle(cx);
     assert!(change_marks(&editor, cx).is_empty(), "clean file");
     ws.update(cx, |ws, cx| {
         assert_eq!(ws.branch_label(cx).as_deref(), Some("main"));

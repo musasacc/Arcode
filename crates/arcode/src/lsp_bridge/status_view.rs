@@ -1,7 +1,8 @@
 //! The language servers of the active file in the footer: one entry per
 //! server, a 7 px state dot and its name (the state in words unless it is
 //! ready); clicking one opens a small menu (restart the server, show its
-//! log in a read-only tab). Clicking the entry again, a click elsewhere or
+//! log in a read-only tab, and for a server that is not installed, Install
+//! or How to Install). Clicking the entry again, a click elsewhere or
 //! Escape closes it.
 
 use arcode_ui_kit::{IconName, Tooltip, icon, list_row, popover, status_dot, theme, type_scale};
@@ -12,6 +13,7 @@ use gpui::{
 };
 
 use super::LspBridge;
+use super::install::button_label;
 use super::servers::{EntryKind, ServerEntry, command_line};
 use crate::workspace::Workspace;
 
@@ -122,6 +124,15 @@ impl LspStatusView {
         self.bridge.update(cx, |b, cx| b.restart_server(server, cx));
     }
 
+    /// Installs `server` (menu entry of a server that is not installed).
+    pub fn install(&mut self, server: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_menu(window, cx);
+        let server = server.to_string();
+        self.workspace
+            .update(cx, |ws, cx| ws.install_language_server(&server, window, cx))
+            .ok();
+    }
+
     /// Opens `server`'s log in a read-only tab (menu entry).
     pub fn show_log(&mut self, server: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.close_menu(window, cx);
@@ -167,12 +178,17 @@ impl LspStatusView {
                 view.entry_pressed(name.clone(), event.position, window, cx);
             }),
         )
-        .when(open, |el| el.child(self.render_menu(&entry.name, cx)))
+        .when(open, |el| el.child(self.render_menu(&entry, cx)))
     }
 
-    fn render_menu(&self, server: &SharedString, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_menu(&self, entry: &ServerEntry, cx: &mut Context<Self>) -> impl IntoElement {
         let c = theme(cx).colors.clone();
+        let server = &entry.name;
         let command = command_line(server, cx);
+        // Not installed: Install (or How to Install) once the way is known.
+        let install = (entry.kind == EntryKind::NotInstalled)
+            .then(|| self.bridge.read(cx).install_hint(server).map(button_label))
+            .flatten();
         let row = |id: &'static str, label: &'static str, icon_name: IconName| {
             list_row(id, false, cx)
                 .mx(px(0.))
@@ -182,7 +198,7 @@ impl LspStatusView {
                 .child(icon(icon_name).size(px(14.)).color(c.text_muted))
                 .child(div().flex_1().whitespace_nowrap().child(label))
         };
-        let (restart, log) = (server.clone(), server.clone());
+        let (restart, log, to_install) = (server.clone(), server.clone(), server.clone());
         let list = popover(cx)
             .id("lsp-server-menu")
             .min_w(px(220.))
@@ -219,6 +235,16 @@ impl LspStatusView {
                     ),
             )
             .child(div().h(px(1.)).my(px(4.)).bg(c.border))
+            .when_some(install, |el, label| {
+                el.child(
+                    row("lsp-menu-install", label, IconName::Package)
+                        .debug_selector(|| "lsp-menu-install".into())
+                        .on_click(cx.listener(move |view, _, window, cx| {
+                            cx.stop_propagation();
+                            view.install(&to_install, window, cx);
+                        })),
+                )
+            })
             .child(
                 row("lsp-menu-restart", "Restart Server", IconName::Refresh).on_click(cx.listener(
                     move |view, _, window, cx| {

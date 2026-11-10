@@ -71,7 +71,8 @@ fn file_target(command: &RunCommand, base: DebugTarget) -> Option<DebugTarget> {
     Some(DebugTarget {
         language,
         build: Some(compile.clone()),
-        program: Some(PathBuf::from(&command.program)),
+        // `./test` next to the source is a path in the command's folder.
+        program: crate::compiled_program(command),
         args: command.args.clone(),
         ..base
     })

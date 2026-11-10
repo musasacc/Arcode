@@ -18,8 +18,9 @@ ones that are tables rather than single values: `[files] associations`
 and `adapter_paths`, and the per-language `[language.<id>]` and
 per-server `[lsp.<name>]` tables (the Languages section turns language
 packs on and off). `editor.vim_mode` is the Vim choice of the Keymap
-row. Each row shows its key in small type after its label, so you can
-find it in the file. Type a key into **Filter settings** (`tab_size`,
+row. The page shows each setting by its name only; to find a row's key
+in the file, hover its label: a tooltip names it ("In config.toml:
+editor.minimap"). Type a key into **Filter settings** (`tab_size`,
 `editor.minimap`) to find its row; the filter also knows a few other
 words for some settings (`caret`, `zoom`, `color scheme`), and typing
 one of the table keys above shows where it is set, with a button that
@@ -80,10 +81,13 @@ What is in them:
 | `projects/<hash>/plugin-grants.toml` | data | Plugin permissions granted for one project. |
 | `plugin-data/<id>/` | data | Data plugins store (their key-value store). |
 | `plugins/*.cwasm` | cache | Compiled plugins, rebuilt when missing. |
+| `run/` | cache | Programs Run Current File compiles with `run.output = "cache"` (or when a name next to the source is taken), and `built-programs`, the list of programs it built next to their sources. |
 
 Arcode keeps none of its own state in your project folder. The only file
 it creates there for itself is `.arcode/launch.toml`, and only when you
-ask for it (**Debug: Open launch.toml**).
+ask for it (**Debug: Open launch.toml**). Run Current File writes the
+program it compiles from a single Rust, C or C++ file next to that file
+(see [`[run]`](#run)); set `run.output = "cache"` to keep them out.
 
 ## `[editor]`
 
@@ -93,8 +97,8 @@ ask for it (**Debug: Open launch.toml**).
 | `font_fallbacks` | `["Noto Sans CJK SC", "Noto Color Emoji", "Segoe UI Emoji", "Apple Color Emoji"]` | Fonts tried, in order, for characters missing from `font_family` (CJK, emoji, ...). |
 | `font_size` | `14.0` | Font size in points, 4 to 200. |
 | `font_weight` | `400` | Font weight, 100 to 900: 400 is regular, 700 bold. A font without that weight uses its nearest one; the bundled JetBrains Mono has 400 and 700, so try a value like 500 with a font that has more weights. |
-| `line_height` | `1.5` | Line height as a multiple of the font size, 0.5 to 4.0. |
-| `ligatures` | `true` | Programming ligatures such as `->` and `!=`. |
+| `line_height` | `1.6` | Line height as a multiple of the font size, 0.5 to 4.0 (14 px code on a 22 px line by default). |
+| `ligatures` | `false` | Programming ligatures such as `->` and `!=`. Off by default, so pairs such as `#[`, `=>` and `!=` keep two glyphs. Also used by the terminal. |
 | `tab_size` | `4` | Width of a tab stop in columns, 1 to 32. |
 | `insert_spaces` | `true` | Insert spaces when pressing Tab. |
 | `detect_indentation` | `true` | Guess tabs or spaces and the indent size of each file from its content. The status bar shows what a file uses and lets you change it. |
@@ -116,8 +120,8 @@ ask for it (**Debug: Open launch.toml**).
 | `code_action_lightbulb` | `true` | A light bulb in the gutter when code actions exist on the cursor line. |
 | `inline_diagnostics` | `"errors"` | Show diagnostics after the end of their line: `"errors"`, `"all"` or `"off"`. |
 | `fade_unused` | `true` | Draw code the language server reports as unused (imports, variables, unreachable code) faded. Deprecated code is struck through either way. See [How diagnostics look](languages.md#how-diagnostics-look). |
-| `minimap` | `true` | A minimap at the right edge of file editors: the file scaled down in its syntax colours, with the visible part, selections, search matches, git changes, errors and warnings marked. Click a line to center it, drag to scroll. It is hidden when it would leave the text less than three times its width, in diffs, and always in low-end mode. |
-| `minimap_width` | `96` | Width of the minimap in pixels, 40 to 240 (one pixel per column, so this is about the number of columns shown). |
+| `minimap` | `true` | A minimap at the right edge of file editors whose file is longer than the editor (a short file gets the full width): the code scaled down char by char in its syntax colours, with the visible part, selections, search matches, errors and warnings (and git changes when `git.gutter` is on) marked. Hover it to see the code there at full size beside it; click a line to center it, drag to scroll. It is hidden when it would leave the text less than three times its width, in diffs, and always in low-end mode. |
+| `minimap_width` | `96` | Width of the minimap in pixels, 40 to 240 (one pixel per char at 1x, so this is about the number of columns shown). |
 
 ### `[editor.completion]`
 
@@ -141,9 +145,10 @@ ask for it (**Debug: Open launch.toml**).
 | `animations` | `true` | Animations. Always off in low-end mode. |
 | `animation_ms` | `120` | Animation duration in milliseconds. |
 | `show_perf_stats` | `true` | Show frame time and memory use in the status bar. |
+| `file_icons` | `"logos"` | Icons next to file names in the file tree, tabs, the breadcrumb, Quick Open and the other file pickers, search results and the Source Control list. `"logos"` shows the logo of the file's language (Rust, Python, Go, ...) where Arcode has one; `"plain"` shows the monochrome icons. See [File icons](themes.md#file-icons). |
 | `menu_bar` | `true` | Show the menus (File, Edit, ...) in the title bar. When `false`, and in a narrow window, one menu button holds them; Alt opens them either way. No effect on macOS, which uses its system menu bar. |
 | `text_gamma` | `1.8` | How text edges are blended, 1.0 to 2.2 in steps of 0.1. Higher draws light text on dark themes heavier (and dark text on light themes thinner). Linux only; takes effect after a restart. See [Text rendering](themes.md#text-rendering). |
-| `text_contrast` | `1.0` | Extra contrast for text edges, 0 to 8. Higher thickens dark and mid-tone text: light themes, muted text, syntax colours. Light text on dark themes is not affected. Linux only; takes effect after a restart. |
+| `text_contrast` | `2.0` | Extra contrast for text edges, 0 to 8 (the renderer's own default is 1.0, which draws dark text on light themes thin). Higher thickens dark and mid-tone text: light themes, muted text, syntax colours. Light text on dark themes is not affected. Linux only; takes effect after a restart. |
 
 Built-in themes: **Arcode Ember** (dark) and **Arcode Chalk** (light),
 plus the classic **Arcode Dark**, **Arcode Light** and **Arcode Midnight**.
@@ -169,7 +174,7 @@ args = ["-l"]
 
 | Key | Default | Meaning |
 |---|---|---|
-| `gutter` | `true` | Added, modified and deleted bars in the editor gutter. |
+| `gutter` | `false` | Added, modified and deleted bars in the editor gutter and the minimap. |
 | `inline_blame` | `true` | Author, date and summary of the cursor line, shown at its end. Off in low-end mode unless set here. |
 | `inline_blame_delay_ms` | `500` | How long the cursor rests on a line before its blame appears. |
 
@@ -226,6 +231,12 @@ associations = { "*.mdx" = "markdown", "Dockerfile.*" = "shellscript" }
 
 Debug adapters are never downloaded; install them yourself. See
 [Run and debug](run-and-debug.md).
+
+## `[run]`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `output` | `"next_to_source"` | Where Run Current File and Debug Current File put a program compiled from one file (`rustc`, `gcc`, `clang`). `"next_to_source"`: beside the file (`test.rs` → `test`, `test.exe` on Windows), run from the file's folder; it shows in the file tree, and git lists it as untracked unless ignored. A folder, a file that is not a program, or a program Arcode did not build is never written over, nor the debug files compilers write beside a program (`test.pdb` on Windows, `test.dSYM` on macOS) when Arcode did not build that program: the program goes to the cache then, with a note. `"cache"`: a folder per source file in Arcode's cache (`~/.cache/arcode/run` on Linux). See [Run and debug](run-and-debug.md#run-current-file). |
 
 ## `[plugins]`
 
@@ -355,6 +366,6 @@ up in the completion list when `editor.completion.snippets` is on.
 | `ARCODE_DATA_DIR` | Use this folder instead of the data folder (and for the plugin cache). |
 | `ARCODE_PLUGIN_DEV` | Plugin folders to load for this session, separated like `PATH` (for plugin development). |
 | `ARCODE_SKIP_FIRST_RUN` | Set to a non-empty value other than `0` to skip the first-run dialog (for automation). |
-| `ZED_FONTS_GAMMA`, `ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST` | Read by the renderer on Linux. `ui.text_gamma` and `ui.text_contrast` set them when they differ from their defaults; otherwise a value set in the environment applies, and Settings > Fonts says so. Programs started from Arcode inherit them; an Arcode started from Arcode's terminal uses its own settings, not those of the first one. |
+| `ZED_FONTS_GAMMA`, `ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST` | Read by the renderer on Linux. `ui.text_gamma` and `ui.text_contrast` set them when they differ from their defaults; at the default a value set in the environment applies (otherwise the default contrast of 2.0 is set, since the renderer's own is 1.0), and Settings > Fonts says so. Programs started from Arcode inherit them; an Arcode started from Arcode's terminal uses its own settings, not those of the first one. |
 | `ARCODE_TEXT_RENDERING_OUTER` | Set by Arcode for the programs it starts: which of the two variables above it set, and what they were before. Not meant to be set by hand. |
 | `RUST_LOG` | Log level of Arcode's log on stderr, for example `RUST_LOG=info`. Default: warnings and errors. |

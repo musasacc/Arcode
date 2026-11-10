@@ -5,7 +5,7 @@
 use std::rc::Rc;
 
 use arcode_ui_kit::metrics::{CONTROL_H, CONTROL_RADIUS, WEIGHT_MEDIUM, type_scale};
-use arcode_ui_kit::{IconName, icon, icon_button, mono_font_family, switch, theme};
+use arcode_ui_kit::{IconName, Tooltip, icon, icon_button, switch, theme};
 use gpui::{
     App, ClickEvent, Div, ElementId, KeyDownEvent, SharedString, Stateful, Window, div, prelude::*,
     px,
@@ -18,8 +18,8 @@ type ResetHandler = Rc<dyn Fn(&mut Window, &mut App)>;
 const LABEL_BASIS: f32 = 220.;
 
 /// What a row knows about the setting it changes: its `config.toml` key
-/// (shown in mono after the label and matched by the page filter) and,
-/// while the value differs from the default, how to reset it.
+/// (in the label's tooltip, not on the page, and matched by the page
+/// filter) and, while the value differs from the default, how to reset it.
 pub(crate) struct RowKey {
     pub path: SharedString,
     pub reset: Option<Reset>,
@@ -46,9 +46,10 @@ pub fn setting_row(
     row(label.into(), description.into(), None, control, cx)
 }
 
-/// A [`setting_row`] for one key of `config.toml`: the key in small mono
-/// text after the label and, for a changed value, a reset button before
-/// the control. The filter also matches the key.
+/// A [`setting_row`] for one key of `config.toml`: hovering the label
+/// shows the key ("In config.toml: editor.minimap") and, for a changed
+/// value, a reset button sits before the control. The filter also matches
+/// the key.
 pub(crate) fn keyed_setting_row(
     label: impl Into<SharedString>,
     description: impl Into<SharedString>,
@@ -96,28 +97,7 @@ fn row(
                 .flex_basis(px(LABEL_BASIS))
                 .min_w_0()
                 .gap(px(3.))
-                .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .items_baseline()
-                        .gap_x(px(8.))
-                        .child(
-                            div()
-                                .text_size(scale.body)
-                                .font_weight(WEIGHT_MEDIUM)
-                                .child(label),
-                        )
-                        .when_some(path, |el, path| {
-                            el.child(
-                                div()
-                                    .font_family(mono_font_family())
-                                    .text_size(scale.micro)
-                                    .text_color(c.text_muted)
-                                    .child(path),
-                            )
-                        }),
-                )
+                .child(label_text(label, path, scale.body))
                 .when(!description.is_empty(), |el| {
                     el.child(
                         div()
@@ -167,6 +147,29 @@ fn row(
                 })
                 .child(control),
         )
+}
+
+/// A row's label; with the row's `config.toml` key, hovering it shows the
+/// key, for people who edit the file (the page itself shows no keys).
+fn label_text(label: SharedString, path: Option<SharedString>, size: gpui::Pixels) -> Div {
+    let text = div()
+        .text_size(size)
+        .font_weight(WEIGHT_MEDIUM)
+        .child(label);
+    let Some(path) = path else {
+        return div().flex().child(text);
+    };
+    let selector = format!("setting-label-{path}");
+    div().flex().child(
+        text.id(SharedString::from(selector.clone()))
+            .debug_selector(move || selector)
+            .tooltip(move |_, cx| Tooltip::text(key_tooltip(&path), cx)),
+    )
+}
+
+/// The tooltip of a row's label: where the setting is in `config.toml`.
+pub(crate) fn key_tooltip(path: &str) -> String {
+    format!("In config.toml: {path}")
 }
 
 /// A switch that runs `toggle` with the new state when clicked.

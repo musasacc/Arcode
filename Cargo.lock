@@ -277,6 +277,7 @@ dependencies = [
  "arcode-vim",
  "env_logger",
  "gpui",
+ "image",
  "log",
  "tempfile",
 ]
@@ -443,7 +444,9 @@ dependencies = [
  "anyhow",
  "arcode-config",
  "gpui",
+ "image",
  "log",
+ "resvg",
 ]
 
 [[package]]

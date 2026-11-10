@@ -93,7 +93,8 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
         ))
         .child(page.low_end_bool_row(
             "Minimap",
-            "The file scaled down at the right edge; click or drag it to scroll.",
+            "The file scaled down at the right edge, shown when the file is longer than \
+             the editor. Hover it to see the code there; click or drag it to scroll.",
             "The minimap is hidden in low-end mode.",
             "editor.minimap",
             e.minimap,
@@ -248,7 +249,7 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
         .child(group_title("Git", cx))
         .child(page.bool_row(
             "Change bars",
-            "Added, modified and deleted lines in the gutter.",
+            "Added, modified and deleted lines in the gutter and the minimap.",
             "git.gutter",
             config.git.gutter,
             cx,

@@ -1,21 +1,25 @@
-//! Painting the minimap: what lies behind the blocks (its background, the
+//! Painting the minimap: what lies behind the glyphs (its background, the
 //! viewport slider, background highlights, selections, diagnostics), the
-//! blocks themselves, and the change marks at its left edge.
+//! glyph tiles themselves, and the change marks at its left edge.
 
 use std::ops::Range;
 
 use arcode_buffer::Point as BufPoint;
 use arcode_ui_kit::ThemeColors;
-use gpui::{Bounds, ContentMask, Hsla, PaintQuad, Path, Pixels, Window, fill, point, px, size};
+use gpui::{
+    Bounds, ContentMask, Corners, Hsla, PaintQuad, Path, Pixels, Window, fill, point, px, size,
+};
 
-use super::{COL_WIDTH, MinimapLayout};
-use crate::ext::{BlockMap, ChangeKind, GutterLane, GutterMark, HighlightRange, RowKind};
+use super::MinimapLayout;
+use crate::ext::{ChangeKind, GutterLane, GutterMark, HighlightRange};
 use crate::layout::LayoutSnapshot;
 use crate::mouse::DragState;
 use crate::{DiagnosticSeverity, Editor};
 
-/// Height of a block inside its row.
-const BLOCK_H: Pixels = px(2.);
+/// Corner radius of the viewport band.
+const SLIDER_RADIUS: Pixels = px(2.);
+/// Opacity of error and warning marks.
+const DIAGNOSTIC_OPACITY: f32 = 0.4;
 /// Change marks: x from the minimap's left edge and width.
 const MARK_X: Pixels = px(2.);
 const MARK_W: Pixels = px(2.);
@@ -23,12 +27,12 @@ const MARK_W: Pixels = px(2.);
 const WEDGE_W: Pixels = px(4.);
 const WEDGE_H: Pixels = px(6.);
 
-/// What the minimap paints besides its blocks.
+/// What the minimap paints besides its glyphs.
 #[derive(Default)]
 pub(crate) struct MinimapPaint {
-    /// Behind the blocks.
+    /// Behind the glyphs.
     pub under: Vec<PaintQuad>,
-    /// Over the blocks.
+    /// Over the glyphs.
     pub over: Vec<PaintQuad>,
     /// Deleted-lines triangles.
     pub wedges: Vec<(Path<Pixels>, Hsla)>,
@@ -37,7 +41,7 @@ pub(crate) struct MinimapPaint {
 /// Where buffer lines of the minimap are drawn.
 struct Rows<'a> {
     m: &'a MinimapLayout,
-    blocks: &'a BlockMap,
+    blocks: &'a crate::ext::BlockMap,
     lines: Range<usize>,
     max_cols: usize,
 }
@@ -63,17 +67,14 @@ impl Rows<'_> {
         let g = &self.m.geometry;
         let top = self.top(first);
         let bottom = self.top(last - 1) + g.pitch;
+        let cw = self.m.col_width;
         let (left, right) = match (a, b) {
             (None, None) => (g.bounds.left(), g.bounds.right()),
             _ => {
-                let x =
-                    |col: usize| self.m.content_left() + COL_WIDTH * col.min(self.max_cols) as f32;
+                let x = |col: usize| self.m.content_left() + cw * col.min(self.max_cols) as f32;
                 let left = x(a.unwrap_or(0));
-                // Never thinner than a column pair, so a one-char match shows.
-                (
-                    left,
-                    x(b.unwrap_or(self.max_cols)).max(left + COL_WIDTH * 2.),
-                )
+                // Never thinner than two columns, so a one-char match shows.
+                (left, x(b.unwrap_or(self.max_cols)).max(left + cw * 2.))
             }
         };
         Some(Bounds::new(
@@ -122,14 +123,16 @@ pub(crate) fn minimap_decorations(
         m,
         blocks: &layout.blocks,
         lines: m.lines.clone(),
-        max_cols: ((g.bounds.right() - super::PAD_RIGHT - m.content_left()) / COL_WIDTH).max(0.)
-            as usize,
+        max_cols: m.max_cols(),
     };
     // Its own background hides the current-line band behind it.
     out.under.push(fill(g.bounds, colors.background));
+    // The viewport: a soft band behind the glyphs, a little stronger while
+    // the mouse is on the minimap.
     let active = editor.minimap.hovered || matches!(editor.drag, Some(DragState::Minimap(_)));
     let slider = if active { colors.pill } else { colors.hover };
-    out.under.push(fill(g.slider, slider));
+    out.under
+        .push(fill(g.slider, slider).corner_radii(Corners::all(SLIDER_RADIUS)));
     if rows.lines.is_empty() {
         return;
     }
@@ -192,7 +195,7 @@ pub(crate) fn minimap_decorations(
     }
 
     for severity in [DiagnosticSeverity::Warning, DiagnosticSeverity::Error] {
-        let color = severity.color(colors).opacity(0.55);
+        let color = severity.color(colors).opacity(DIAGNOSTIC_OPACITY);
         for d in editor.diagnostics.iter().filter(|d| d.severity == severity) {
             let (a, b) = (d.range.start, d.range.end);
             if !rows.lines.contains(&a.line) {
@@ -256,34 +259,21 @@ fn change_marks(editor: &Editor, rows: &Rows<'_>, colors: &ThemeColors, out: &mu
 }
 
 /// Paints the minimap of `m` with the quads computed for it.
-pub(crate) fn paint_minimap(
-    m: &MinimapLayout,
-    blocks: &BlockMap,
-    paint: &mut MinimapPaint,
-    window: &mut Window,
-) {
+pub(crate) fn paint_minimap(m: &MinimapLayout, paint: &mut MinimapPaint, window: &mut Window) {
     let g = &m.geometry;
-    // One layer: its thousands of small quads share one draw order and
-    // keep their painting order, instead of each being placed in the
-    // scene's bounds tree (which costs more than everything else here).
+    // One layer: its quads and sprites share one draw order and keep their
+    // painting order.
     window.with_content_mask(Some(ContentMask { bounds: g.bounds }), |window| {
         window.paint_layer(g.bounds, |window| {
             for q in paint.under.drain(..) {
                 window.paint_quad(q);
             }
             let left = m.content_left();
-            for row in g.rows_in_view() {
-                let RowKind::Text(line) = blocks.row_kind(row, m.line_count) else {
-                    continue;
-                };
-                let top = g.row_top(row);
-                for seg in m.rows.line(line) {
-                    let x = left + COL_WIDTH * f32::from(seg.start);
-                    let w = COL_WIDTH * f32::from(seg.end - seg.start);
-                    window.paint_quad(fill(
-                        Bounds::new(point(x, top), size(w, BLOCK_H)),
-                        seg.color,
-                    ));
+            for tile in &m.tiles {
+                let bounds = Bounds::new(point(left, g.row_top(tile.first_row)), m.tile_size);
+                let image = tile.image.clone();
+                if let Err(err) = window.paint_image(bounds, Corners::default(), image, 0, false) {
+                    log::debug!("failed to paint a minimap tile: {err}");
                 }
             }
             for q in paint.over.drain(..) {

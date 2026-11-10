@@ -28,6 +28,7 @@ impl Workspace {
             LspBridgeEvent::DiagnosticsChanged => ws.diagnostics_changed(cx),
             LspBridgeEvent::StatusChanged => ws.refresh_status(cx),
             LspBridgeEvent::Message(text) => ws.show_toast(text.clone(), cx),
+            LspBridgeEvent::NotInstalled(report) => ws.show_not_installed(report, cx),
             // Applied by `crate::refactor` (it needs the window).
             LspBridgeEvent::ApplyEdit(_) => {}
         });

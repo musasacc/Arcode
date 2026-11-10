@@ -1,6 +1,6 @@
-//! GPUI tests of the floating panels: the focus frame follows focus (and
-//! stays put behind overlays, but not on a panel that lost the keys), and
-//! the rail's panel toggles work.
+//! GPUI tests of the floating panels: the framed (focused) panel, whose
+//! active tab is filled, follows focus (and stays put behind overlays, but
+//! not on a panel that lost the keys), and the rail's panel toggles work.
 
 use std::fs;
 
@@ -38,6 +38,12 @@ fn the_frame_follows_focus_but_not_overlays(cx: &mut TestAppContext) {
     // The first frame lays the panel out, the next one sees focus in it.
     framed(&ws, cx);
     assert_eq!(framed(&ws, cx), FramedPanel::Bottom);
+    // Focus never colours a panel's edge: every panel keeps the hairline.
+    cx.update(|_, cx| {
+        let c = &arcode_ui_kit::theme(cx).colors;
+        assert_eq!(arcode_ui_kit::panel_border(cx), c.border);
+        assert_ne!(c.border, c.border_focused);
+    });
 
     // The palette takes focus but not the frame.
     cx.dispatch_action(ToggleCommandPalette);

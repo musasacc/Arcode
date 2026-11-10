@@ -1,9 +1,11 @@
 //! The command of each [`FileLanguage`] for [`super::file_command`].
 
+use std::cell::RefCell;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-use super::{FileLanguage, FileRunInput, Tools, file_name, working_dir};
+use super::output::{check_next_to, program_next_to, stem, taken_note};
+use super::{FileLanguage, FileRun, FileRunInput, ProgramOutput, Tools, file_name, working_dir};
 use crate::command::{RunCommand, RunKind, RunSource, args};
 use crate::runnables::{RunnableKind, go, rust};
 use crate::{fsutil, toolchain};
@@ -20,6 +22,8 @@ struct Ctx<'a> {
     cwd: PathBuf,
     /// The file relative to `cwd` (or absolute when outside it).
     rel: String,
+    /// Where a compiled program went instead of next to the source.
+    note: RefCell<Option<String>>,
 }
 
 impl Ctx<'_> {
@@ -51,7 +55,7 @@ pub(super) fn command(
     language: FileLanguage,
     input: &FileRunInput<'_>,
     tools: &dyn Tools,
-) -> Result<RunCommand, String> {
+) -> Result<FileRun, String> {
     let cwd = working_dir(input.file, input.project_root);
     let ctx = Ctx {
         input,
@@ -59,41 +63,47 @@ pub(super) fn command(
         name: file_name(input.file),
         rel: fsutil::rel_slash(input.file, &cwd),
         cwd,
+        note: RefCell::new(None),
     };
+    let command = language_command(language, &ctx)?;
+    Ok(FileRun {
+        command,
+        note: ctx.note.take(),
+    })
+}
+
+fn language_command(language: FileLanguage, ctx: &Ctx<'_>) -> Result<RunCommand, String> {
+    let (input, tools) = (ctx.input, ctx.tools);
     let unix = !cfg!(windows);
     match language {
-        FileLanguage::Python => python(&ctx),
-        FileLanguage::Rust => rust_file(&ctx),
+        FileLanguage::Python => python(ctx),
+        FileLanguage::Rust => rust_file(ctx),
         FileLanguage::C => native(
-            &ctx,
+            ctx,
             &["cc", "gcc", "clang"],
             &[],
             "a C compiler (gcc or clang)",
         ),
         FileLanguage::Cpp => native(
-            &ctx,
+            ctx,
             &["c++", "g++", "clang++"],
             &[],
             "a C++ compiler (g++ or clang++)",
         ),
-        FileLanguage::Go => go_file(&ctx),
+        FileLanguage::Go => go_file(ctx),
         FileLanguage::JavaScript => match ctx.first(&["node", "bun", "deno"]) {
             Some("deno") => Ok(ctx.interpreted("deno", &["run"], RunSource::File)),
             Some(program) => Ok(ctx.interpreted(program, &[], RunSource::File)),
             None => Err(ctx.missing("Node.js")),
         },
-        FileLanguage::TypeScript => typescript(&ctx),
+        FileLanguage::TypeScript => typescript(ctx),
         FileLanguage::Java => match ctx.first(&["java"]) {
             Some(java) => Ok(ctx.interpreted(java, &[], RunSource::File)),
             None => Err(ctx.missing("a JDK (11 or newer)")),
         },
-        FileLanguage::Ruby => simple(&ctx, &["ruby"], "Ruby"),
-        FileLanguage::Php => simple(&ctx, &["php"], "PHP"),
-        FileLanguage::Lua => simple(
-            &ctx,
-            &["lua", "lua5.4", "lua5.3", "lua5.1", "luajit"],
-            "Lua",
-        ),
+        FileLanguage::Ruby => simple(ctx, &["ruby"], "Ruby"),
+        FileLanguage::Php => simple(ctx, &["php"], "PHP"),
+        FileLanguage::Lua => simple(ctx, &["lua", "lua5.4", "lua5.3", "lua5.1", "luajit"], "Lua"),
         FileLanguage::Shell => {
             let shebang = shebang_program(input.file);
             let mut programs: Vec<String> = shebang.into_iter().collect();
@@ -134,8 +144,8 @@ fn python(ctx: &Ctx<'_>) -> Result<RunCommand, String> {
     }
 }
 
-/// `cargo run` for a file of a Cargo package, else `rustc` into the build
-/// folder and the program.
+/// `cargo run` for a file of a Cargo package, else `rustc` and the
+/// program.
 fn rust_file(ctx: &Ctx<'_>) -> Result<RunCommand, String> {
     let root = ctx.input.project_root.unwrap_or(&ctx.cwd);
     if let Some(command) = rust::package_run_command(ctx.input.file, root) {
@@ -170,11 +180,25 @@ fn native(
     }
 }
 
-/// `<compiler> <flags> -g <file> -o <out>`, then `<out>`.
+/// `<compiler> <flags> -g <file> -o <out>`, then `<out>`: next to the
+/// source and from its folder (`rustc -g test.rs -o test && ./test`), or
+/// in the cache from the project folder.
 fn compiled(ctx: &Ctx<'_>, compiler: &str, mut flags: Vec<String>) -> RunCommand {
-    let out = output_path(ctx.input.build_dir, ctx.input.file)
-        .to_string_lossy()
-        .into_owned();
+    let file = ctx.input.file;
+    let cache = match ctx.input.output {
+        ProgramOutput::Cache(cache) => cache,
+        ProgramOutput::NextToSource { cache, built } => {
+            let program = program_next_to(file);
+            match check_next_to(&program, built) {
+                Ok(()) => return next_to_source(ctx, compiler, flags, &program),
+                Err(taken) => {
+                    *ctx.note.borrow_mut() = Some(taken_note(file, &program, taken));
+                    cache
+                }
+            }
+        }
+    };
+    let out = output_path(cache, file).to_string_lossy().into_owned();
     flags.extend([
         "-g".to_string(),
         ctx.rel.clone(),
@@ -183,6 +207,29 @@ fn compiled(ctx: &Ctx<'_>, compiler: &str, mut flags: Vec<String>) -> RunCommand
     ]);
     let compile = RunCommand::new(compiler, flags, &ctx.cwd, RunKind::Build, RunSource::File);
     RunCommand::new(out, Vec::new(), &ctx.cwd, RunKind::Run, RunSource::File)
+        .with_compile(compile)
+        .with_label(ctx.label())
+}
+
+/// The compile and run steps of a program written next to its source,
+/// with paths relative to the file's folder.
+fn next_to_source(
+    ctx: &Ctx<'_>,
+    compiler: &str,
+    mut flags: Vec<String>,
+    program: &Path,
+) -> RunCommand {
+    let dir = fsutil::start_dir(ctx.input.file);
+    let out = file_name(program);
+    flags.extend([
+        "-g".to_string(),
+        ctx.name.clone(),
+        "-o".to_string(),
+        out.clone(),
+    ]);
+    let compile = RunCommand::new(compiler, flags, &dir, RunKind::Build, RunSource::File);
+    let run = format!(".{}{out}", std::path::MAIN_SEPARATOR);
+    RunCommand::new(run, Vec::new(), &dir, RunKind::Run, RunSource::File)
         .with_compile(compile)
         .with_label(ctx.label())
 }
@@ -233,13 +280,6 @@ pub(crate) fn output_path(build_dir: &Path, file: &Path) -> PathBuf {
     let folder = format!("{:016x}", hasher.finish());
     let name = format!("{}{}", stem(file), std::env::consts::EXE_SUFFIX);
     build_dir.join(folder).join(name)
-}
-
-fn stem(file: &Path) -> String {
-    file.file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "main".to_string())
 }
 
 /// A valid crate name for a file stem: other characters become `_`, and a

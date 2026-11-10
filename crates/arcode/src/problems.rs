@@ -260,7 +260,6 @@ impl ProblemsPanel {
         let chip = match row {
             ProblemRow::File { label, count, .. } => {
                 let (dir, name) = split_label(label);
-                let (file_icon_name, file_icon_color) = file_icon(name, &c);
                 base.gap(px(6.))
                     .text_size(scale.meta)
                     .child(
@@ -268,7 +267,7 @@ impl ProblemsPanel {
                             .size(px(13.))
                             .color(c.text_muted),
                     )
-                    .child(icon(file_icon_name).size(px(14.)).color(file_icon_color))
+                    .child(file_icon(&label[..], cx).size(px(14.)))
                     .child(
                         div()
                             .flex_none()

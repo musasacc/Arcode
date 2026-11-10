@@ -1,6 +1,7 @@
 //! Language server commands of the palette ("LSP: Restart Language
-//! Servers", "LSP: Show Language Server Log") and the read-only tab that
-//! shows a server's log, live: new lines are appended while it is open.
+//! Servers", "LSP: Show Language Server Log"; the install commands are in
+//! `install.rs`) and the read-only tab that shows a server's log, live:
+//! new lines are appended while it is open.
 
 use arcode_buffer::{Buffer, Point};
 use arcode_editor::{Editor, ScrollAnchor};
@@ -51,11 +52,12 @@ pub fn init(cx: &mut App) {
         "LSP: Show Language Server Log",
         Box::new(ShowLanguageServerLog),
     );
+    super::install::init(cx);
 }
 
 /// Runs `f` on the active window's workspace, after the current action
 /// (an action runs while its window is updated).
-fn with_active_workspace(
+pub(super) fn with_active_workspace(
     cx: &mut App,
     f: impl FnOnce(&mut Workspace, &mut Window, &mut Context<Workspace>) + 'static,
 ) {

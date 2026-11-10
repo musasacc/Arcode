@@ -33,6 +33,7 @@ pub fn setting_value(config: &Config, path: &str) -> Option<Value> {
         "todo" => Value::try_from(&config.todo),
         "workspace" => Value::try_from(&config.workspace),
         "debug" => Value::try_from(&config.debug),
+        "run" => Value::try_from(&config.run),
         "files" => Value::try_from(&config.files),
         "plugins" => Value::try_from(&config.plugins),
         "discord" => Value::try_from(&config.discord),
@@ -194,7 +195,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             out,
-            "[editor]\n# Width of a tab stop.\ntab_size = 4 # mine\nline_height = 1.5\n"
+            "[editor]\n# Width of a tab stop.\ntab_size = 4 # mine\nline_height = 1.6\n"
         );
         assert_eq!(
             reset_edit("search.exclude", false),
@@ -279,7 +280,7 @@ mod tests {
     #[test]
     fn defaults_are_shown_in_words() {
         assert_eq!(shown_default("editor.tab_size", false), "4");
-        assert_eq!(shown_default("editor.line_height", false), "1.5");
+        assert_eq!(shown_default("editor.line_height", false), "1.6");
         assert_eq!(shown_default("ui.text_gamma", false), "1.8");
         assert_eq!(shown_default("editor.minimap", false), "on");
         assert_eq!(shown_default("editor.minimap", true), "off");

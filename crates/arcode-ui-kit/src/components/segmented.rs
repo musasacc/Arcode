@@ -11,7 +11,7 @@ use crate::theme;
 /// A row of mutually exclusive choices: 28 tall, radius 8, 1 px
 /// `border_strong` outline, 2 px inner padding; segments are 22 tall with
 /// radius 6, the selected one `pill` filled and SemiBold. `select` gets the
-/// clicked index. Segment ids are `"{id}-{index}"`.
+/// clicked index. Segment ids (and test selectors) are `"{id}-{index}"`.
 pub fn segmented(
     id: &str,
     labels: &[&str],
@@ -39,6 +39,7 @@ pub fn segmented(
         row = row.child(
             div()
                 .id(SharedString::from(format!("{id}-{ix}")))
+                .debug_selector(|| format!("{id}-{ix}"))
                 .flex()
                 .items_center()
                 .h(px(22.))

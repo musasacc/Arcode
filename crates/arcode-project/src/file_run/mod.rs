@@ -5,8 +5,9 @@
 //! [`file_command`] picks the toolchain for the file's language from
 //! `PATH` (a project's virtual environment for Python) and returns the
 //! command to run in the integrated terminal. Compiled languages are built
-//! into a per-file folder under the build directory the caller passes (a
-//! cache folder), never next to the source. When nothing can run the
+//! next to the source and run from its folder, or into a per-file folder
+//! of a cache folder (see [`ProgramOutput`]); a name next to the source
+//! that Arcode did not build is never written over. When nothing can run the
 //! file, the error says what to install. Inside a Cargo package or a Go
 //! module the project's own tool is used instead.
 //!
@@ -14,6 +15,7 @@
 //! `node --version`): call it off the UI thread.
 
 mod langs;
+mod output;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -21,13 +23,18 @@ use std::process::{Command, Stdio};
 use crate::command::RunCommand;
 use crate::fsutil;
 
+pub use output::{
+    BUILD_WINDOW, BuiltPrograms, NameTaken, ProgramOutput, abandon_started_build, check_next_to,
+    finish_started_build, program_next_to, record_build_started, record_built, taken_note,
+};
+
 /// The languages [`file_command`] can run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FileLanguage {
     /// `python file.py` (the project's virtualenv when it has one).
     Python,
-    /// `rustc` into the build directory, then the program; `cargo run`
-    /// for a file of a Cargo package.
+    /// `rustc`, then the program; `cargo run` for a file of a Cargo
+    /// package.
     Rust,
     /// `cc -g`, then the program.
     C,
@@ -179,30 +186,57 @@ pub struct FileRunInput<'a> {
     /// inside it, and where Cargo packages, Go modules and virtualenvs are
     /// looked for.
     pub project_root: Option<&'a Path>,
-    /// Where compiled programs go (each file gets its own folder in it).
-    pub build_dir: &'a Path,
+    /// Where compiled programs go.
+    pub output: ProgramOutput<'a>,
+}
+
+/// A command from [`file_run`], and a note for the user when its program
+/// could not go where it was asked to (a name next to the source is
+/// taken: see [`taken_note`]).
+#[derive(Debug, Clone)]
+pub struct FileRun {
+    /// What to run.
+    pub command: RunCommand,
+    /// One line saying where the program went instead, and why.
+    pub note: Option<String>,
 }
 
 /// The command that runs `input.file` in a terminal, labelled
 /// `run <file name>`. A compiled language's command has a
 /// [`RunCommand::compile`] step that builds the program, with debug
-/// info, into a folder of `build_dir`; create it with
-/// [`create_output_dir`] before running the command.
+/// info, where [`FileRunInput::output`] says: next to the source as
+/// `./<stem>` run from the file's folder, or in a folder of the cache.
+/// Create the folder with [`create_output_dir`] before running it.
 ///
 /// Errors are short sentences for the user: the language is not supported
 /// (`Cannot run Markdown files: …`) or its toolchain is missing
 /// (`Install Python 3 to run test.py`).
-pub fn file_command(input: &FileRunInput<'_>, tools: &dyn Tools) -> Result<RunCommand, String> {
+pub fn file_run(input: &FileRunInput<'_>, tools: &dyn Tools) -> Result<FileRun, String> {
     let language = FileLanguage::detect(input.language_id, input.file)
         .ok_or_else(|| unsupported_message(input.file, input.language_id))?;
     langs::command(language, input, tools)
 }
 
+/// [`file_run`] without the note.
+pub fn file_command(input: &FileRunInput<'_>, tools: &dyn Tools) -> Result<RunCommand, String> {
+    file_run(input, tools).map(|run| run.command)
+}
+
+/// The program a compiled single-file command runs, as a full path (a
+/// program next to the source is `./<stem>` in the command's folder).
+/// `None` for other commands.
+pub fn compiled_program(command: &RunCommand) -> Option<PathBuf> {
+    command.compile.as_ref()?;
+    let program = Path::new(&command.program);
+    let program = program.strip_prefix(".").unwrap_or(program);
+    Some(command.cwd.join(program))
+}
+
 /// Creates the folder a compiled single-file program goes to (nothing to
 /// do for other commands). Cheap: one `mkdir -p`.
 pub fn create_output_dir(command: &RunCommand) -> std::io::Result<()> {
-    match (&command.compile, Path::new(&command.program).parent()) {
-        (Some(_), Some(dir)) if !dir.as_os_str().is_empty() => std::fs::create_dir_all(dir),
+    match compiled_program(command).as_deref().and_then(Path::parent) {
+        Some(dir) if !dir.as_os_str().is_empty() => std::fs::create_dir_all(dir),
         _ => Ok(()),
     }
 }
@@ -277,5 +311,9 @@ pub(crate) fn file_name(file: &Path) -> String {
         .unwrap_or_else(|| file.display().to_string())
 }
 
+#[cfg(test)]
+mod output_side_tests;
+#[cfg(test)]
+mod output_tests;
 #[cfg(test)]
 mod tests;

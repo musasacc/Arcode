@@ -2,7 +2,7 @@
 //! headers, symbols with their kind, references with a preview line).
 
 use arcode_ui_kit::metrics::WEIGHT_SEMIBOLD;
-use arcode_ui_kit::{IconName, badge, icon, readout, theme, truncated, type_scale};
+use arcode_ui_kit::{IconName, badge, readout, theme, truncated, type_scale};
 use gpui::{
     AnyElement, Context, HighlightStyle, IntoElement, Render, SharedString, Window, div,
     prelude::*, px, relative, uniform_list,
@@ -27,7 +27,6 @@ impl NavPicker {
         count: usize,
         cx: &Context<Self>,
     ) -> AnyElement {
-        let c = theme(cx).colors.clone();
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -36,7 +35,6 @@ impl NavPicker {
             .parent()
             .map(|d| self.display_path(d))
             .unwrap_or_default();
-        let (icon_name, icon_color) = file_icon(&name, &c);
         div()
             .id(("nav-header", row_ix))
             .flex()
@@ -46,7 +44,7 @@ impl NavPicker {
             .w_full()
             .px(px(10.))
             .overflow_hidden()
-            .child(icon(icon_name).size(px(15.)).color(icon_color))
+            .child(file_icon(path, cx).size(px(15.)))
             .child(
                 div()
                     .flex_none()

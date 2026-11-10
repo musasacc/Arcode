@@ -41,13 +41,16 @@ pub(crate) struct ScrollState {
 }
 
 impl MinimapGeometry {
-    /// Lays out a minimap of `total_rows` rows in `bounds` for `scroll`.
+    /// Lays out a minimap of `total_rows` rows in `bounds` for `scroll`,
+    /// on a window with device `scale`.
     pub fn new(
         bounds: Bounds<Pixels>,
         pitch: Pixels,
         total_rows: usize,
         scroll: ScrollState,
+        scale: f32,
     ) -> Self {
+        let scale = scale.max(0.5);
         let lh = scroll.line_height.max(px(1.));
         let height = bounds.size.height.max(px(1.));
         let slider_h = (pitch * (scroll.viewport_h / lh)).clamp(pitch, height);
@@ -59,9 +62,9 @@ impl MinimapGeometry {
                 (Pixels::ZERO, pitch / lh)
             } else {
                 let frac = (scroll.scroll_y / scroll.max_scroll_y).clamp(0., 1.);
-                // Whole pixels keep the blocks sharp.
+                // Whole device pixels keep the glyphs sharp.
                 (
-                    ((content_h - height) * frac).round(),
+                    ((content_h - height) * frac * scale).round() / scale,
                     (height - slider_h) / scroll.max_scroll_y,
                 )
             };
@@ -154,7 +157,7 @@ mod tests {
     fn short_file_maps_rows_one_to_one() {
         // 100 rows of 2 px fit in 400 px: no minimap scrolling.
         let s = state(100, 200., 300.);
-        let g = MinimapGeometry::new(bounds(400.), PITCH, 100, s);
+        let g = MinimapGeometry::new(bounds(400.), PITCH, 100, s, 1.);
         assert_eq!(g.offset, Pixels::ZERO);
         assert_eq!(g.row_top(0), px(40.));
         assert_eq!(g.row_top(10), px(60.));
@@ -174,13 +177,13 @@ mod tests {
         // 100 000 rows: far more than fits.
         let rows = 100_000;
         let top = state(rows, 800., 0.);
-        let g = MinimapGeometry::new(bounds(800.), PITCH, rows, top);
+        let g = MinimapGeometry::new(bounds(800.), PITCH, rows, top, 1.);
         assert_eq!(g.offset, Pixels::ZERO);
         assert_eq!(g.slider.top(), px(40.));
         assert_eq!(g.rows_in_view(), 0..400);
 
         let end = state(rows, 800., f32::MAX);
-        let g = MinimapGeometry::new(bounds(800.), PITCH, rows, end);
+        let g = MinimapGeometry::new(bounds(800.), PITCH, rows, end, 1.);
         // The slider sits at the bottom, the last rows are in view.
         assert!((g.slider.bottom() - g.bounds.bottom()).abs() < px(0.01));
         let view = g.rows_in_view();
@@ -192,7 +195,7 @@ mod tests {
         assert!(row.abs_diff(first_shown) <= 1, "{row} vs {first_shown}");
 
         let mid = state(rows, 800., 1_000_000.);
-        let g = MinimapGeometry::new(bounds(800.), PITCH, rows, mid);
+        let g = MinimapGeometry::new(bounds(800.), PITCH, rows, mid, 1.);
         let row = g.row_at(g.slider.top() + px(0.5));
         assert!(row.abs_diff(50_000) <= 1, "{row}");
         // Work stays proportional to the minimap's height.
@@ -201,10 +204,10 @@ mod tests {
 
     #[test]
     fn slider_size_follows_the_viewport() {
-        let g = MinimapGeometry::new(bounds(800.), PITCH, 5000, state(5000, 400., 0.));
+        let g = MinimapGeometry::new(bounds(800.), PITCH, 5000, state(5000, 400., 0.), 1.);
         assert_eq!(g.slider.size.height, px(40.), "20 rows of 2 px");
         // Never thinner than a row, never taller than the minimap.
-        let g = MinimapGeometry::new(bounds(30.), PITCH, 5000, state(5000, 4000., 0.));
+        let g = MinimapGeometry::new(bounds(30.), PITCH, 5000, state(5000, 4000., 0.), 1.);
         assert_eq!(g.slider.size.height, px(30.));
     }
 
@@ -212,7 +215,7 @@ mod tests {
     fn slider_drag_round_trips_to_the_scroll_offset() {
         for rows in [100, 1000, 100_000] {
             let s = state(rows, 600., 700.);
-            let g = MinimapGeometry::new(bounds(600.), PITCH, rows, s);
+            let g = MinimapGeometry::new(bounds(600.), PITCH, rows, s, 1.);
             let back = g.scroll_after_drag(
                 Pixels::ZERO,
                 g.slider.top() - g.bounds.top(),
@@ -230,7 +233,7 @@ mod tests {
         // Proportional: dragging 10 px in a long file moves 10 / travel
         // of the whole scroll range.
         let s = state(100_000, 800., 0.);
-        let g = MinimapGeometry::new(bounds(800.), PITCH, 100_000, s);
+        let g = MinimapGeometry::new(bounds(800.), PITCH, 100_000, s, 1.);
         let travel = g.bounds.size.height - g.slider.size.height;
         let moved = g.scroll_after_drag(Pixels::ZERO, px(10.), s.max_scroll_y);
         let expected = s.max_scroll_y * (10. / f32::from(travel));
@@ -257,7 +260,7 @@ mod tests {
             "and at the end"
         );
         // A click maps to the row under it, then to a scroll offset.
-        let g = MinimapGeometry::new(bounds(400.), PITCH, 1000, s);
+        let g = MinimapGeometry::new(bounds(400.), PITCH, 1000, s, 1.);
         let row = g.row_at(px(40.) + px(201.));
         assert_eq!(row, 100);
     }
@@ -265,7 +268,7 @@ mod tests {
     #[test]
     fn unscrollable_file_keeps_the_slider_at_the_top() {
         let s = state(5, 400., 0.);
-        let g = MinimapGeometry::new(bounds(400.), PITCH, 5, s);
+        let g = MinimapGeometry::new(bounds(400.), PITCH, 5, s, 1.);
         assert_eq!(g.slider.top(), px(40.));
         assert_eq!(
             g.scroll_after_drag(Pixels::ZERO, px(300.), s.max_scroll_y),

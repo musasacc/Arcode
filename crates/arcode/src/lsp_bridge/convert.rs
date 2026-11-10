@@ -185,7 +185,7 @@ pub fn state_text(state: &ServerState) -> String {
 
 /// Whether a failure reason means the server's executable was not found.
 pub fn is_not_installed(reason: &str) -> bool {
-    reason.contains("not found on PATH")
+    arcode_lsp::is_not_installed(reason)
 }
 
 /// The LSP client's feature switches for a configured server.

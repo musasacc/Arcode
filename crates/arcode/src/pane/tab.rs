@@ -1,16 +1,34 @@
 //! One tab of the pane's tab strip.
 
 use arcode_editor::{DiskConflict, Editor};
-use arcode_ui_kit::{IconName, kbd, pill_tab, theme};
-use gpui::{Context, Entity, MouseButton, SharedString, div, prelude::*, px};
+use arcode_ui_kit::{FileGlyph, IconName, kbd, pill_tab, settings, theme};
+use gpui::{App, Context, Entity, Hsla, MouseButton, SharedString, div, prelude::*, px};
 
 use super::Pane;
 use crate::actions::shortcut_label;
-use crate::file_icons::file_icon;
+use crate::file_icons::file_icon_parts;
 
 impl Pane {
-    /// The editor tab at `index`: a pill tab with the ember mark when it
-    /// is active in the focused pane, the unsaved ring (in `warning` when
+    /// The icon of the tab of `editor` titled `title`, and its tint: a
+    /// diff tab's `git-compare`, else the file's icon
+    /// ([`crate::file_icons`]), by its path when it has one.
+    pub(crate) fn tab_glyph(
+        &self,
+        editor: &Entity<Editor>,
+        title: &str,
+        cx: &App,
+    ) -> (FileGlyph, Hsla) {
+        let c = &theme(cx).colors;
+        if self.titles.contains_key(&editor.entity_id()) {
+            return (FileGlyph::Icon(IconName::GitCompare), c.accent_alt);
+        }
+        let e = editor.read(cx);
+        let path = e.path().unwrap_or(std::path::Path::new(title));
+        file_icon_parts(path, settings(cx), c)
+    }
+
+    /// The editor tab at `index`: a pill tab (filled while it is active in
+    /// the focused pane, quieter in other panes), the unsaved ring (in `warning` when
     /// the file also changed on disk), and the name struck
     /// through when the file was deleted on disk.
     pub(super) fn render_tab(
@@ -47,13 +65,9 @@ impl Pane {
             }
         };
         let active = index == self.active && self.active_page.is_none();
-        let (icon_name, icon_color) = if custom.is_some() {
-            (IconName::GitCompare, c.accent_alt)
-        } else {
-            file_icon(&title, &c)
-        };
+        let (glyph, tint) = self.tab_glyph(editor, &title, cx);
         let mut tab = pill_tab(("tab", index), title)
-            .icon(icon_name, Some(icon_color))
+            .file_glyph(glyph, Some(tint))
             .active(active)
             .focused(focused)
             .dirty(dirty)

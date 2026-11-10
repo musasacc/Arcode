@@ -139,17 +139,36 @@ built with the same nixpkgs channel as your system (see
 ### A language server does not work
 
 - The status bar lists the language servers of the current file and
-  marks missing ones. Open the Languages page (**Languages: Show Language
-  Packs**) to see what is installed and how to install the rest.
+  marks missing ones. The "not installed" message has an **Install**
+  button that runs the install command in a terminal tab (or **How to
+  Install**, which opens the server's install page); the server starts
+  once the command succeeds. **LSP: Show Missing Language Servers** lists
+  every missing server of the project, and the Languages page (**Languages:
+  Show Language Packs**) shows what is installed. See
+  [When a server is missing](languages.md#when-a-server-is-missing).
+- "rust-analyzer is not installed in the Rust toolchain …" (the server log
+  shows `error: Unknown binary 'rust-analyzer' in official toolchain …`):
+  the `rust-analyzer` on `PATH` is rustup's placeholder and the component
+  is missing. Run `rustup component add rust-analyzer` (Install does
+  that), in the project folder if it pins a toolchain with
+  `rust-toolchain.toml`.
+- "pyright-langserver not found on PATH": install pyright (`npm install -g
+  pyright` or `pipx install pyright`), or, in a build from source, fetch
+  the bundled servers (see
+  [Where Arcode looks for the bundle](languages.md#where-arcode-looks-for-the-bundle)).
 - Arcode finds servers on `PATH`. If you start Arcode from a desktop
   launcher or the macOS Dock, it may not see the `PATH` of your shell
   (for example `~/.cargo/bin` or a Node version manager's folder). Start
   Arcode from a terminal, or set the full path:
 
   ```toml
-  [lsp.rust-analyzer]
-  command = "/home/me/.cargo/bin/rust-analyzer"
+  [lsp.gopls]
+  command = "/home/me/go/bin/gopls"
   ```
+
+  A configured path is run as given; for rust-analyzer prefer the
+  component's own file (`rustup which rust-analyzer` prints it) over the
+  `~/.cargo/bin` placeholder.
 
 - Check that the language pack is not turned off
   (`[language.<id>] enabled = false`).
@@ -185,7 +204,7 @@ or emoji font installed on your system.
 ### Text looks blurry or thin
 
 - On Linux, raise `ui.text_gamma` (for example to 2.0 or 2.2) for light
-  text on a dark theme, or `ui.text_contrast` (2 to 4) for dark text on a
+  text on a dark theme, or `ui.text_contrast` (3 or 4; the default is 2) for dark text on a
   light theme, then restart Arcode. See
   [Text rendering](themes.md#text-rendering).
 - Use whole font sizes: on a screen without scaling, half sizes such as

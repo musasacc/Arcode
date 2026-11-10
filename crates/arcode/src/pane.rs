@@ -20,8 +20,6 @@ mod find;
 mod page;
 mod strip;
 mod tab;
-#[cfg(test)]
-mod tab_icon_tests;
 
 pub use disk_bar::{CompareWithDisk, KeepMyChanges, ReloadFromDisk};
 pub use page::{CloseGuard, PageTab, set_close_guard};
@@ -94,8 +92,8 @@ pub struct Pane {
     tabs_overflow: bool,
     /// The list of open tabs under the `…` button is shown.
     tab_menu_open: bool,
-    /// Whether the workspace frames this pane (the ember mark on its
-    /// active tab); `None` until told, then focus decides.
+    /// Whether the workspace counts this as focused (its active tab in the
+    /// `pill` fill); `None` until told, then focus decides.
     framed: Option<bool>,
     /// The active tab the strip last scrolled into view and the strip's
     /// bounds then (see `strip::Pane::reveal_active_tab`).
@@ -155,8 +153,9 @@ impl Pane {
         }
     }
 
-    /// Sets whether this pane is the framed panel's active pane (read at
-    /// the next render, which follows in the same frame: no notify).
+    /// Sets whether this pane is the focused panel's active pane, which
+    /// gives its active tab the `pill` fill (read at the next render,
+    /// which follows in the same frame: no notify).
     pub fn set_framed(&mut self, framed: bool) {
         self.framed = Some(framed);
     }

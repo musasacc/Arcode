@@ -47,9 +47,11 @@ and Windows. Linux gets the most testing.
   placeholders, mirrors and choices.
 - Split panes, tabs, soft wrap, bracket matching, indentation detection,
   line ending and encoding display.
-- A minimap with the viewport, selections, search matches, git changes and
-  errors; click or drag it to scroll. Its cost depends on its height, not
-  on the file's length.
+- A minimap for files longer than the editor: the code scaled down char by
+  char in its syntax colours, with the viewport, selections, search
+  matches and errors. Hover it to see the code there at full size, click
+  or drag it to scroll. Its cost depends on its height, not on the file's
+  length.
 - Large files stay responsive: above 4 MiB or 50,000 lines only the visible
   part is parsed for highlighting.
 - Sessions: open tabs, splits, cursors, scroll positions and panels come
@@ -93,7 +95,10 @@ and Windows. Linux gets the most testing.
 - Run Current File and Debug Current File for single files without a
   project file: Python, Rust, C, C++, Go, JavaScript, TypeScript, Java,
   Ruby, PHP, Lua and shell scripts, with the toolchains on your `PATH`.
-  When there is nothing to run, Arcode says why and what to install.
+  A compiled program goes next to its source (`test.rs` → `test`), so it
+  shows in the file tree, and is never written over something Arcode did
+  not build. When there is nothing to run, Arcode says why and what to
+  install.
 - Debugging through the Debug Adapter Protocol with CodeLLDB, lldb-dap,
   GDB 14+, debugpy and Delve: breakpoints (with conditions, hit counts and
   log messages), call stack, variables, watch expressions and a debug
@@ -104,8 +109,9 @@ See [docs/DEBUGGING.md](docs/DEBUGGING.md) for details.
 
 ### Git
 
-- Change bars in the gutter, with a popover to stage, unstage or revert a
-  single hunk.
+- Change bars in the gutter (off by default: turn on `[git] gutter` or
+  Settings > Editor), with a popover to stage, unstage or revert a single
+  hunk.
 - Inline blame for the cursor line and a blame column.
 - Source Control view: stage, unstage, commit, switch or create branches,
   open diffs.
@@ -173,10 +179,15 @@ See [docs/DEBUGGING.md](docs/DEBUGGING.md) for details.
   Follow the system appearance or pick one.
 - A Settings page with live previews of themes and fonts. Every change is
   written to `config.toml`, keeping your comments. Every single-value
-  setting has a row that shows its key, the filter finds rows by key, and
-  a changed row has a button that resets it to the default.
-- Your own themes as TOML files in the `themes` folder next to
-  `config.toml`.
+  setting has a row (hover its label for its `config.toml` key), the
+  filter finds rows by name or key, and a changed row has a button that
+  resets it to the default.
+- Language logos as file icons (Rust, Python, C, Go, TypeScript and many
+  more) in the file tree, tabs, breadcrumb, Quick Open, search, Problems
+  and the Git panel; `ui.file_icons = "plain"` switches to plain icons.
+- Your own themes: **Theme: New Theme…** starts one from any theme, and
+  your themes can be renamed and deleted. They are TOML files in the
+  `themes` folder next to `config.toml`.
 - A theme editor: change any colour of a theme with a colour picker or a
   hex value and see the whole app update as you go, with contrast hints
   for text, then save it as your own theme.
@@ -325,6 +336,16 @@ with optimizations. For a release build:
 cargo build --release -p arcode
 ./target/release/arcode path/to/project
 ```
+
+**Language servers.** A build from source comes without the language
+servers that release packages bundle, so only the servers on your `PATH`
+run. Either fetch the same bundle into Arcode's data folder with
+`scripts/fetch-language-servers.sh linux-x64 ~/.local/share/arcode`
+(`macos-arm64 ~/Library/Application\ Support/arcode` on a Mac,
+`windows-x64 "$LOCALAPPDATA/arcode"` in Git Bash on Windows), or install
+the servers you need yourself (`rustup component add rust-analyzer`,
+`npm install -g pyright`, ...). When one is missing, Arcode says so with
+an **Install** button that runs the install command in a terminal tab.
 
 ### The bundled plugins (optional)
 
@@ -522,8 +543,12 @@ list of versions.
 for the language: a path as given, otherwise the program on your `PATH`
 (on Windows also with the `.cmd` / `.bat` extensions that npm uses),
 otherwise the bundled copy. So a server you install yourself always wins
-over the bundled one. If a server is missing everywhere, the status bar
-shows "not installed" and a one-time message names the command. The
+over the bundled one (rustup's `rust-analyzer` placeholder, present even
+without the component, does not count as installed). If a server is
+missing everywhere, the status bar shows "not installed" and a one-time
+message offers **Install**, which runs the install command for your
+machine in a terminal tab, and starts the server once it succeeded
+(**LSP: Show Missing Language Servers** lists every missing one). The
 Languages page (Plugins view, or "Languages: Show Language Packs") lists
 every language with its servers, shows which are installed or bundled,
 and gives the install command for your OS to copy for the rest.
@@ -548,8 +573,10 @@ patterns to any of the languages above.
 
 Arcode itself does not connect to the internet. There is no telemetry, no
 crash reporting, no update check, no account and no plugin store. It
-never downloads language servers, debuggers or packages for you: the
-language servers of a release are in the package you installed.
+never downloads language servers, debuggers or packages on its own: the
+language servers of a release are in the package you installed, and an
+install command runs only when you click **Install**, in a terminal tab
+you can see.
 
 Network access only happens as a direct result of something you do:
 
@@ -695,4 +722,7 @@ The bundled fonts are under the SIL Open Font License: JetBrains Mono
 ([assets/fonts/jetbrains-mono/OFL.txt](assets/fonts/jetbrains-mono/OFL.txt))
 and Inter ([assets/fonts/inter/OFL.txt](assets/fonts/inter/OFL.txt)). The
 icons are from Lucide, under the ISC license
-([assets/icons/LICENSE](assets/icons/LICENSE)).
+([assets/icons/LICENSE](assets/icons/LICENSE)). The language logos used as
+file icons are from Devicon, under the MIT license
+([assets/file-icons/LICENSE](assets/file-icons/LICENSE)); the logos are
+trademarks of their owners (see [docs/THIRD-PARTY.md](docs/THIRD-PARTY.md)).

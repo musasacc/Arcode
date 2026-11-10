@@ -4,7 +4,7 @@
 
 use arcode_config::theme::ContrastHint;
 use arcode_ui_kit::metrics::{WEIGHT_MEDIUM, WEIGHT_SEMIBOLD, type_scale};
-use arcode_ui_kit::{IconName, ember, icon, mono_font_family, theme};
+use arcode_ui_kit::{IconName, icon, mono_font_family, theme};
 use gpui::{
     App, Div, HighlightStyle, Hsla, SharedString, StyledText, UnderlineStyle, div, prelude::*, px,
 };
@@ -140,7 +140,8 @@ fn sample_line(ix: usize, cx: &App) -> StyledText {
     StyledText::new(SharedString::from(text)).with_highlights(highlights)
 }
 
-/// The code sample in an editor panel framed like the focused one.
+/// The code sample in an editor panel as the focused pane draws it: the
+/// neutral panel edge, and the active tab filled with `pill` (no mark).
 pub(super) fn code_sample(cx: &App) -> Div {
     let c = theme(cx).colors.clone();
     let scale = type_scale(cx);
@@ -154,7 +155,6 @@ pub(super) fn code_sample(cx: &App) -> Div {
         .bg(c.pill)
         .text_size(scale.meta)
         .font_weight(WEIGHT_MEDIUM)
-        .child(ember())
         .child("ember.rs");
     let strip = div()
         .flex()
@@ -222,7 +222,7 @@ pub(super) fn code_sample(cx: &App) -> Div {
         .rounded(px(10.))
         .overflow_hidden()
         .border_1()
-        .border_color(c.border_focused)
+        .border_color(c.border)
         .bg(c.panel())
         .text_color(c.text)
         .child(strip)

@@ -19,7 +19,8 @@
 //! - [`file_command`] runs a single source file on its own (Python, Rust,
 //!   C, C++, Go, JavaScript, TypeScript, Java, Ruby, PHP, Lua, shell)
 //!   with the toolchain found on `PATH`, for folders without a project
-//!   file; compiled programs go to a build folder the caller names.
+//!   file; compiled programs go next to the source (or to a cache folder
+//!   the caller names, see [`ProgramOutput`]).
 //! - [`debug_target`] turns such a command into what a debugger launches
 //!   (a Cargo build whose JSON output names the executable, a script, a
 //!   Python module, a Go package).
@@ -29,6 +30,10 @@
 //! - [`bundled`] reads the language servers bundled with a release and
 //!   resolves a server command to the configured path, `PATH` or the
 //!   bundled copy (in that order).
+//! - [`server_install`] says how to install a missing language server on
+//!   this machine (one command chosen by what is on `PATH`, or the
+//!   server's homepage) and tells rustup's placeholder executables from
+//!   real servers.
 //! - [`toolchain`] helpers read virtualenvs and version files.
 //! - [`files`] creates, renames, moves and deletes files (to the trash when
 //!   the platform has one) and reveals them in the system file manager.
@@ -57,6 +62,7 @@ pub mod proc_group;
 pub mod procs;
 mod run_commands;
 mod runnables;
+pub mod server_install;
 pub mod templates;
 pub mod toolchain;
 mod trash;
@@ -68,8 +74,10 @@ pub use debug_target::{
     CargoExecutable, DebugTarget, cargo_message_text, debug_target, executables_from_cargo_json,
 };
 pub use file_run::{
-    FileLanguage, FileRunInput, SystemTools, Tools, create_output_dir, debug_unsupported_message,
-    file_command, parse_node_version, unsupported_message,
+    BUILD_WINDOW, BuiltPrograms, FileLanguage, FileRun, FileRunInput, NameTaken, ProgramOutput,
+    SystemTools, Tools, abandon_started_build, check_next_to, compiled_program, create_output_dir,
+    debug_unsupported_message, file_command, file_run, finish_started_build, parse_node_version,
+    program_next_to, record_build_started, record_built, taken_note, unsupported_message,
 };
 pub use install_state::{PackagesState, install_state, needs_install};
 pub use missing::{

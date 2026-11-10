@@ -17,7 +17,7 @@ use crate::debugger::actions::{
 use crate::test_support::settle;
 
 /// A folder of loose files (no project file), canonical.
-fn loose_folder(files: &[(&str, &str)]) -> (tempfile::TempDir, PathBuf) {
+pub(super) fn loose_folder(files: &[(&str, &str)]) -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().expect("tempdir");
     let root = fs::canonicalize(dir.path()).expect("canonical");
     for (name, text) in files {
@@ -26,7 +26,7 @@ fn loose_folder(files: &[(&str, &str)]) -> (tempfile::TempDir, PathBuf) {
     (dir, root)
 }
 
-fn open_folder<'a>(
+pub(super) fn open_folder<'a>(
     cx: &'a mut TestAppContext,
     root: &Path,
     file: Option<&str>,
@@ -43,7 +43,10 @@ fn open_folder<'a>(
     (ws, cx)
 }
 
-fn toast(ws: &gpui::Entity<Workspace>, cx: &mut VisualTestContext) -> (String, Option<String>) {
+pub(super) fn toast(
+    ws: &gpui::Entity<Workspace>,
+    cx: &mut VisualTestContext,
+) -> (String, Option<String>) {
     ws.read_with(cx, |ws, _| {
         (
             ws.toast.as_ref().map(|t| t.to_string()).unwrap_or_default(),

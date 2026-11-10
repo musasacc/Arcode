@@ -86,6 +86,8 @@ pub struct GitEditors {
     pub(crate) editors: HashMap<EntityId, EditorGit>,
     pub(crate) active: Option<EntityId>,
     pub(crate) blame_column: bool,
+    /// `git.gutter` as last seen: change bars follow it at once.
+    gutter: bool,
     _store_sub: Subscription,
     _settings_sub: Subscription,
 }
@@ -105,12 +107,22 @@ impl GitEditors {
             editors: HashMap::new(),
             active: None,
             blame_column: false,
+            gutter: arcode_ui_kit::settings(cx).git.gutter,
             _store_sub: sub,
-            // Inline blame follows its setting at once (low-end mode turns
-            // it off), not only after the cursor moves.
+            // Inline blame and change bars follow their settings at once
+            // (low-end mode turns blame off), not only after an edit or a
+            // cursor move.
             _settings_sub: cx.observe_global::<arcode_ui_kit::Settings>(|this, cx| {
                 if let Some(id) = this.active {
                     this.schedule_inline_blame(id, cx);
+                }
+                let gutter = arcode_ui_kit::settings(cx).git.gutter;
+                if gutter != this.gutter {
+                    this.gutter = gutter;
+                    let ids: Vec<EntityId> = this.editors.keys().copied().collect();
+                    for id in ids {
+                        this.schedule_analysis(id, false, cx);
+                    }
                 }
             }),
         }

@@ -25,6 +25,7 @@ mod derive;
 mod edit;
 mod hsv;
 mod loader;
+mod manage;
 mod palette;
 mod parse;
 mod registry;
@@ -42,6 +43,7 @@ pub use color::{Color, ColorParseError};
 pub use derive::{derived_keys, derived_sources, derived_value};
 pub use edit::{ContrastHint, TEXT_CONTRAST, ThemeEdit, UI_CONTRAST, contrast_hints};
 pub use hsv::Hsv;
+pub use manage::{delete_user_theme, rename_user_theme};
 pub use palette::{ANSI_NAMES, TerminalColors, UiColors};
 pub use registry::{BUILTIN_THEME_NAMES, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, ThemeRegistry};
 pub use save::{

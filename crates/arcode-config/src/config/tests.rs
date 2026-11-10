@@ -15,8 +15,8 @@ fn defaults_match_spec() {
         ]
     );
     assert_eq!(e.font_size, 14.0);
-    assert_eq!(e.line_height, 1.5);
-    assert!(e.ligatures && e.insert_spaces && e.show_line_numbers);
+    assert_eq!(e.line_height, 1.6);
+    assert!(!e.ligatures && e.insert_spaces && e.show_line_numbers);
     assert!(e.highlight_current_line && e.auto_close_brackets);
     assert!(!e.cursor_blink && !e.word_wrap && !e.format_on_save);
     assert_eq!(e.tab_size, 4);
@@ -132,7 +132,7 @@ fn out_of_range_values_are_reset() {
                   [terminal]\nfont_size = -1.0\nscrollback = 99999999\n";
     let (config, warnings) = Config::from_toml_str(source);
     assert_eq!(config.editor.font_size, 14.0);
-    assert_eq!(config.editor.line_height, 1.5);
+    assert_eq!(config.editor.line_height, 1.6);
     assert_eq!(config.editor.tab_size, 4);
     assert_eq!(config.terminal.font_size, None);
     assert_eq!(config.terminal.scrollback, TerminalSettings::MAX_SCROLLBACK);
@@ -417,9 +417,9 @@ fn font_weight_and_text_rendering_parse_and_reset() {
         ("text_gamma", "2.3", 1.8),
         ("text_gamma", "nan", 1.8),
         ("text_gamma", "inf", 1.8),
-        ("text_contrast", "-0.5", 1.0),
-        ("text_contrast", "8.5", 1.0),
-        ("text_contrast", "nan", 1.0),
+        ("text_contrast", "-0.5", 2.0),
+        ("text_contrast", "8.5", 2.0),
+        ("text_contrast", "nan", 2.0),
     ] {
         let (config, warnings) = Config::from_toml_str(&format!("[ui]\n{key} = {value}\n"));
         let got = if key == "text_gamma" {

@@ -249,7 +249,7 @@ impl Decorations {
             }
         });
         if let Some(minimap) = &layout.minimap {
-            crate::minimap::paint_minimap(minimap, &layout.blocks, &mut self.minimap, window);
+            crate::minimap::paint_minimap(minimap, &mut self.minimap, window);
         }
         for q in self.scrollbar.drain(..) {
             window.paint_quad(q);

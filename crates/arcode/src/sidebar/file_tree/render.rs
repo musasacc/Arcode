@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use arcode_ui_kit::metrics::{
     PANEL_TITLE_H, ROW_RADIUS, WEIGHT_MEDIUM, WEIGHT_SEMIBOLD, icon_size,
 };
-use arcode_ui_kit::{IconName, icon, icon_button, readout, theme, truncated, type_scale};
+use arcode_ui_kit::{
+    IconName, file_glyph, icon, icon_button, readout, theme, truncated, type_scale,
+};
 use gpui::{
     AnyElement, Context, MouseButton, MouseDownEvent, SharedString, Window, canvas, div,
     prelude::*, px, uniform_list,
@@ -14,7 +16,7 @@ use gpui::{
 
 use super::decor::FileMark;
 use super::*;
-use crate::file_icons::file_icon_tinted;
+use crate::file_icons::file_icon;
 
 /// What is dragged when a row is dragged.
 #[derive(Clone)]
@@ -92,19 +94,19 @@ impl FileTree {
             self.decor.file(&row.path)
         };
         let dir_changed = row.is_dir && !row.placeholder && self.decor.dir_changed(&row.path);
-        let (icon_name, icon_color) = if row.is_dir {
+        let row_icon = if row.is_dir {
             let name = if row.expanded {
                 IconName::FolderOpen
             } else {
                 IconName::Folder
             };
-            (name, c.text_muted)
+            file_glyph(name).color(c.text_muted)
         } else if row.placeholder {
-            (IconName::File, c.text_muted)
+            file_glyph(IconName::File).color(c.text_muted)
         } else if selected {
-            (file_icon_tinted(&row.name, ui).0, c.accent)
+            file_icon(&row.path, cx).color(c.accent)
         } else {
-            file_icon_tinted(&row.name, ui)
+            file_icon(&row.path, cx)
         };
         let chevron = if row.expanded {
             IconName::ChevronDown
@@ -169,7 +171,7 @@ impl FileTree {
                         el.child(icon(chevron).size(px(14.)).color(c.text_muted))
                     }),
             )
-            .child(icon(icon_name).size(icon_size::ROW).color(icon_color))
+            .child(row_icon.size(icon_size::ROW))
             .child(name)
             .child(trailing);
         if row.placeholder || renaming {

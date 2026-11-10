@@ -32,6 +32,10 @@ pub struct ServerSpec {
     pub initialization_options: Option<Value>,
     /// Features the client uses from this server (all by default).
     pub features: crate::Features,
+    /// Set (by a launch hook) when `command` cannot run here, e.g. a rustup
+    /// proxy whose component is not installed: starting fails with this
+    /// reason instead of running it.
+    pub missing: Option<String>,
 }
 
 impl ServerSpec {
@@ -57,6 +61,9 @@ pub(crate) struct Spawned {
 
 /// Spawns the server with piped stdio in `root` (if it exists).
 pub(crate) fn spawn(spec: &ServerSpec, root: &Path) -> Result<Spawned> {
+    if let Some(reason) = &spec.missing {
+        return Err(LspError::NotFound(reason.clone()));
+    }
     // Windows: find `.cmd`/`.bat` shims via PATHEXT (std only tries `.exe`).
     #[cfg(windows)]
     let program = super::resolve::resolve_native(&spec.command, &spec.env)
@@ -135,7 +142,12 @@ const MAX_STDERR_LINE: u64 = 64 * 1024;
 /// Bytes are decoded lossily (servers may write in a legacy code page), and
 /// the pipe is drained to the end so the server never hits `EPIPE`/`SIGPIPE`.
 pub(crate) async fn forward_stderr(shared: Arc<Shared>, stderr: ChildStderr) {
-    forward_lines(stderr, |line| shared.log(MessageType::LOG, line)).await;
+    forward_lines(stderr, |line| {
+        shared.note_stderr(&line);
+        shared.log(MessageType::LOG, line);
+    })
+    .await;
+    shared.stderr_closed();
     log::trace!("[{}] stderr closed", shared.name);
 }
 
@@ -199,7 +211,7 @@ pub(crate) async fn supervise(
         Ok(s) => format!("server exited ({s})"),
         Err(e) => format!("waiting for server failed: {e}"),
     };
-    shared.terminate(reason);
+    shared.terminate_exited(reason).await;
 }
 
 #[cfg(test)]

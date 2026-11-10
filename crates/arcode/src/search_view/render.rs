@@ -170,7 +170,7 @@ impl ProjectSearch {
         let file = &self.results.files()[fx];
         let collapsed = self.results.is_collapsed(file);
         let (name, dir) = split_path(&file.relative);
-        let (file_icon_name, file_icon_color) = file_icon(&name, &c);
+        let file_icon = file_icon(&file.relative, cx).size(icon_size::ROW);
         let selected = self.selected == Some(ix);
         let group = SharedString::from(format!("search-file-{fx}"));
         let row = div()
@@ -197,11 +197,7 @@ impl ProjectSearch {
                 .size(px(14.))
                 .color(c.text_muted),
             )
-            .child(
-                icon(file_icon_name)
-                    .size(icon_size::ROW)
-                    .color(file_icon_color),
-            )
+            .child(file_icon)
             .child(div().flex_none().text_color(c.text).child(name))
             .child(
                 div()

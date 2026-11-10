@@ -117,9 +117,20 @@ app looks, once and off the UI thread, for `manifest.toml` in:
    gets a bundle with
    `scripts/fetch-language-servers.sh linux-x64 ~/.local/share/arcode`.
 
+The app looks for the bundle when a server starts; a bundle once found is
+kept, and while there is none it is looked for again at later starts and
+after an install, so a bundle fetched while the app runs is used without
+a restart.
+
 Each time a server starts (and restarts), its command is resolved, in the
 language server runtime: a configured path as is, else `PATH`, else the
-bundle. So what the user installs or configures always wins. Node-based servers are started as `<bundle>/node/bin/node <script>`,
+bundle. So what the user installs or configures always wins. rustup's
+placeholder executables do not count as installed: `~/.cargo/bin/rust-analyzer`
+exists even without the rust-analyzer component, so when the file on
+`PATH` is a link to rustup the app asks `rustup which rust-analyzer`
+(with `RUSTUP_AUTO_INSTALL=0`, in the server's root folder, at most 5 s);
+without the component the bundled copy runs, or the server fails as "not
+installed" without being started. Node-based servers are started as `<bundle>/node/bin/node <script>`,
 never with a system Node.js. The bundle is read-only for the app; jdtls
 keeps its configuration and per-project data in
 `<local data>/language-servers-state/jdtls`.

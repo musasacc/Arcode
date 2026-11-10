@@ -131,7 +131,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let store = self.pkgs.store.downgrade();
-        let on_exit: OnExit = Box::new(move |cx| {
+        let on_exit: OnExit = Box::new(move |_, cx| {
             store.update(cx, |s, cx| s.refresh(cx)).ok();
         });
         self.start_package_command(manifest, command, on_exit, window, cx);
@@ -158,7 +158,7 @@ impl Workspace {
         let title = format!("{} (output)", command.display);
         let print = print_file_command(&file, &command.cwd, &title, cfg!(windows));
         let remove = file.clone();
-        let on_exit: OnExit = Box::new(move |_| {
+        let on_exit: OnExit = Box::new(move |_, _| {
             let _ = std::fs::remove_file(&remove);
         });
         if !self.start_package_command(manifest, print, on_exit, window, cx) {

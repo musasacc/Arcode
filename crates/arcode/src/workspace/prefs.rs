@@ -62,6 +62,21 @@ impl Workspace {
             },
         ))
         .on_action(
+            cx.listener(|ws, _: &crate::theme_editor::NewTheme, window, cx| {
+                ws.open_new_theme_dialog(window, cx)
+            }),
+        )
+        .on_action(cx.listener(
+            |ws, action: &crate::theme_editor::RenameTheme, window, cx| {
+                ws.open_rename_theme(&action.name, window, cx)
+            },
+        ))
+        .on_action(cx.listener(
+            |ws, action: &crate::theme_editor::DeleteTheme, window, cx| {
+                ws.delete_theme(&action.name, window, cx)
+            },
+        ))
+        .on_action(
             cx.listener(|ws, _: &ShowWelcomeSetup, window, cx| ws.show_first_run(window, cx)),
         )
     }
@@ -270,6 +285,6 @@ impl Workspace {
                     .child(fade_in("first-run-anim", div().child(dialog.clone()), cx)),
             );
         }
-        root
+        self.render_theme_dialogs(root, cx)
     }
 }

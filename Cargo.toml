@@ -13,6 +13,12 @@ rust-version = "1.90"
 [workspace.dependencies]
 # GUI: pinned exactly. Bumping GPUI is a deliberate, reviewed change.
 gpui = { version = "=0.2.2" }
+# Pixel buffers handed to GPUI as images (the minimap's tiles); the
+# version GPUI itself uses, no extra codecs.
+image = { version = "0.25", default-features = false }
+# SVG rasteriser for the full-colour file logos; the version GPUI itself
+# uses, no extra features.
+resvg = { version = "0.45", default-features = false }
 
 arcode-buffer = { path = "crates/arcode-buffer" }
 arcode-syntax = { path = "crates/arcode-syntax" }

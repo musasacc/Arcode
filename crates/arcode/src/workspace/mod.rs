@@ -25,6 +25,9 @@ mod lang_pickers;
 mod languages;
 #[cfg(test)]
 mod languages_tests;
+mod lsp_install;
+#[cfg(test)]
+mod lsp_install_tests;
 #[cfg(test)]
 mod lsp_tests;
 mod new_project;
@@ -42,6 +45,8 @@ mod git_regression_tests;
 mod lang_packs_tests;
 mod menu_bar;
 // macOS uses the native menu bar; the in-window one is not drawn there.
+#[cfg(test)]
+mod file_icon_tests;
 #[cfg(all(test, not(target_os = "macos")))]
 mod menu_bar_tests;
 mod packages;
@@ -96,6 +101,8 @@ mod reload;
 mod render;
 mod run_file;
 #[cfg(test)]
+mod run_file_output_tests;
+#[cfg(test)]
 mod run_file_tests;
 mod run_menu;
 mod session;
@@ -111,6 +118,10 @@ mod theme_editor;
 mod theme_editor_close_tests;
 #[cfg(test)]
 mod theme_editor_tests;
+mod theme_manage;
+#[cfg(test)]
+mod theme_manage_tests;
+mod theme_remove;
 mod tour;
 #[cfg(test)]
 mod vim_tests;
@@ -191,7 +202,7 @@ pub struct Workspace {
     features: features::Features,
     /// Debugger, run buttons and the Run menu.
     debug: debug::DebugParts,
-    /// Panel focus frame and the title bar's paused state.
+    /// The focused (framed) panel and the title bar's paused state.
     shell: frame::Shell,
     /// The command palette, while open.
     palette: Option<Entity<crate::commands::palette::CommandPalette>>,

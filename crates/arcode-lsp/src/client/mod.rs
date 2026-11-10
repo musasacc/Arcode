@@ -135,6 +135,7 @@ impl LspClient {
             kill_rx,
         ));
         if let Some(stderr) = spawned.stderr {
+            shared.stderr_opened();
             tokio::spawn(process::forward_stderr(shared.clone(), stderr));
         }
         tokio::spawn(dispatch::read_loop(

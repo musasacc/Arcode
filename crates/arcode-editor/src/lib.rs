@@ -79,10 +79,12 @@
 //!
 //! With `editor.minimap` on (never in low-end mode), an editor whose host
 //! called [`Editor::set_minimap_allowed`] draws the file scaled down left
-//! of the scrollbar: syntax-coloured blocks from the same highlights as the
-//! text, the viewport slider, selections, background highlights, change
-//! marks and diagnostics. Its cost follows its height, not the file's
-//! length (see `minimap/geometry.rs`).
+//! of the scrollbar while the file is taller than the editor: every char
+//! as a tiny glyph in its syntax colour, the viewport slider, selections,
+//! background highlights, change marks and diagnostics. Hovering it shows
+//! the code around the hovered line at full size
+//! ([`Editor::minimap_preview`]). Its cost follows its height, not the
+//! file's length (see `minimap/geometry.rs` and `minimap/tiles.rs`).
 //!
 //! # Large files
 //!

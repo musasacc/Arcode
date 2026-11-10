@@ -2,10 +2,13 @@
 
 Arcode does not connect to the internet on its own. It has no telemetry,
 no crash reporting, no usage statistics, no update check, no account and
-no plugin store. Fonts and icons are bundled; nothing is fetched at
-startup. It never downloads language servers, debug adapters or packages
-for you; the language servers of a release come inside the package you
-installed (see [Languages](languages.md#bundled-language-servers)), and
+no plugin store. Fonts, icons and the language logos used as file icons
+are bundled; nothing is fetched at startup. It never downloads language
+servers, debug adapters or packages on its own; the language servers of a
+release come inside the package you installed (see
+[Languages](languages.md#bundled-language-servers)). A language server
+that is missing is only installed when you click **Install** (see
+[When a server is missing](languages.md#when-a-server-is-missing)), and
 their built-in settings turn off the schema and type downloads some of
 them would otherwise make, including schemas a YAML, JSON or TOML file
 links to (see [Server settings](languages.md#server-settings)).
@@ -25,6 +28,7 @@ your Discord friends can see it.
 | **Packages: Check for updates** | When you click it. | Your package manager asks its registry for newer versions. |
 | **Packages: Add, Remove, Update, Install packages** | When you click them. | Your package manager downloads packages and updates lockfiles. |
 | **Package documentation** | When you choose it in a dependency's menu. | Your browser opens the package's registry page. |
+| **Install a language server** | When you click **Install** on a "not installed" message, in the server's status-bar menu, on the Languages page or in **LSP: Show Missing Language Servers**. | The install command (for example `npm install -g pyright`, `rustup component add rust-analyzer` or your system's package manager) runs in a terminal tab you can see, and downloads the server. **How to Install** only opens the server's install page in your browser. |
 
 ### Plugins in detail
 
@@ -73,8 +77,9 @@ them:
   installed. Some of them may go online by themselves, for example a Rust
   or Go language server that runs your build tool, which may fetch
   dependencies;
-- **install commands** shown on the Languages page, which you copy and
-  run yourself.
+- **install commands**: the ones the **Install** buttons run (see the
+  table above), and the ones shown on the Languages page that you copy
+  and run yourself.
 
 Arcode starts language servers only for languages whose pack is enabled;
 turn a pack off (`[language.<id>] enabled = false`) or set `servers = []`

@@ -7,13 +7,14 @@ use arcode_project::deps::PackageCommand;
 use arcode_terminal::{Terminal, TerminalOptions};
 use arcode_terminal_view::{TerminalView, TerminalViewEvent};
 use arcode_ui_kit::settings;
-use gpui::{App, AppContext, Context, SharedString, Window};
+use gpui::{App, AppContext, Context, EntityId, SharedString, Window};
 
 use super::TerminalPanel;
 
-/// Called once when the program of a [`TerminalPanel::run_program`] tab
-/// exits.
-pub type OnExit = Box<dyn FnOnce(&mut App)>;
+/// Called once with the exit code (`None` when killed) when the program
+/// of a [`TerminalPanel::run_program`] tab exits, or when its tab is closed
+/// first.
+pub type OnExit = Box<dyn FnOnce(Option<i32>, &mut App)>;
 
 impl TerminalPanel {
     /// Starts `command` (its program with its arguments, in its folder) in
@@ -38,7 +39,6 @@ impl TerminalPanel {
         };
         let (terminal, events) = Terminal::spawn(options).map_err(|e| format!("{e:#}"))?;
         let view = cx.new(|cx| TerminalView::with_terminal(terminal, events, window, cx));
-        let mut on_exit = on_exit;
         let sub = cx.subscribe_in(
             &view,
             window,
@@ -53,8 +53,8 @@ impl TerminalPanel {
                             .names
                             .insert(id, SharedString::from(format!("{name} ({status})")));
                     }
-                    if let Some(f) = on_exit.take() {
-                        f(cx);
+                    if let Some(f) = panel.on_exit.remove(&id) {
+                        f(code, cx);
                     }
                     cx.notify();
                 }
@@ -63,6 +63,9 @@ impl TerminalPanel {
             },
         );
         self.subscriptions.push((view.entity_id(), sub));
+        if let Some(f) = on_exit {
+            self.on_exit.insert(view.entity_id(), f);
+        }
         self.names.insert(
             view.entity_id(),
             SharedString::from(command.display.clone()),
@@ -73,6 +76,22 @@ impl TerminalPanel {
         self.error = None;
         cx.notify();
         Ok(())
+    }
+
+    /// The tab `id` was closed: when its program had not reported its exit
+    /// yet, its `on_exit` runs now with `code` (`None`: it was stopped), so
+    /// a caller waiting for the exit is never left waiting.
+    pub(super) fn program_closed(&mut self, id: EntityId, code: Option<i32>, cx: &mut App) {
+        if let Some(f) = self.on_exit.remove(&id) {
+            f(code, cx);
+        }
+    }
+
+    /// Every tab was closed (the project changed): their programs stopped.
+    pub(super) fn programs_closed(&mut self, cx: &mut App) {
+        for (_, f) in self.on_exit.drain() {
+            f(None, cx);
+        }
     }
 }
 

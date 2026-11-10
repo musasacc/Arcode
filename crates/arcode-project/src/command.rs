@@ -124,13 +124,24 @@ impl RunCommand {
         let mut shown = Vec::with_capacity(compile.args.len());
         let mut args = compile.args.iter().peekable();
         while let Some(arg) = args.next() {
-            if arg == "-o" && args.peek().is_some_and(|out| **out == self.program) {
+            if arg == "-o" && args.peek().is_some_and(|out| self.runs_output(out)) {
                 args.next();
                 continue;
             }
             shown.push(arg.clone());
         }
         command_line(&compile.program, &shown)
+    }
+
+    /// Whether this command runs the compile step's output `out`: the same
+    /// path, or `./out` in the same folder.
+    fn runs_output(&self, out: &str) -> bool {
+        let program = self.program.as_str();
+        program == out
+            || program
+                .strip_prefix("./")
+                .or_else(|| program.strip_prefix(".\\"))
+                == Some(out)
     }
 }
 

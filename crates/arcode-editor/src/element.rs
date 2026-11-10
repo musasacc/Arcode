@@ -5,8 +5,8 @@ use std::rc::Rc;
 use gpui::{
     App, Bounds, CursorStyle, DispatchPhase, Element, ElementId, ElementInputHandler, Entity,
     GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, IntoElement, LayoutId,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, ScrollWheelEvent, Style, Window,
-    relative,
+    MouseDownEvent, MouseExitEvent, MouseMoveEvent, MouseUpEvent, Pixels, ScrollWheelEvent, Style,
+    Window, relative,
 };
 
 use crate::Editor;
@@ -85,6 +85,7 @@ impl Element for EditorElement {
             let layout = editor.layout(bounds, window, cx);
             let decorations = decorations(editor, &layout, window, cx);
             let popovers = editor.popover_elements(&layout);
+            crate::minimap::defer_minimap_preview(editor, &layout, window, cx);
             let clickable = editor.clickable_bounds(&layout);
             let hover_bounds = editor.hovering.popover_bounds.clone();
             match &editor.hover {
@@ -167,6 +168,14 @@ impl EditorElement {
             if phase == DispatchPhase::Bubble {
                 let hovered = hb.is_hovered(window);
                 editor.update(cx, |ed, cx| ed.mouse_move(e, hovered, window, cx));
+            }
+        });
+        // The mouse can leave the window without a move outside the minimap
+        // first (a quick move off its right edge): the preview goes too.
+        let editor = self.editor.clone();
+        window.on_mouse_event(move |_: &MouseExitEvent, phase, _window, cx| {
+            if phase == DispatchPhase::Bubble {
+                editor.update(cx, |ed, cx| ed.minimap_mouse_left(cx));
             }
         });
         let editor = self.editor.clone();

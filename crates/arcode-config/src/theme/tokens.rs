@@ -229,7 +229,7 @@ pub fn ui_description(key: &str) -> &'static str {
         "scrollbar_thumb" => "Scrollbar thumb",
         "border" => "Panel edges and dividers",
         "border_strong" => "Control outlines and overlay edges",
-        "border_focused" => "Edge of the focused panel",
+        "border_focused" => "Focus ring of inputs and buttons",
         "text" => "Primary text",
         "text_muted" => "Secondary text, inactive tabs",
         "text_disabled" => "Disabled controls",

@@ -6,6 +6,10 @@ pub(crate) const SYNONYMS: &[(&str, &str)] = &[
     ("ui.theme", "colour color scheme dark light"),
     ("ui.font_size", "zoom scale interface"),
     ("ui.low_end_mode", "performance slow battery power saving"),
+    (
+        "ui.file_icons",
+        "logo logos language languages devicon file tree tabs icon theme plain monochrome",
+    ),
     ("editor.font_size", "zoom text"),
     ("editor.word_wrap", "soft wrap line wrap"),
     ("editor.minimap", "overview"),

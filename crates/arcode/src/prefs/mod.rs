@@ -109,6 +109,10 @@ pub struct PrefsParts {
     pub first_run: Option<Entity<first_run::FirstRunDialog>>,
     /// The theme editor page (kept while its tab is open).
     pub theme_editor: Option<Entity<crate::theme_editor::ThemeEditor>>,
+    /// The New Theme dialog, while shown.
+    pub new_theme: Option<Entity<crate::theme_editor::new_theme::NewThemeDialog>>,
+    /// The rename dialog and the name of the theme it renames.
+    pub theme_prompt: Option<(Entity<crate::text_prompt::TextPrompt>, String)>,
     /// A diagnostics-count refresh waiting for the low-end debounce.
     pub counts_task: Option<Task<()>>,
     /// Sidebar and bottom panel slide animations.

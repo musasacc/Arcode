@@ -1,5 +1,6 @@
 //! Minimap mouse handling: a click centers the row under it, a drag (from
-//! the slider or after a click) scrolls, and hovering brightens the slider.
+//! the slider or after a click) scrolls, and hovering brightens the slider
+//! and shows the preview of the row under the mouse.
 //! The wheel needs nothing here: the editor scrolls on wheel events
 //! anywhere in its bounds.
 
@@ -79,8 +80,8 @@ impl Editor {
         }
     }
 
-    /// Tracks whether the mouse is over the minimap; redraws only when that
-    /// changes.
+    /// Tracks the mouse over the minimap; redraws only when it enters or
+    /// leaves it or moves to another row (the preview follows rows).
     pub(crate) fn minimap_hover(
         &mut self,
         layout: &LayoutSnapshot,
@@ -88,13 +89,23 @@ impl Editor {
         hovered: bool,
         cx: &mut Context<Self>,
     ) {
-        let over = hovered
-            && layout
-                .minimap
-                .as_ref()
-                .is_some_and(|m| m.geometry.bounds.contains(&p));
-        if over != self.minimap.hovered {
+        let geometry = layout.minimap.as_ref().map(|m| m.geometry);
+        let over = hovered && geometry.is_some_and(|g| g.bounds.contains(&p));
+        let row = |y: Option<Pixels>| Some(geometry?.row_at(y?));
+        let y = over.then_some(p.y);
+        let moved = row(y) != row(self.minimap.hover_y);
+        self.minimap.hover_y = y;
+        if over != self.minimap.hovered || moved {
             self.minimap.hovered = over;
+            cx.notify();
+        }
+    }
+
+    /// The mouse left the window: nothing is hovered any more.
+    pub(crate) fn minimap_mouse_left(&mut self, cx: &mut Context<Self>) {
+        if self.minimap.hovered || self.minimap.hover_y.is_some() {
+            self.minimap.hovered = false;
+            self.minimap.hover_y = None;
             cx.notify();
         }
     }

@@ -59,6 +59,16 @@ pub struct LastRun {
 }
 
 impl LastRun {
+    /// The terminal it runs in.
+    pub fn terminal(&self) -> EntityId {
+        self.terminal
+    }
+
+    /// Whether its end was seen (never, where the end is not watched).
+    pub fn has_ended(&self) -> bool {
+        self.ended
+    }
+
     /// How the run went.
     pub fn status(&self) -> RunStatus {
         match (self.ended || !self.watched, self.exit) {

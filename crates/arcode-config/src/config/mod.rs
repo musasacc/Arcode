@@ -10,6 +10,8 @@ mod debug;
 mod discord;
 pub mod edit;
 pub mod edit_value;
+mod entries;
+mod file_icons;
 mod files;
 mod git;
 mod inline_diagnostics;
@@ -17,6 +19,7 @@ pub mod keys;
 mod language;
 mod plugins;
 mod presets;
+mod run;
 mod search;
 mod sections;
 mod terminal;
@@ -33,11 +36,13 @@ use toml::{Table, Value};
 use crate::fsutil::write_atomic;
 use crate::lenient::{Section, apply_table, one_line};
 use crate::paths;
+use entries::{find_key_ignore_case, for_each_entry, warn_same_entry};
 
 pub use completion::CompletionSettings;
 pub use debug::DebugSettings;
 pub use discord::DiscordSettings;
 pub use edit_value::{Guard, PRESET_MARK, SettingEdit, SettingValue, apply_edits};
+pub use file_icons::FileIcons;
 pub use files::FilesSettings;
 pub use git::GitSettings;
 pub use inline_diagnostics::InlineDiagnostics;
@@ -47,6 +52,7 @@ pub use language::{
 };
 pub use plugins::PluginSettings;
 pub use presets::{FirstRunChoices, keymap_edits, low_end_edits};
+pub use run::{RunOutput, RunSettings};
 pub use search::{SearchSettings, TodoSettings};
 pub use sections::{DEFAULT_EDITOR_FONT, EditorSettings, Keymap, ThemeChoice, UiSettings};
 pub use terminal::TerminalSettings;
@@ -86,6 +92,8 @@ pub struct Config {
     pub workspace: WorkspaceSettings,
     /// `[debug]`
     pub debug: DebugSettings,
+    /// `[run]`
+    pub run: RunSettings,
     /// `[files]`
     pub files: FilesSettings,
     /// `[plugins]`
@@ -111,6 +119,7 @@ impl Default for Config {
             todo: TodoSettings::default(),
             workspace: WorkspaceSettings::default(),
             debug: DebugSettings::default(),
+            run: RunSettings::default(),
             files: FilesSettings::default(),
             plugins: PluginSettings::default(),
             discord: DiscordSettings::default(),
@@ -281,6 +290,7 @@ impl Config {
                 "todo" => apply_table(&mut self.todo, value, "todo", warnings),
                 "workspace" => apply_table(&mut self.workspace, value, "workspace", warnings),
                 "debug" => apply_table(&mut self.debug, value, "debug", warnings),
+                "run" => apply_table(&mut self.run, value, "run", warnings),
                 "files" => apply_table(&mut self.files, value, "files", warnings),
                 "plugins" => apply_table(&mut self.plugins, value, "plugins", warnings),
                 "discord" => apply_table(&mut self.discord, value, "discord", warnings),
@@ -335,57 +345,8 @@ impl Config {
     }
 }
 
-/// The key of `map` equal to `name` ignoring case (exact match preferred).
-fn find_key_ignore_case<V>(map: &BTreeMap<String, V>, name: &str) -> Option<String> {
-    if map.contains_key(name) {
-        return Some(name.to_owned());
-    }
-    let lower = name.to_lowercase();
-    map.keys().find(|k| k.to_lowercase() == lower).cloned()
-}
-
-/// Warns when two tables of one file (e.g. `language.Rust` and
-/// `language.rust`) merge into the same entry.
-fn warn_same_entry(
-    seen: &mut BTreeMap<String, String>,
-    key: &str,
-    path: &str,
-    warnings: &mut Vec<String>,
-) {
-    if let Some(first) = seen.insert(key.to_owned(), path.to_owned()) {
-        warnings.push(format!(
-            "`{path}` and `{first}` name the same entry (names are case-insensitive); merged"
-        ));
-    }
-}
-
-fn for_each_entry(
-    value: &Value,
-    section: &str,
-    warnings: &mut Vec<String>,
-    mut f: impl FnMut(&str, &Value, &mut Vec<String>),
-) {
-    let Some(table) = value.as_table() else {
-        warnings.push(format!(
-            "`{section}` must be a table of tables, found {}; ignored",
-            value.type_str()
-        ));
-        return;
-    };
-    for (name, entry) in table {
-        if entry.is_table() {
-            f(name, entry, warnings);
-        } else {
-            warnings.push(format!(
-                "`{section}.{name}` must be a table, found {}; ignored",
-                entry.type_str()
-            ));
-        }
-    }
-}
-
 /// Every key understood in each fixed section, for documentation checks.
-pub fn known_keys() -> [(&'static str, &'static [&'static str]); 14] {
+pub fn known_keys() -> [(&'static str, &'static [&'static str]); 15] {
     [
         ("editor", EditorSettings::KEYS),
         ("editor.completion", CompletionSettings::KEYS),
@@ -396,6 +357,7 @@ pub fn known_keys() -> [(&'static str, &'static [&'static str]); 14] {
         ("todo", TodoSettings::KEYS),
         ("workspace", WorkspaceSettings::KEYS),
         ("debug", DebugSettings::KEYS),
+        ("run", RunSettings::KEYS),
         ("files", FilesSettings::KEYS),
         ("plugins", PluginSettings::KEYS),
         ("discord", DiscordSettings::KEYS),

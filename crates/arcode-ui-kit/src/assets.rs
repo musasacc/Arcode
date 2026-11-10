@@ -1,6 +1,7 @@
 //! Assets compiled into the binary: icons (Lucide, ISC, plus the Arcode
-//! logo), the UI font (Inter, OFL) and the default editor font (JetBrains
-//! Mono, OFL). Nothing is ever fetched at runtime.
+//! logo), language logos for file icons (Devicon, MIT; listed in
+//! `file_logo`), the UI font (Inter, OFL) and the default editor font
+//! (JetBrains Mono, OFL). Nothing is ever fetched at runtime.
 
 use std::borrow::Cow;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,6 +10,7 @@ use anyhow::Result;
 use gpui::{App, AssetSource, SharedString};
 
 use crate::Settings;
+use crate::file_logo::LOGO_FILES;
 
 macro_rules! embedded {
     ($($path:literal),* $(,)?) => {
@@ -129,6 +131,7 @@ impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
         Ok(FILES
             .iter()
+            .chain(LOGO_FILES)
             .find(|(p, _)| *p == path)
             .map(|(_, bytes)| Cow::Borrowed(*bytes)))
     }
@@ -136,6 +139,7 @@ impl AssetSource for Assets {
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
         Ok(FILES
             .iter()
+            .chain(LOGO_FILES)
             .filter(|(p, _)| p.starts_with(path))
             .map(|(p, _)| SharedString::from(*p))
             .collect())

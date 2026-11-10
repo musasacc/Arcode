@@ -58,7 +58,7 @@ pub(super) fn builtin_base(appearance: Appearance) -> &'static Theme {
 /// All available themes: the built-ins followed by user themes.
 #[derive(Debug, Clone)]
 pub struct ThemeRegistry {
-    themes: Vec<Theme>,
+    pub(super) themes: Vec<Theme>,
 }
 
 impl Default for ThemeRegistry {

@@ -18,7 +18,7 @@ use crate::languages::{IndentChoice, LanguageChoice, PickPurpose};
 use crate::list_picker::{ListPicker, ListPickerEvent, PickItem};
 
 impl Workspace {
-    fn show_list_picker(
+    pub(super) fn show_list_picker(
         &mut self,
         placeholder: &'static str,
         icon: IconName,
@@ -254,6 +254,11 @@ impl Workspace {
             PickPurpose::Indentation { editor, choices } => {
                 if let (Some(editor), Some(choice)) = (editor.upgrade(), choices.get(ix)) {
                     self.apply_indent_choice(&editor, *choice, cx);
+                }
+            }
+            PickPurpose::InstallServer { servers } => {
+                if let Some(server) = servers.get(ix) {
+                    self.install_language_server(server, window, cx);
                 }
             }
         }

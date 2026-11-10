@@ -26,11 +26,18 @@ One warm accent, **ember** (amber in Ember, amber-brown in Chalk), has
 one rule: **ember marks where you are, plus the one primary action on a
 surface**. Where you are means:
 
-- the 1 px edge of the focused panel,
-- the **ember mark** (a 7 px diamond) on the active tab of the focused
-  pane, on the current call-stack frame and on the paused readout,
+- the **ember mark** (a 7 px diamond) on the current call-stack frame, on
+  the paused readout and on the theme in use in the theme menu,
 - the active rail icon, the selected palette row's icon, matched letters,
 - the caret.
+
+Focus itself is never drawn in ember. Panels keep their neutral hairline
+whether or not they hold focus, and editor and bottom panel tabs carry no
+mark: the focused pane's active tab is the one `pill` filled chip, the
+active tab of any other pane takes the quieter `hover` fill. Mature code
+editors keep the text area calm and let the chrome recede; one amber
+frame around the largest panel plus a diamond in every tab strip made
+the accent the loudest thing on screen, so both went.
 
 The single primary action is Continue while paused, Open Folder on the
 welcome screen, or the confirm button of a dialog. **Run is not solid**
@@ -38,7 +45,7 @@ while idle: it is an outlined button with an ember play icon.
 Everything else is warm neutrals plus the status colours.
 
 The logo is **`</>`** in one plain colour: white on dark themes, black on
-light ones. The ember diamond, the other signature, follows your focus around the window. A quieter second signature: every number the app
+light ones. A quieter second signature: every number the app
 reports (Ln/Col, counts, exit codes, durations, memory, line numbers in
 lists) is set in JetBrains Mono, like readings on an instrument.
 
@@ -52,8 +59,7 @@ These rules exist so later changes do not drift back:
   Dark+ / Light+ syntax colours.
 - **Not JetBrains (including the "Islands" look) or Fleet.** Floating
   panels on a canvas are shared structure, so identity must come from
-  the palette, the `</>` logo, the ember diamond, the mono readouts and
-  the type. Do not add tool-window stripes or side tool-window buttons
+  the palette, the `</>` logo, the mono readouts and the type. Do not add tool-window stripes or side tool-window buttons
   with text labels, do not use square-cornered tabs with a coloured
   bottom line, do not use Darcula orange keywords.
 - **Not Zed, Sublime or Nova.** No blue-grey flat UI, no Monokai or
@@ -83,7 +89,7 @@ translucency stacks; the only alpha is the overlay shadow.
 | `paused_line` | Debugger: band behind the paused line, the Paused chip. **New key.** | `#3c2e1c` | `#f7e8cc` |
 | `border` | Decorative hairline: panel edges, dividers, tab-strip rule. | `#3a322b` | `#d6d0c7` |
 | `border_strong` | Control outlines (inputs, checkboxes, switches off, kbd chips, segmented controls) and overlay edges. **New key.** | `#857869` | `#7a7064` |
-| `border_focused` | 1 px edge of the focused panel. | `#9c703e` | `#8a5512` |
+| `border_focused` | Focus ring of a focused input or button (never a panel edge). | `#9c703e` | `#8a5512` |
 | `text` | Primary text. | `#efe7da` | `#24201c` |
 | `text_muted` | Secondary text, inactive tabs, rail icons, ignored files (italic). | `#b0a494` | `#5c534a` |
 | `text_disabled` | Disabled controls only, never text people must read. | `#6f665b` | `#a1988c` |
@@ -196,8 +202,8 @@ by convention and are not held to the text minimum.
    `text_disabled`.
 6. Hover, selection, line highlight and the paused band are solid
    colours. Never draw `hover` as `#ffffff12` in new code.
-7. The accent never signals status. A focused panel is framed in amber,
-   errors are crimson; section 3.3 shows the separation.
+7. The accent never signals status. Ember marks the paused frame and the
+   caret, errors are crimson; section 3.3 shows the separation.
 
 ## 3. Contrast and colour-vision checks
 
@@ -256,10 +262,10 @@ every test run.
 | border_strong (inputs, checkboxes, kbd) on panel | 3.76 | 4.61 |
 | border_strong on panel_raised | 3.39 | 4.85 |
 | border_strong (overlay edge) on canvas | 4.60 | 3.41 |
-| border_focused (focused panel edge) vs canvas | 4.52 | 4.36 |
+| border_focused (focus ring) vs canvas | 4.52 | 4.36 |
 | border_focused vs panel | 3.69 | 5.89 |
 | ember mark on panel | 7.66 | 5.89 |
-| ember mark on pill (active tab) | 5.97 | 5.03 |
+| ember mark on pill (current frame) | 5.97 | 5.03 |
 | ember mark on canvas | 9.39 | 4.36 |
 | accent fill (Continue) vs canvas | 9.39 | 4.36 |
 | rail icon (inactive, text_muted) on canvas | 8.09 | 5.29 |
@@ -400,7 +406,7 @@ Closest pair of Arcode's own syntax roles: dark keyword/type 6.5, light number/m
 Notes on the separation table:
 
 - Ember vs error and ember vs warning have a luminance ratio of 1.40 or
-  more in both themes, so the focus frame and the ember diamond cannot be
+  more in both themes, so a focus ring and the ember diamond cannot be
   read as an error frame or a breakpoint even with no colour vision.
 - Error vs warning in Chalk has the same luminance (both are dark text
   colours that must pass 4.5:1 on the canvas). They are told apart by
@@ -443,13 +449,32 @@ Rules: sentence case everywhere, never UPPERCASE labels; hierarchy comes
 from weight and size, not letter-spacing or caps. Inline lenses, blame
 and inline debug values use Inter 12, so they never read as code.
 
-**Code:** 13 px on a 20 px line (1.54) by default; the editor keeps
-the user's `editor.font_size`. Line numbers 12 px. Comments italic.
+**Code:** JetBrains Mono 14 px on a 22 px line (`editor.line_height`
+1.6) by default, ligatures off (`#[`, `=>` and `!=` stay two glyphs, so
+spacing stays the plain 0.6 em grid). Line numbers one size under the code
+(13 px). Comments italic. The spacing was measured, not guessed: at 14 px
+each cell is 8.4 px (JetBrains Mono's 600/1000 em advance, positioned at
+quarter pixels) and Inter 13 sets "Search files" exactly as wide as
+FreeType does; nothing applies letter-spacing. The 1.5 line that came
+before read tight next to the floating panels, so the default gained a
+little air. Inlay hints sit on a chip (`hover` fill, radius 4, the font
+size plus 2 px above and below, hugging the label without its padding
+spaces) in `text_muted`, so they never read as code.
 **Terminal:** 12 px on 18 px. **Debug console:** 12 px on 17 px.
 
-Density check (bottom panel open, 13/20 code): 1280x800 shows 23 code
-lines and 11 terminal lines; 1920x1080 with a 280 px bottom panel shows
-34 code lines.
+Density check (bottom panel open, 14/22 code): 1280x800 shows about 20
+code lines and 11 terminal lines; 1920x1080 with a 280 px bottom panel
+shows about 30 code lines.
+
+**Text rendering (Linux):** GPUI rasterises glyphs with swash as 8-bit
+grayscale coverage masks (no LCD subpixel anti-aliasing), with light,
+vertical-only hinting (skrifa's smooth mode, linear advances kept) and four
+horizontal subpixel positions. The shader then applies a gamma and a
+contrast boost: `ui.text_gamma` (default 1.8, GPUI's) and
+`ui.text_contrast` (default 2.0; GPUI's own 1.0 draws dark text on Chalk
+thin and grey). The contrast boost fades out for light colours, so text on
+Ember is unchanged by it. Subpixel anti-aliasing or full hinting would need
+changes inside GPUI.
 
 ## 5. Shape, spacing, borders, elevation
 
@@ -474,14 +499,23 @@ lines and 11 terminal lines; 1920x1080 with a 280 px bottom panel shows
 | `BOTTOM_H` | 228 | default |
 | `EMBER` | 7 | diamond, from `icons/ember.svg` |
 
-Borders: every panel has a 1 px border in `border`; the focused panel
-swaps the colour to `border_focused` (always 1 px, so nothing moves).
+Borders: every panel has a 1 px border in `border`, focused or not
+(focus shows inside the panel: the caret, the active tab's `pill`, the
+selected row).
 Controls use `border_strong`. Dividers inside a panel are 1 px `border`.
 
 Icons: the existing Lucide set. Sizes 18 (rail), 15 (tabs, tree, palette),
 14 (toolbars, headers), 13 (footer, inline). Optional and recommended:
 `stroke-width="1.75"` in `assets/icons/*.svg` (a one-attribute edit;
 resvg rasterises once per size), which sits better next to Inter.
+
+File icons are the exception: a file whose language has a logo shows it
+(Devicon, `assets/file-icons/`, `ui.file_icons = "logos"`), at the same
+sizes. Colour logos keep their own colours and are rasterised once per
+logo and device size (`file_logo/raster.rs`), so they are as sharp as the
+line icons at 1x and 2x; black logos are drawn as monochrome shapes in
+`text`, like a line icon. Folders and files without a logo keep the Lucide
+icons.
 
 ### 5.2 Elevation and low-end mode
 
@@ -599,10 +633,11 @@ canvas ────────────────────────�
 
 ### 6.4 Panels
 
-- `panel(focused)`: `bg(panel)`, `border_1()`, border `border` or
-  `border_focused`, `rounded(10)`, `overflow_hidden()`.
+- `panel()`: `bg(panel)`, `border_1()`, border `border`, `rounded(10)`,
+  `overflow_hidden()`. The edge never changes with focus.
 - Focus: per panel, `focus_handle.contains_focused(window, cx)`. Exactly
-  one panel is framed at a time; overlays do not steal the frame.
+  one panel counts as focused ("framed") at a time, and its active tab is
+  the `pill` filled one; overlays do not steal it.
 - Panel title row (sidebar views): 40 tall, padding 0 8 0 14; title Inter
   14 SemiBold, optional muted 12 subtitle (project name), then 24 px icon
   buttons (radius 7, icon 14 muted). Sentence case: "Files", "Search",
@@ -614,9 +649,14 @@ canvas ────────────────────────�
 
 - Rows 24, inset 6, radius 6, indent 14 per level, 1 px `border` indent
   guides; chevron 14 muted, folder icon 15 muted.
-- Selected: `pill` fill, name Medium, file icon `accent`.
-- File icons tinted by kind: Rust and source files `syntax.type`, manifests
-  `syntax.macro`, docs `syntax.number`, others muted.
+- Selected: `pill` fill, name Medium, file icon `accent` (a colour logo
+  keeps its colours).
+- File icons: the language logo where there is one (colour logos in their
+  colours, black ones in `text`); otherwise, and with
+  `ui.file_icons = "plain"`, the Lucide icon tinted by kind: Rust and
+  source files `syntax.type`, manifests `syntax.macro`, docs
+  `syntax.number`, others muted. The same icon in the tree, the tabs,
+  the breadcrumb and every list (`crate::file_icons::file_icon`).
 - Right side: error count in mono 12 `error` (name also in `error`), git
   letter in mono 12 bold (`info` M, `success` A/U, `error` D), folder with
   changes: 6 px `diff_modified` dot.
@@ -631,23 +671,25 @@ canvas ────────────────────────�
 - **Pill tab:** 26 tall, radius 8, padding 0 8 0 10, gap 7; file icon 15;
   label 13.
   - Inactive: no fill, `text_muted`, Regular. Close `x` appears on hover.
-  - Active, pane not focused: `pill` fill, `text`, Medium, close `x` 13.
-  - Active, pane focused: the same plus the 7 px **ember diamond** before
-    the icon.
+  - Active, pane focused: `pill` fill, `text`, Medium, close `x` 13.
+  - Active, pane not focused (another split, or the sidebar or bottom
+    panel has focus): the same with the quieter `hover` fill.
+  - No marks: no ember diamond, no coloured line.
   - Unsaved: the hollow `accent_alt` ring replaces the `x` (the `x` shows
     on hover).
   - Preview / pinned states, if added later, use italic label / a `pin`
     icon, never a colour bar.
 - **Right end:** breadcrumb (12 muted, `chevron-right` 12 in
-  `text_disabled`, last part in `text`), split and more icon buttons (26,
+  `text_disabled`, the file's icon 12 before its name, last part in
+  `text`), split and more icon buttons (26,
   icon 15).
 - **Overflow:** tabs keep their size and scroll horizontally first; the
   breadcrumb truncates from the left down to the symbol name, and hides
   below 520 px of pane width.
 - **Splits:** all panes live inside the one editor panel, divided by a 1 px
-  `border` line; each pane has its own tab strip. Only the focused pane
-  shows the ember diamond. The old 1 px accent line over the active pane
-  is removed.
+  `border` line; each pane has its own tab strip. Only the focused pane's
+  active tab is `pill` filled. There is no accent line over the active
+  pane.
 
 ### 6.7 Editor body
 
@@ -657,7 +699,8 @@ canvas ────────────────────────�
   `text_muted` ring. Paused frame: 14 px `error` circle with an arrow cut
   in `panel` colour.
 - Run: `play` 12 in `success`. Lightbulb: 13 in `warning`.
-- Change lane: 3 px wide bar, radius 2, inset 1 px top and bottom:
+- Change lane (only with `git.gutter` on; off by default, so the lane
+  takes no room): 3 px wide bar, radius 2, inset 1 px top and bottom:
   `diff_added`, `diff_modified`. Deleted: a 6x10 triangle pointing right,
   `diff_deleted`, sitting on the line boundary.
 - Cursor line: `line_highlight` band; its number in `gutter_text_active`.
@@ -680,20 +723,42 @@ canvas ────────────────────────�
   ticks at the right: error 8x3, warning 4x3 (right-aligned, half width),
   paused/breakpoint 6x3 in `accent`.
 - Minimap (`editor.minimap_width`, default 96) left of the scrollbar, on
-  the `panel` fill (the current-line band stops at it). Rows 2 px, one
-  2 px tall block per run of same-coloured chars, 1 px per column, syntax
-  colours at 60 % opacity, starting 8 px in. Behind the blocks: the
-  viewport slider in `hover` (`pill` while hovered or dragged), selections
-  in `selection`, background highlights and errors / warnings in their own
-  colours. At the left edge, 2 px change bars and the deleted triangle.
+  the `panel` fill (the current-line band stops at it), only while the
+  file is taller than the editor; a file that fits gets the full width.
+  The code is drawn char by char, starting 8 px in: each char a tiny
+  glyph of 1 x 2 device pixels at 1x (`round(scale)` x `round(2 x scale)`
+  above) in its syntax colour at 80 % opacity, its pixels following the
+  char's outline (capitals and ascenders full height, lower case the
+  x-height, `.` low, quotes high, narrow chars lighter or half width; from
+  1.5x a blank pixel row between lines). Indentation, word gaps and line
+  lengths stay visible. Behind the glyphs: the viewport as a soft band in
+  `hover` (`pill` while hovered or dragged), radius 2, no border;
+  selections in `selection`, search matches and other background
+  highlights in their own colours, errors / warnings in their colour at
+  40 % under the affected chars only. At the left edge, 2 px change bars
+  and the deleted triangle, only with `git.gutter` on.
+- Minimap preview, while the mouse is on the minimap: a popover (6.12:
+  `panel_raised`, radius 10, `border_strong`, `elevated`) 8 px left of the
+  minimap, over the text, up to 720 wide; up to 15 lines around the
+  hovered line in the editor font and size, padding 6 above and below,
+  numbers right-aligned in `gutter_text` (12 px after them), the hovered
+  line on a `pill` band (`line_highlight` is made for `panel` and
+  vanishes on `panel_raised` in Ember; a theme whose `pill` does not show
+  on `panel_raised` gets the most visible of `hover`,
+  `selection_inactive`, `line_highlight` and `selection`) with its number in
+  `gutter_text_active`, placed level with the mouse and following it row
+  by row. Clamped 6 px inside the editor and the window; fewer lines when
+  the editor is short. Hidden while dragging and when the mouse leaves
+  the minimap or the window.
+  No focus, no hit area.
 
 ### 6.8 Bottom panel
 
 - **Header** 38: pill tabs (padding 0 9, icon 14, label 13) Terminal,
   Problems, Todo, Debug, each with a mono count badge (16 tall, radius 5,
   `pill` fill or `panel` on the active pill; Problems count in `error`
-  when there are errors). The active tab gets the ember diamond only when
-  the bottom panel is focused.
+  when there are errors). The active tab is `pill` filled while the bottom
+  panel is focused, `hover` filled otherwise.
 - **Run readout** at the right, before the tab-specific controls: a 7 px
   status dot (`error` failed, `success` ok, `accent` running), the
   command in `text` 12, then mono 12 muted `exit 101 · 0.92 s` (or
@@ -777,7 +842,16 @@ canvas ────────────────────────�
 - Dialogs: `panel_raised`, radius 12, title Inter 14 SemiBold, body 13,
   buttons at the right: at most one Primary (accent fill, `accent_text`),
   Secondary (no fill, `border_strong` outline, `text`), Ghost.
-  `elevated_lg`.
+  `elevated_lg`. The one-line text dialogs (run command, Save theme as,
+  Rename theme) are 560 wide: an input with a 15 px accent icon, a muted
+  hint at the bottom left, Cancel (Ghost) and OK (Primary).
+- New Theme dialog (460 wide): "Name" and "Start from" labels in meta
+  muted; the name input with the `palette` icon; the list of every theme
+  (built-ins first), rows 28 with a 14 px `moon` / `sun` icon (`accent`
+  when selected), the name, and at the right "Dark · in use", "Light ·
+  built in" or "Dark" in meta muted; the list scrolls past 232 px. The
+  hint at the bottom left turns `error` when a name is refused. Cancel
+  (Ghost), Create (Primary).
 - Toasts: bottom right, 8 px above the footer, `panel_raised`, radius 10,
   `border_strong`, a 14 px status icon in its status colour, one line, a
   ghost action and `x`. No coloured side stripe.
@@ -814,15 +888,18 @@ canvas ────────────────────────�
 - Group heading Inter 14 SemiBold, description 12 muted.
 - **Theme cards** (168 wide): an 84 tall preview with radius 9 drawn from
   the theme itself: canvas, two rail marks, a sidebar panel, an editor
-  panel framed in that theme's `border_focused` with a pill and an ember
-  diamond and five syntax bars (keyword, function, type, string, number),
-  and a bottom panel. "Follow system" shows Ember and Chalk split.
+  panel with its `pill` filled active tab and five syntax bars (keyword,
+  function, type, string, number), and a bottom panel. Every panel keeps
+  the neutral `border` edge, as in the workbench: no focus frame and no
+  diamond on the tab. "Follow system" shows Ember and Chalk split.
   Selected card: 1.5 px `accent` edge, label SemiBold with the ember
   diamond; a muted sub-line ("Light · in use", "Classic · dark").
   Hover previews the theme.
-- Setting rows: label 13 Medium followed by the row's `config.toml` key
-  in mono 11 muted, description 12 muted, control at the right, 14 px
-  vertical padding, hairlines between rows. A value that is not the
+- Setting rows: label 13 Medium, description 12 muted, control at the
+  right, 14 px vertical padding, hairlines between rows. The row's
+  `config.toml` key is not shown on the page: hovering the label shows it
+  in a tooltip ("In config.toml: editor.minimap"), and the filter still
+  matches it. A value that is not the
   default gets a 24 px `rotate-ccw` icon button left of the control
   ("Reset to default (4)"); Tab reaches it (a 1 px `border_focused` ring)
   and Enter or Space resets. Text settings use a 260 wide input; Tab and
@@ -927,6 +1004,11 @@ renderer is involved.
 - `icon.rs` and `assets/icons/`: `logo-arc.svg` and `ember.svg`
   (`IconName::LogoArc`, `IconName::Ember`). `CodeXml` is for code
   contexts only.
+- `file_logo/` and `assets/file-icons/`: the language logos (`FileLogo`,
+  each `Colour` or `Tinted`), the `FileIcon` element and the rasteriser
+  that draws a colour logo at exactly the device pixels it covers, once
+  per size (GPUI's `img()` draws an SVG at twice its own size and lets the
+  GPU scale it, which blurs a 15 px icon at 1x).
 - `effects.rs`: `elevated()` and `elevated_lg()`, one shadow each, none
   in low-end mode.
 - `components/`: `surface.rs` (panels, titles, section headers),
@@ -940,7 +1022,7 @@ renderer is involved.
 ### 7.3 Shell (`crates/arcode/src`)
 
 - `workspace/render.rs`: the root is `bg(canvas)`; the sidebar, the editor
-  column and the bottom panel are each wrapped in `panel(focused)`;
+  column and the bottom panel are each wrapped in `panel()`;
   resize handles sit centred in the gaps; panes are separated by a 1 px
   `border`.
 - `activity_bar.rs`: the 46 px icon rail of 6.3 (no fill, no border, no
@@ -953,8 +1035,8 @@ renderer is involved.
 - `status_bar.rs`: the footer of 6.10 (the type keeps its old name): no
   fill or border, item pills, mono readouts, and the run readout only
   while the bottom panel is hidden.
-- `pane/tab.rs`, `pane.rs`: pill tabs, the ember mark on the focused
-  pane's active tab, the unsaved ring, close on hover, the breadcrumb and
+- `pane/tab.rs`, `pane.rs`: pill tabs (the `pill` fill on the focused
+  pane's active tab, `hover` on other panes'), the unsaved ring, close on hover, the breadcrumb and
   the overflow rules of 6.6.
 - `bottom_panel.rs`, `terminal_panel.rs`, `terminal_named.rs`: the header
   of 6.8 with pill tabs, mono badges and the run readout; terminal
@@ -982,6 +1064,8 @@ renderer is involved.
   paused-frame marker.
 - `layout_extras.rs`: the inline diagnostic lens and the paused lens with
   inline values (Inter 12, `panel_raised` pill).
+- `decorate_ext.rs`: inlay hint chips (`inlay_chips`), drawn with the
+  text highlights, under the text and selections.
 - `decorate.rs` / `paint.rs`: line bands inset 1 px, `selection_inactive`
   when unfocused, `paused_line` for the stopped line, and the overview
   ticks of 6.7.
@@ -993,9 +1077,9 @@ themes and in low-end mode.
 
 ### 7.5 Performance
 
-The panel look costs about six rounded quads (panel borders) and a few
-7 px diamonds per frame, and has no full-width bar fills. There are no
-continuous frames: the focus frame changes on focus events only. Shadows
+The panel look costs about six rounded quads (panel borders) per frame,
+and has no full-width bar fills. There are no continuous frames: the
+focused tab's fill changes on focus events only. Shadows
 exist only while an overlay is open, one layer each, and never in
 low-end mode.
 
@@ -1263,6 +1347,11 @@ abbreviated: `Str` is `impl Into<SharedString>`, `Id` is
   All Lucide icons use `stroke-width="1.75"`.
 - `icon(name).group_hover_color(group, color)`: an SVG does not inherit
   the parent's text colour, so hover tints go on the icon itself.
+- `file_glyph(glyph).size(px).color(tint)`: a file icon, `FileGlyph::Icon`
+  (a Lucide icon) or `FileGlyph::Logo` (a language logo; the tint applies
+  to plain icons and tinted logos). The shell builds it with
+  `file_icons::file_icon(path, cx)`; `pill_tab(..).file_glyph(..)` puts
+  one on a tab.
 
 ### Effects
 
@@ -1272,9 +1361,9 @@ abbreviated: `Str` is `impl Into<SharedString>`, `Id` is
 
 ### Surfaces (`components/surface.rs`)
 
-- `panel(focused: bool, cx) -> Div`: `panel` fill, 1 px `border` or
-  `border_focused`, radius 10, `overflow_hidden`, flex column.
-- `panel_border(focused, cx) -> Hsla`: just the edge colour.
+- `panel(cx) -> Div`: `panel` fill, 1 px `border`, radius 10,
+  `overflow_hidden`, flex column.
+- `panel_border(cx) -> Hsla`: just the edge colour (`border`).
 - `panel_title(title: Str, subtitle: Str, cx) -> Div`: 40 tall title row,
   Inter 14 SemiBold plus a muted 12 subtitle (empty for none) and a
   spacer; append 24 px `icon_button`s as children.
@@ -1311,8 +1400,8 @@ abbreviated: `Str` is `impl Into<SharedString>`, `Id` is
 ### Pill tabs (`components/pill_tab.rs`, `components/tab_layout.rs`)
 
 - `pill_tab(id: Id, label: Str) -> PillTab`, then `.icon(IconName,
-  Option<Hsla>)`, `.active(bool)`, `.focused(bool)` (ember on the active
-  tab), `.dirty(bool)`, `.ring_color(hsla)`, `.closable(bool)`,
+  Option<Hsla>)`, `.active(bool)`, `.focused(bool)` (`pill` fill on the
+  active tab, `hover` without focus), `.dirty(bool)`, `.ring_color(hsla)`, `.closable(bool)`,
   `.badge(text: Str, Option<Hsla>)`, `.size(TabSize::{Editor, Panel,
   Session})` (6.6 / 6.8), with shorthands `.panel()` (bottom panel tabs:
   icon 14, padding 0 9) and `.compact()` (24 tall terminal sessions,

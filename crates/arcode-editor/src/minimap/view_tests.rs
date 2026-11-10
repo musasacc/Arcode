@@ -1,12 +1,16 @@
-//! The minimap in a drawn editor: its blocks use the syntax colours of
+//! The minimap in a drawn editor: its glyphs use the syntax colours of
 //! lines far below the text in view, and keep them while edits are
-//! highlighted again.
+//! highlighted again; no minimap for a short file; the hover preview goes
+//! when the mouse leaves the window.
 
 use std::sync::Arc;
 
 use arcode_buffer::Buffer;
 use arcode_config::{Config, ThemeRegistry};
-use gpui::{Entity, EntityInputHandler, TestAppContext, VisualTestContext};
+use gpui::{
+    Entity, EntityInputHandler, Modifiers, MouseExitEvent, TestAppContext, VisualTestContext,
+    point, px,
+};
 
 use crate::Editor;
 
@@ -37,29 +41,61 @@ fn open(
     (editor, cx)
 }
 
+/// Colours (BGR, without alpha) of the lit pixels on the lower pixel row of buffer line
+/// `line` in the minimap's tiles, left to right.
+fn line_colors(layout: &crate::layout::LayoutSnapshot, line: usize) -> Vec<[u8; 3]> {
+    let m = layout.minimap.as_ref().expect("minimap shown");
+    let row = layout.blocks.row_for_line(line);
+    let Some(tile) = m
+        .tiles
+        .iter()
+        .find(|t| (t.first_row..t.first_row + super::tiles::TILE_ROWS).contains(&row))
+    else {
+        return Vec::new();
+    };
+    let size = tile.image.size(0);
+    let (w, h) = (size.width.0 as usize, size.height.0 as usize);
+    let pitch = h / super::tiles::TILE_ROWS;
+    let y = (row - tile.first_row) * pitch + pitch / 2;
+    let bytes = tile.image.as_bytes(0).expect("frame");
+    let mut colors: Vec<[u8; 3]> = Vec::new();
+    for x in 0..w {
+        let i = (y * w + x) * 4;
+        let bgr: [u8; 3] = bytes[i..i + 3].try_into().unwrap();
+        if bytes[i + 3] > 0 && colors.last() != Some(&bgr) {
+            colors.push(bgr);
+        }
+    }
+    colors
+}
+
 /// The last line in the minimap's view, the last line of text in view and
-/// the colours of that minimap line's blocks.
+/// the colours of that minimap line's glyphs.
 fn last_minimap_line(
     editor: &Entity<Editor>,
     cx: &mut VisualTestContext,
-) -> (usize, usize, Vec<gpui::Hsla>) {
+) -> (usize, usize, Vec<[u8; 3]>) {
     editor.read_with(cx, |e, _| {
         let layout = e.layout.as_ref().expect("drawn");
         let m = layout.minimap.as_ref().expect("minimap shown");
-        let lines = super::lines_for_rows(&layout.blocks, m.geometry.rows_in_view(), m.line_count);
+        let lines = super::lines_for_rows(
+            &layout.blocks,
+            m.geometry.rows_in_view(),
+            e.buffer.line_count(),
+        );
         let last = lines.end - 1;
-        let colors = m.rows.line(last).iter().map(|s| s.color).collect();
-        (last, layout.visible_range().end, colors)
+        (last, layout.visible_range().end, line_colors(layout, last))
     })
 }
 
-fn keyword(cx: &mut VisualTestContext) -> gpui::Hsla {
+fn keyword(cx: &mut VisualTestContext) -> [u8; 3] {
     cx.update(|_, cx| {
-        arcode_ui_kit::theme(cx)
+        let color = arcode_ui_kit::theme(cx)
             .syntax("keyword")
             .color
-            .expect("keyword colour")
-            .opacity(super::rows::BLOCK_OPACITY)
+            .expect("keyword colour");
+        let [b, g, r, _] = super::raster::bgra(color, 1.);
+        [b, g, r]
     })
 }
 
@@ -67,7 +103,7 @@ fn assert_highlighted(cx: &mut TestAppContext, config: Config) {
     let (editor, cx) = open(cx, config, 5000);
     let (line, visible_end, colors) = last_minimap_line(&editor, cx);
     assert!(line > visible_end + 50, "{line} vs {visible_end}");
-    // "fn f123() {}": the keyword block comes first.
+    // "fn f123() {}": the keyword's glyphs come first.
     assert_eq!(
         colors.first(),
         Some(&keyword(cx)),
@@ -195,4 +231,48 @@ fn long_highlights_starting_far_above_the_view_are_drawn(cx: &mut TestAppContext
     editor.update(cx, |e, cx| e.clear_decorations("test", cx));
     cx.update(|window, cx| window.draw(cx).clear());
     assert_eq!(under(&editor, cx), 2);
+}
+
+fn draw(cx: &mut VisualTestContext) {
+    cx.update(|window, cx| window.draw(cx).clear());
+    cx.run_until_parked();
+}
+
+fn preview_lines(editor: &Entity<Editor>, cx: &mut VisualTestContext) -> Option<usize> {
+    editor.read_with(cx, |e, _| e.minimap_preview().map(|(lines, _)| lines.len()))
+}
+
+#[gpui::test]
+fn no_minimap_and_no_preview_for_a_short_file(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, Config::default(), 5);
+    assert!(editor.read_with(cx, |e, _| e.minimap_bounds()).is_none());
+    let window = cx.update(|window, _| window.viewport_size());
+    let right = point(window.width - px(60.), px(100.));
+    cx.simulate_mouse_move(right, None, Modifiers::none());
+    draw(cx);
+    assert!(preview_lines(&editor, cx).is_none());
+}
+
+// The mouse can leave the window straight from the minimap, with no move
+// over the text first: the preview must not stay behind.
+#[gpui::test]
+fn leaving_the_window_from_the_minimap_hides_the_preview(cx: &mut TestAppContext) {
+    let (editor, cx) = open(cx, Config::default(), 3000);
+    let bounds = editor
+        .read_with(cx, |e, _| e.minimap_bounds())
+        .expect("shown");
+    let at = point(bounds.left() + px(30.), bounds.top() + px(301.));
+    cx.simulate_mouse_move(at, None, Modifiers::none());
+    draw(cx);
+    assert!(preview_lines(&editor, cx).is_some());
+    cx.simulate_event(MouseExitEvent {
+        position: point(bounds.right() + px(40.), at.y),
+        pressed_button: None,
+        modifiers: Modifiers::none(),
+    });
+    draw(cx);
+    assert!(preview_lines(&editor, cx).is_none(), "gone with the mouse");
+    cx.simulate_mouse_move(at, None, Modifiers::none());
+    draw(cx);
+    assert!(preview_lines(&editor, cx).is_some(), "back with the mouse");
 }

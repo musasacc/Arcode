@@ -148,6 +148,7 @@ const PREFERENCES: &[Item] = &[
     SEP,
     cmd("Select &Theme…", "Preferences: Select Theme"),
     cmd("Customi&ze Theme…", "Theme: Edit Current Theme…"),
+    cmd("&New Theme…", "Theme: New Theme…"),
     cmd("&Editor Font…", "Preferences: Select Editor Font"),
     cmd("&UI Font…", "Preferences: Select UI Font"),
     cmd("Te&rminal Font…", "Preferences: Select Terminal Font"),

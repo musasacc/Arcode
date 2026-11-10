@@ -7,7 +7,8 @@
 #   platform  linux-x64, linux-arm64, macos-arm64, macos-x64 or windows-x64
 #   dest      the folder that gets language-servers/, e.g.
 #             <prefix>/share/arcode for a release (scripts/package.sh does
-#             this), or Arcode's local data folder for a build from source:
+#             this), or Arcode's local data folder for a build from source
+#             (a running Arcode uses it from the next server start on):
 #               Linux    ~/.local/share/arcode
 #               macOS    ~/Library/Application Support/arcode
 #               Windows  %LOCALAPPDATA%\arcode  (in Git Bash: "$LOCALAPPDATA/arcode")

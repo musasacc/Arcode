@@ -10,6 +10,9 @@
 //!   arrive on a runtime-agnostic [`EventReceiver`].
 //! - [`DiagnosticStore`]: merged diagnostics from several servers.
 //!
+//! - [`is_not_installed`]: whether a start failure means the server is not
+//!   installed (not on `PATH`, or only a rustup proxy without its component).
+//!
 //! The crate does not depend on GPUI and performs no network access.
 
 #![warn(missing_docs)]
@@ -22,6 +25,7 @@ mod event;
 mod features;
 mod manager;
 mod memory;
+mod missing;
 mod rpc;
 pub mod sync;
 pub mod transport;
@@ -42,6 +46,7 @@ pub use event::{
 pub use features::Features;
 pub use lsp_types;
 pub use manager::{Answer, FileChange, LaunchHook, LspManager, ServerConfig, find_root};
+pub use missing::{is_not_installed, rustup_missing_component};
 pub use sync::{DocumentSync, TextChange};
 pub use uri::{path_to_uri, uri_to_path};
 

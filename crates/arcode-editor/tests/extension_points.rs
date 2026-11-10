@@ -18,8 +18,8 @@ use gpui::{
 
 type Events = Rc<RefCell<Vec<EditorEvent>>>;
 
-/// Line height with default settings (14px * 1.5).
-const LH: f32 = 21.;
+/// Line height with default settings (14px * 1.6, rounded).
+const LH: f32 = 22.;
 
 fn open<'a>(
     cx: &'a mut TestAppContext,

@@ -15,6 +15,8 @@ mod events;
 pub mod highlights;
 pub mod hover;
 mod idle;
+pub mod install;
+mod lifecycle;
 pub mod log_tab;
 pub mod nav_convert;
 #[cfg(test)]
@@ -64,6 +66,8 @@ pub enum LspBridgeEvent {
     StatusChanged,
     /// Something the user should see (server failure, `showMessage`).
     Message(SharedString),
+    /// A server is not installed: a message with an install button.
+    NotInstalled(install::NotInstalled),
     /// A workspace edit to apply (from a code action, a rename or the
     /// server's `workspace/applyEdit`); answer through its reply.
     ApplyEdit(edits::EditHandle),
@@ -92,6 +96,10 @@ pub struct LspBridge {
     log_feed: Entity<servers::LogFeed>,
     /// Servers whose missing executable was already reported.
     hinted: HashSet<String>,
+    /// How to install each server reported as not installed.
+    install_hints: HashMap<String, Option<arcode_project::server_install::InstallHint>>,
+    /// The install command running in a terminal.
+    installing: Option<String>,
     /// Per server, why its bundled copy may not start (a missing runtime).
     runtime_notes: bundled::RuntimeNotes,
     /// Language id of the active editor (for the status bar).
@@ -132,6 +140,8 @@ impl LspBridge {
             logs_dirty: false,
             log_feed: cx.new(|_| servers::LogFeed),
             hinted: HashSet::new(),
+            install_hints: HashMap::new(),
+            installing: None,
             runtime_notes: bundled::RuntimeNotes::default(),
             active_language: None,
             docs: HashMap::new(),
@@ -174,19 +184,6 @@ impl LspBridge {
         cx.emit(LspBridgeEvent::DiagnosticsChanged);
         cx.emit(LspBridgeEvent::StatusChanged);
         cx.notify();
-    }
-
-    /// Stops every server in the background (graceful, then killed).
-    fn stop_servers(&mut self) {
-        self._events = None;
-        if let Some(manager) = self.manager.take() {
-            let spawned = std::thread::Builder::new()
-                .name("arcode-lsp-shutdown".into())
-                .spawn(move || manager.shutdown_all());
-            if let Err(err) = spawned {
-                log::warn!("cannot spawn the LSP shutdown thread: {err}");
-            }
-        }
     }
 
     /// Status text for the first server of `language_id` that has started,
@@ -355,32 +352,6 @@ impl LspBridge {
             | EditorEvent::CodeLensClicked { .. }
             | EditorEvent::VimStatusChanged => {}
         }
-    }
-
-    /// The manager, created (with its event loop) on first use.
-    fn ensure_manager(&mut self, cx: &mut Context<Self>) -> Option<Arc<LspManager>> {
-        if let Some(manager) = &self.manager {
-            return Some(manager.clone());
-        }
-        let (servers, languages) = convert::server_configs(settings(cx));
-        let (manager, events) = match LspManager::try_new(servers, languages) {
-            Ok(created) => created,
-            Err(err) => {
-                log::error!("cannot start the LSP runtime: {err}");
-                cx.emit(LspBridgeEvent::Message(
-                    format!("Language servers unavailable: {err}").into(),
-                ));
-                return None;
-            }
-        };
-        manager.set_workspace_root(self.root.clone());
-        manager.set_low_end_mode(settings(cx).ui.low_end_mode);
-        // Bundled servers are looked up as each one starts, off this thread.
-        manager.set_launch_hook(bundled::launch_hook(self.runtime_notes.clone()));
-        let manager = Arc::new(manager);
-        self.manager = Some(manager.clone());
-        self._events = Some(Self::poll_events(events, cx));
-        Some(manager)
     }
 }
 

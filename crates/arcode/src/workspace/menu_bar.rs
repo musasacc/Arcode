@@ -63,6 +63,8 @@ impl Workspace {
             || self.debug.run.menu.is_some()
             || self.debug.run.prompt.is_some()
             || self.debug.bp_dialog.is_some()
+            || self.prefs.new_theme.is_some()
+            || self.prefs.theme_prompt.is_some()
     }
 
     /// A tap on Alt (re)activates the bar; Alt+letter opens a menu when no

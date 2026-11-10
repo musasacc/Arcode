@@ -1,6 +1,6 @@
 //! What the UI shows and does per language server: status entries for the
-//! status bar, restarting, logs, the one-time "not installed" hint and
-//! applying a changed configuration while servers run.
+//! status bar, restarting, logs and applying a changed configuration while
+//! servers run. Failures are reported by `install.rs`.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -191,6 +191,13 @@ impl LspBridge {
     /// Stops `server` and starts it again for the open files that use it.
     /// Its diagnostics are cleared until it reports again.
     pub fn restart_server(&mut self, server: &str, cx: &mut Context<Self>) {
+        self.hinted.remove(server);
+        self.restart_quietly(server, cx);
+    }
+
+    /// [`LspBridge::restart_server`], but a server that was reported as
+    /// not installed is not reported again.
+    pub(super) fn restart_quietly(&mut self, server: &str, cx: &mut Context<Self>) {
         let Some(manager) = self.manager.clone() else {
             return;
         };
@@ -200,7 +207,6 @@ impl LspBridge {
             // Not running (e.g. it failed): open files start it again.
             self.servers.remove(server);
         }
-        self.hinted.remove(server);
         self.flush_logs(cx);
         cx.emit(LspBridgeEvent::StatusChanged);
         cx.notify();
@@ -299,42 +305,6 @@ impl LspBridge {
         self.flush_logs(cx);
         cx.emit(LspBridgeEvent::StatusChanged);
         cx.notify();
-    }
-
-    /// Reports a failed server: a bundled server whose runtime is missing
-    /// or too old says what it needs, once per session; so does a missing
-    /// executable, with the configured command (nothing is installed
-    /// automatically); other failures get a short message.
-    pub(super) fn report_failure(&mut self, server: &str, reason: &str, cx: &mut Context<Self>) {
-        let note = self
-            .runtime_notes
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(server)
-            .cloned();
-        if let Some(note) = note {
-            if self.hinted.insert(server.to_string()) {
-                cx.emit(LspBridgeEvent::Message(note.into()));
-            }
-            return;
-        }
-        if convert::is_not_installed(reason) {
-            if self.hinted.insert(server.to_string()) {
-                let command = command_line(server, cx);
-                cx.emit(LspBridgeEvent::Message(
-                    format!(
-                        "Language server {server} is not installed (command: `{command}`). \
-                         Install it, then restart it from the status bar."
-                    )
-                    .into(),
-                ));
-            }
-            return;
-        }
-        let reason = convert::first_line(reason);
-        cx.emit(LspBridgeEvent::Message(
-            format!("{server} failed: {reason}").into(),
-        ));
     }
 }
 

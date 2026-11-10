@@ -39,12 +39,18 @@ pub struct TextRenderingEnv {
 }
 
 impl UiSettings {
-    /// GPUI's default text gamma.
+    /// The default text gamma, which is also GPUI's.
     pub const DEFAULT_TEXT_GAMMA: f32 = 1.8;
+    /// The gamma GPUI uses when its variable is unset.
+    pub const RENDERER_TEXT_GAMMA: f32 = 1.8;
     /// The gammas GPUI accepts (it uses steps of 0.1).
     pub const TEXT_GAMMA_RANGE: RangeInclusive<f32> = 1.0..=2.2;
-    /// GPUI's default text contrast.
-    pub const DEFAULT_TEXT_CONTRAST: f32 = 1.0;
+    /// The default text contrast. Above GPUI's 1.0: at 1.0 dark text on
+    /// light themes (and muted text) draws thin and washed out; 2.0 gives
+    /// it firmer edges, and light text on dark themes is not affected.
+    pub const DEFAULT_TEXT_CONTRAST: f32 = 2.0;
+    /// The contrast GPUI uses when its variable is unset.
+    pub const RENDERER_TEXT_CONTRAST: f32 = 1.0;
     /// The contrasts accepted here. GPUI has no upper limit, but past 8
     /// glyph edges are all but solid.
     pub const TEXT_CONTRAST_RANGE: RangeInclusive<f32> = 0.0..=8.0;
@@ -52,12 +58,13 @@ impl UiSettings {
     /// The environment changes that give GPUI's renderer the text gamma and
     /// contrast of these settings, given the inherited environment.
     ///
-    /// A setting changed from GPUI's default is exported. A setting left at
-    /// its default lets a value set outside Arcode apply; a value an Arcode
-    /// up the process tree exported for its own settings is taken back
-    /// (to what was there before it, if anything), so one Arcode's settings
-    /// do not leak into another started from its terminal. Nothing changes
-    /// where the settings do nothing.
+    /// A setting changed from its default is exported. A setting left at
+    /// its default lets a value set outside Arcode apply, and otherwise is
+    /// exported only where it differs from GPUI's own default (the
+    /// contrast). A value an Arcode up the process tree exported for its
+    /// own settings is taken back (to what was there before it, if
+    /// anything), so one Arcode's settings do not leak into another started
+    /// from its terminal. Nothing changes where the settings do nothing.
     pub fn text_rendering_env(
         &self,
         inherited: impl Fn(&str) -> Option<String>,
@@ -69,17 +76,19 @@ impl UiSettings {
         let record = inherited(TEXT_RENDERING_OUTER_ENV);
         let recorded = parse_outer(record.as_deref().unwrap_or_default());
         let mut new_record = Vec::new();
-        for (name, value, default, text) in [
+        for (name, value, default, renderer, text) in [
             (
                 TEXT_GAMMA_ENV,
                 self.text_gamma,
                 Self::DEFAULT_TEXT_GAMMA,
+                Self::RENDERER_TEXT_GAMMA,
                 format!("{:.1}", self.text_gamma),
             ),
             (
                 TEXT_CONTRAST_ENV,
                 self.text_contrast,
                 Self::DEFAULT_TEXT_CONTRAST,
+                Self::RENDERER_TEXT_CONTRAST,
                 format!("{:.2}", self.text_contrast),
             ),
         ] {
@@ -90,7 +99,9 @@ impl UiSettings {
                 Some((_, before)) => before.map(str::to_string),
                 None => current.clone(),
             };
-            if (value - default).abs() > 1e-3 {
+            let changed = (value - default).abs() > 1e-3;
+            let renderer_differs = (value - renderer).abs() > 1e-3;
+            if changed || (outer.is_none() && renderer_differs) {
                 plan.changes.push((name, Some(text)));
                 new_record.push((name, outer));
             } else {
@@ -181,11 +192,33 @@ mod tests {
     }
 
     #[test]
-    fn defaults_match_gpui_and_set_nothing() {
-        let ui = UiSettings::default();
-        assert_eq!(ui.text_gamma, 1.8);
-        assert_eq!(ui.text_contrast, 1.0);
-        assert_eq!(ui.text_rendering_env(env(&[])), TextRenderingEnv::default());
+    fn defaults_export_only_the_contrast_gpui_lacks() {
+        let defaults = UiSettings::default();
+        assert_eq!(defaults.text_gamma, 1.8);
+        assert_eq!(defaults.text_contrast, 2.0);
+        let plan = defaults.text_rendering_env(env(&[]));
+        if !TEXT_RENDERING_TUNABLE {
+            assert_eq!(plan, TextRenderingEnv::default());
+            return;
+        }
+        // The gamma is GPUI's own default: left unset.
+        assert_eq!(
+            pairs(&apply(&[], &plan)),
+            [
+                (TEXT_RENDERING_OUTER_ENV, TEXT_CONTRAST_ENV),
+                (TEXT_CONTRAST_ENV, "2.00"),
+            ]
+        );
+        assert!(plan.outside.is_empty());
+        // GPUI's own contrast, set on purpose, is exported too.
+        let plan = ui(1.8, 1.0).text_rendering_env(env(&[]));
+        assert_eq!(
+            pairs(&apply(&[], &plan)),
+            [
+                (TEXT_RENDERING_OUTER_ENV, TEXT_CONTRAST_ENV),
+                (TEXT_CONTRAST_ENV, "1.00"),
+            ]
+        );
     }
 
     #[test]
@@ -224,16 +257,32 @@ mod tests {
         }
         let outside = [(TEXT_GAMMA_ENV, "2.0")];
         let plan = UiSettings::default().text_rendering_env(env(&outside));
-        assert!(plan.changes.is_empty(), "{plan:?}");
         assert_eq!(plan.outside, [(TEXT_GAMMA_ENV, "2.0".to_string())]);
+        assert_eq!(
+            pairs(&apply(&outside, &plan)),
+            [
+                (TEXT_RENDERING_OUTER_ENV, TEXT_CONTRAST_ENV),
+                (TEXT_GAMMA_ENV, "2.0"),
+                (TEXT_CONTRAST_ENV, "2.00"),
+            ]
+        );
+        // An outside contrast wins over the default contrast too.
+        let outside_contrast = [(TEXT_CONTRAST_ENV, "3")];
+        let plan = UiSettings::default().text_rendering_env(env(&outside_contrast));
+        assert!(plan.changes.is_empty(), "{plan:?}");
+        assert_eq!(plan.outside, [(TEXT_CONTRAST_ENV, "3".to_string())]);
         // A changed setting wins, and the outside value is remembered.
-        let plan = ui(1.4, 1.0).text_rendering_env(env(&outside));
+        let plan = ui(1.4, 2.0).text_rendering_env(env(&outside));
         assert!(plan.outside.is_empty());
         assert_eq!(
             pairs(&apply(&outside, &plan)),
             [
-                (TEXT_RENDERING_OUTER_ENV, "ZED_FONTS_GAMMA=2.0"),
+                (
+                    TEXT_RENDERING_OUTER_ENV,
+                    "ZED_FONTS_GAMMA=2.0;ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST"
+                ),
                 (TEXT_GAMMA_ENV, "1.4"),
+                (TEXT_CONTRAST_ENV, "2.00"),
             ]
         );
     }
@@ -246,17 +295,28 @@ mod tests {
         }
         let parent = apply(&[], &ui(2.2, 5.0).text_rendering_env(env(&[])));
         let parent = pairs(&parent);
-        // Back at the defaults: both variables go.
+        // Back at the defaults: the gamma goes, the contrast is the
+        // default one.
         let child = UiSettings::default().text_rendering_env(env(&parent));
         assert!(child.outside.is_empty(), "{child:?}");
-        assert!(apply(&parent, &child).is_empty(), "{child:?}");
-        // One changed: only that one is set, and the record says so.
-        let child = ui(2.0, 1.0).text_rendering_env(env(&parent));
         assert_eq!(
             pairs(&apply(&parent, &child)),
             [
-                (TEXT_RENDERING_OUTER_ENV, TEXT_GAMMA_ENV),
+                (TEXT_RENDERING_OUTER_ENV, TEXT_CONTRAST_ENV),
+                (TEXT_CONTRAST_ENV, "2.00"),
+            ]
+        );
+        // The gamma changed: it is set, and the record says so.
+        let child = ui(2.0, 2.0).text_rendering_env(env(&parent));
+        assert_eq!(
+            pairs(&apply(&parent, &child)),
+            [
+                (
+                    TEXT_RENDERING_OUTER_ENV,
+                    "ZED_FONTS_GAMMA;ZED_FONTS_GRAYSCALE_ENHANCED_CONTRAST"
+                ),
                 (TEXT_GAMMA_ENV, "2.0"),
+                (TEXT_CONTRAST_ENV, "2.00"),
             ]
         );
         // The same settings again leave the environment as it was.

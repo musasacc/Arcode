@@ -19,6 +19,7 @@ use gpui::{
 };
 
 use super::Pane;
+use crate::file_icons::file_icon;
 
 /// How long after the last edit the outline is computed again.
 const OUTLINE_DELAY: Duration = Duration::from_millis(400);
@@ -179,6 +180,8 @@ impl Pane {
             .into_iter()
             .map(SharedString::from)
             .collect();
+        // The file's own part carries its icon, like its tab.
+        let file_part = parts.len().saturating_sub(1);
         parts.extend(
             symbol_chain(&self.crumbs.symbols, line)
                 .into_iter()
@@ -213,7 +216,13 @@ impl Pane {
             }
             row = row.child(
                 div()
+                    .flex()
                     .flex_none()
+                    .items_center()
+                    .gap(px(4.))
+                    .when(ix == file_part, |el| {
+                        el.child(file_icon(&path, cx).size(px(12.)))
+                    })
                     .when(ix == last, |el| {
                         el.text_color(c.text).font_weight(WEIGHT_MEDIUM)
                     })

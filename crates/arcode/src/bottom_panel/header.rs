@@ -98,8 +98,8 @@ impl BottomPanel {
     }
 
     /// The tab pills: Terminal, Problems, Todo and Debug with their count
-    /// badges; the active one carries the ember mark while the panel has
-    /// focus. Without labels in a narrow header; they scroll when even
+    /// badges; the active one is `pill` filled while the panel has focus
+    /// (`hover` filled otherwise). Without labels in a narrow header; they scroll when even
     /// that does not fit.
     fn render_tabs(&self, focused: bool, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let c = theme(cx).colors.clone();

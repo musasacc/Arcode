@@ -6,7 +6,9 @@ features (completion, go to definition, diagnostics, rename, formatting,
 for you. Release packages bundle them (see
 [Bundled language servers](#bundled-language-servers)); a server you
 install yourself is used instead. Arcode never downloads or installs
-servers on its own.
+servers on its own: it runs an install command only when you click
+**Install**, in a terminal tab where you see what it does (see
+[When a server is missing](#when-a-server-is-missing)).
 
 ## Built-in languages
 
@@ -80,7 +82,13 @@ this order:
 2. **Your `PATH`.** A server you installed (with rustup, npm, pipx, your
    package manager, ...) is used. On Windows Arcode also tries the
    extensions in `PATHEXT`, so the `.cmd` and `.bat` files npm installs
-   are found by their bare name.
+   are found by their bare name. rustup's placeholder does not count:
+   rustup puts a `rust-analyzer` into `~/.cargo/bin` even when the
+   rust-analyzer component is not installed, and that file only prints
+   `error: Unknown binary 'rust-analyzer' in official toolchain …`.
+   Arcode asks rustup (`rustup which rust-analyzer`, in the project
+   folder, so `rust-toolchain.toml` counts) before starting it, and
+   treats the server as not installed when the component is missing.
 3. **The bundled servers.** Otherwise the copy that came with Arcode.
 
 So installing a server yourself, or setting its path, always wins over the
@@ -92,9 +100,47 @@ upwards from the file for the nearest folder containing one of them and
 starts the server there, so one project can hold several workspaces.
 Without a marker, the project folder is used.
 
+### When a server is missing
+
 If a server is missing everywhere, the status bar shows it as not
-installed and a message names the command, once. Nothing else happens;
-install the server and Arcode uses it the next time it needs it.
+installed and a message says so, once, with a button:
+
+- **Install** when Arcode knows a command for your machine. It is picked
+  by what is on your `PATH`:
+
+  | Server | Command |
+  |---|---|
+  | rust-analyzer | `rustup component add rust-analyzer` |
+  | pyright | `npm install -g pyright`, else `pipx install pyright`, else `python3 -m pip install --user pyright` |
+  | typescript-language-server | `npm install -g typescript typescript-language-server` |
+  | gopls | `go install golang.org/x/tools/gopls@latest` |
+  | vscode-langservers-extracted (HTML, CSS, JSON) | `npm install -g vscode-langservers-extracted` |
+  | bash-language-server, yaml-language-server, intelephense | `npm install -g <name>` |
+  | taplo | `cargo install taplo-cli --locked --features lsp` |
+  | ruby-lsp | `gem install ruby-lsp` |
+  | clangd | `sudo apt-get install clangd`, `sudo dnf install clang-tools-extra` or `sudo pacman -S clang` |
+  | marksman | `brew install marksman` or `winget install -e --id Artempyanykh.Marksman` |
+  | lua-language-server | `sudo pacman -S lua-language-server`, `brew install lua-language-server` or `winget install -e --id LuaLS.lua-language-server` |
+  | jdtls | `brew install jdtls` |
+
+  Clicking it opens a new terminal tab that runs the command (no shell
+  in between), so you see its output and can answer `sudo` or the
+  package manager's questions. When it exits successfully, the servers
+  that were not installed start again; no restart is needed.
+- **How to Install** when there is no command for your machine (clangd
+  on macOS and Windows, whose LLVM packages do not put it on `PATH`,
+  marksman on most Linux distributions, a server whose tool, such as npm,
+  is not on `PATH`): it opens the server's install page.
+
+The same button is in the server's menu in the status bar (click the
+server's name), and on the Languages page. **LSP: Show Missing Language
+Servers** in the command palette lists every server that the open
+project's files need and that is not installed, bundled or at its
+configured path; picking one installs it.
+
+A server Arcode knows no install command for (one you configured
+yourself) gets the message without a button: install it, then restart
+it from the status bar.
 
 To use a server that is not on `PATH`, give its path:
 
@@ -265,8 +311,10 @@ in `share/doc/arcode/THIRD-PARTY.txt` and
 
 ### Where Arcode looks for the bundle
 
-Arcode looks for the bundle once, the first time a language server
-starts, in the first of:
+Arcode looks for the bundle when a language server starts, in the first
+of the folders below. Once found it is kept; while there is none, it is
+looked for again at later starts (and after an install), so a bundle
+fetched while Arcode runs is used without a restart:
 
 1. `<installation>/share/arcode/language-servers`, next to the executable
    (`bin/arcode` → `../share/arcode/language-servers`; on macOS
@@ -276,8 +324,10 @@ starts, in the first of:
    `%LOCALAPPDATA%\arcode` on Windows (not the roaming `%APPDATA%`, so
    roaming profiles do not copy it around), or `$ARCODE_DATA_DIR`.
 
-A build from source has no bundle next to it. To get one, run the fetch
-script from the checkout into the data folder and restart Arcode:
+A build from source (`cargo run -p arcode`) has no bundle next to it, so
+only the servers on your `PATH` run. To get the same bundle the release
+packages ship, run the fetch script from the checkout into the data
+folder (restart the servers from the status bar, or just open a file):
 
 ```sh
 scripts/fetch-language-servers.sh linux-x64 ~/.local/share/arcode
@@ -315,7 +365,9 @@ icon in the activity bar) and choose the Languages tab, or run
 **Languages: Show Language Packs**. For each pack it shows which servers
 are installed (on `PATH` or at their configured path), which are bundled
 with Arcode, and the command to install a missing one on your system,
-ready to copy. Nothing is downloaded or installed from this page.
+ready to copy, and the **Install** button described in
+[When a server is missing](#when-a-server-is-missing).
+Nothing is downloaded or installed from this page unless you click it.
 
 | Pack | Languages | Tools it lists |
 |---|---|---|

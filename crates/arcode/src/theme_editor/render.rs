@@ -30,7 +30,7 @@ impl ThemeEditor {
         } else {
             format!("Saving writes {name} to its file in your themes folder.")
         };
-        let mut picker = button("theme-editor-pick", name)
+        let mut picker = button("theme-editor-pick", name.clone())
             .icon(IconName::Palette)
             .style(ButtonStyle::Secondary);
         // No tooltip over the open theme list.
@@ -77,6 +77,28 @@ impl ThemeEditor {
                 .disabled(!dirty)
                 .on_click(cx.listener(|editor, _, window, cx| editor.save(false, window, cx)))
         });
+        // The user's own themes can be renamed and deleted; built-in ones
+        // cannot.
+        let manage = (!builtin).then(|| {
+            let (rename, delete) = (name.clone(), name.clone());
+            [
+                button("theme-editor-rename", "Rename…")
+                    .style(ButtonStyle::Ghost)
+                    .tooltip("Give this theme another name (its file is renamed too)")
+                    .on_click(move |_, window, cx| {
+                        let name = rename.clone().into();
+                        window.dispatch_action(Box::new(super::RenameTheme { name }), cx)
+                    }),
+                button("theme-editor-delete", "Delete…")
+                    .icon(IconName::Trash)
+                    .style(ButtonStyle::Ghost)
+                    .tooltip("Delete this theme and its file")
+                    .on_click(move |_, window, cx| {
+                        let name = delete.clone().into();
+                        window.dispatch_action(Box::new(super::DeleteTheme { name }), cx)
+                    }),
+            ]
+        });
         div()
             .flex()
             .flex_wrap()
@@ -106,6 +128,7 @@ impl ThemeEditor {
                     ),
             )
             .child(picker)
+            .children(manage.into_iter().flatten())
             .child(discard)
             .child(open_file)
             .child(save_as)
@@ -138,6 +161,19 @@ impl ThemeEditor {
                     })),
             );
         }
+        let border = theme(cx).colors.border;
+        list = list.child(div().my(px(4.)).h(px(1.)).bg(border)).child(
+            list_row("theme-editor-menu-new", false, cx)
+                .mx(px(0.))
+                .h(px(26.))
+                .child(icon(IconName::Plus).size(px(14.)))
+                .child(div().flex_1().whitespace_nowrap().child("New Theme…"))
+                .on_click(cx.listener(|editor, _, window, cx| {
+                    editor.theme_menu = None;
+                    cx.notify();
+                    window.dispatch_action(Box::new(super::NewTheme), cx)
+                })),
+        );
         Some(
             deferred(
                 anchored()

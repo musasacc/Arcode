@@ -50,31 +50,70 @@ found on `PATH`:
 | Language | Command |
 |---|---|
 | Python | `python3 file.py` (the project's `.venv`, `venv` or `env` interpreter when there is one) |
-| Rust | `rustc --edition 2024 -g file.rs -o <build folder>/file`, then the program; `cargo run` for a file of a Cargo package (its `build.rs` too, which only runs inside a cargo build) |
+| Rust | `rustc --edition 2024 -g file.rs -o file && ./file`; `cargo run` for a file of a Cargo package (its `build.rs` too, which only runs inside a cargo build) |
 | C / C++ | `cc -g` / `c++ -g` (else `gcc`, `clang` / `g++`, `clang++`), then the program |
 | Go | `go run file.go`; the file's package inside a Go module |
 | JavaScript | `node file.js` (else Bun or `deno run`) |
 | TypeScript | `node --experimental-strip-types file.ts` with Node.js 22.6 or newer, else Bun or `deno run` |
-| Java | `java File.java` (JDK 11 or newer) |
+| Java | `java File.java` (JDK 11 or newer; single-file source launch, so no `.class` files are written) |
 | Ruby, PHP, Lua | `ruby`, `php`, `lua` |
 | Shell | the shell its `#!` line names, else `bash` |
 
 C and C++ headers (`.h`, `.hpp`, ...) do not run on their own: run the
 source file that includes them.
 
-Compiled programs go to a build folder in Arcode's cache folder (one per
-source file, `~/.cache/arcode/run` on Linux), never next to your source.
-The file is saved first when it has unsaved changes. The working
-directory is the project folder (the file's own folder when it is
-outside the project or no folder is open); a reused tab whose shell was
-moved with `cd` goes back there first. A compiled file's build and run
-steps are joined for the terminal's shell (`[terminal] shell`): `&&` in
-POSIX shells and `cmd.exe`, `if ($?)` in PowerShell, `LAST_EXIT_CODE` in
-Nushell.
+A compiled program (Rust, C, C++) is written next to its source and run
+from there: `test.rs` becomes `test` (`test.exe` on Windows) in the same
+folder, built and run from that folder, and the terminal shows the short
+command with paths relative to it:
+
+```sh
+rustc --edition 2024 -g test.rs -o test && ./test
+```
+
+The program then shows in the file tree like any other new file. Git
+lists it as untracked unless you ignore it (add `test` to `.gitignore`,
+or `*.exe` on Windows).
+
+Built with debug information, the program may get companions from the
+compiler: on Windows the linker writes `test.pdb` (and `test.ilk` when it
+links incrementally) beside `test.exe`, and on macOS `rustc` and `clang`
+write a `test.dSYM` folder beside `test`. They belong to the program and
+follow the same rule as the program below; ignore them in git as well
+(`*.pdb`, `*.ilk`, `*.dSYM`). On Linux the debug information stays inside
+the program.
+
+Arcode never writes over something it did not build. When a folder has
+the program's name, or a file that is not a program, or a program that
+Arcode did not build (Arcode keeps a small record of the programs it
+built, in its cache folder), or there are debug files (`test.pdb`,
+`test.dSYM`) beside a program Arcode did not build, the program is built
+in Arcode's cache folder instead, the existing files are left as they
+are, and a one-line note says why, for example "Built test.rs in
+Arcode's cache: test is a folder". When a build fails, Arcode forgets it
+as soon as the run is seen to end, so a program you then build there
+yourself is not taken for Arcode's. (On Windows the end of a command in
+the terminal is not watched, so for up to ten minutes after a failed
+build a new program of that name still counts as the build's.)
+
+To keep compiled programs out of your folders altogether, set
+`run.output = "cache"` (Settings > Advanced > Run and debug > Compiled
+programs): they then go to a build folder in Arcode's cache folder (one
+per source file, `~/.cache/arcode/run` on Linux), and the command runs
+from the project folder.
+
+The file is saved first when it has unsaved changes. Interpreted files
+(and compiled ones with `run.output = "cache"`) run from the project
+folder (the file's own folder when it is outside the project or no
+folder is open); a reused tab whose shell was moved with `cd` goes back
+there first. A compiled file's build and run steps are joined for the
+terminal's shell (`[terminal] shell`): `&&` in POSIX shells and
+`cmd.exe`, `if ($?)` in PowerShell, `LAST_EXIT_CODE` in Nushell.
 
 **Debug: Debug Current File** builds and debugs the file the same way:
-Python with debugpy, Rust, C and C++ compiled with `-g` and debugged with
-the native adapter (see below), Go with Delve. Other languages cannot be
+Python with debugpy, Rust, C and C++ compiled with `-g` into the same
+program as Run Current File (next to the source, or in the cache) and
+debugged with the native adapter (see below), Go with Delve. Other languages cannot be
 debugged yet; Arcode says so.
 
 When nothing can run, a notice says why and what to do, for example

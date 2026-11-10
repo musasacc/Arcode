@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 gpui.workspace = true
+image.workspace = true
 arcode-buffer.workspace = true
 arcode-syntax.workspace = true
 arcode-config.workspace = true

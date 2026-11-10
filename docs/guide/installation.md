@@ -280,6 +280,24 @@ cargo build --release -p arcode
 ./target/release/arcode path/to/project
 ```
 
+### Language servers
+
+A build from source has no bundled language servers, so only the
+servers on your `PATH` run, and the others show as "not installed". Get
+the bundle that release packages ship into Arcode's data folder:
+
+```sh
+scripts/fetch-language-servers.sh linux-x64 ~/.local/share/arcode
+scripts/fetch-language-servers.sh macos-arm64 ~/Library/Application\ Support/arcode
+scripts/fetch-language-servers.sh windows-x64 "$LOCALAPPDATA/arcode"   # Git Bash
+```
+
+or install the servers you need yourself, for example `rustup component
+add rust-analyzer` and `npm install -g pyright`. Arcode notices either
+without a restart. The "not installed" message also has an **Install**
+button that runs the right command in a terminal tab; see
+[When a server is missing](languages.md#when-a-server-is-missing).
+
 ## The bundled plugins
 
 Arcode works without plugins. Two plugins come with it, the **HTTP
@@ -339,8 +357,10 @@ details are in [docs/PACKAGING.md](../PACKAGING.md).
 
 ## Optional tools
 
-Arcode never downloads tools for you. These make it more useful, and the
-Languages page tells you which ones are missing:
+Arcode never downloads tools on its own. These make it more useful, and
+the Languages page tells you which ones are missing (a language server's
+**Install** button runs its install command in a terminal tab, only when
+you click it):
 
 - **Language servers** for code intelligence, such as `rust-analyzer`,
   `pyright`, `typescript-language-server`, `gopls` or `clangd`. Release

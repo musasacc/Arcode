@@ -30,13 +30,69 @@ fn a_single_file_compile_makes_the_program_folder_and_reports_failures() {
             RunSource::File,
         )
     };
-    compile_file(&sh("echo compiled"), &program, &Cancel::default(), &log).unwrap();
+    let record = dir.path().join("record");
+    compile_file(
+        &sh("echo compiled"),
+        &program,
+        &record,
+        &Cancel::default(),
+        &log,
+    )
+    .unwrap();
     assert!(program.parent().unwrap().is_dir());
     let logged = lines.lock().unwrap().clone();
     assert!(logged[0].starts_with("> sh -c"), "{logged:?}");
     assert!(logged.iter().any(|l| l == "compiled"), "{logged:?}");
-    let err = compile_file(&sh("exit 2"), &program, &Cancel::default(), &log).unwrap_err();
+    let err = compile_file(&sh("exit 2"), &program, &record, &Cancel::default(), &log).unwrap_err();
     assert!(err.contains("failed"), "{err}");
+    // A program in the cache is not recorded.
+    assert!(!record.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_program_next_to_its_source_is_recorded_and_never_written_over_otherwise() {
+    use arcode_project::{RunKind, RunSource};
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let record = dir.path().join("cache/built-programs");
+    let program = src.join("test");
+    // Stands in for `rustc test.rs -o test`.
+    let build = |script: &str| {
+        RunCommand::new(
+            "sh",
+            vec!["-c".into(), script.into(), "test.rs".into()],
+            &src,
+            RunKind::Build,
+            RunSource::File,
+        )
+    };
+    let write = build("printf bin > test && chmod +x test");
+    let log = |_: String| {};
+    compile_file(&write, &program, &record, &Cancel::default(), &log).unwrap();
+    assert!(arcode_project::BuiltPrograms::load(&record).holds(&program));
+    // Built by Arcode: built again.
+    compile_file(&write, &program, &record, &Cancel::default(), &log).unwrap();
+
+    // Someone else's program, a plain file, a folder: left alone.
+    let other = dir.path().join("other-record");
+    let err = compile_file(&write, &program, &other, &Cancel::default(), &log).unwrap_err();
+    assert!(
+        err.contains("Arcode did not build the program there"),
+        "{err}"
+    );
+    assert!(err.contains("test.rs"), "{err}");
+    std::fs::remove_file(&program).unwrap();
+    std::fs::write(&program, "notes").unwrap();
+    let err = compile_file(&write, &program, &other, &Cancel::default(), &log).unwrap_err();
+    assert!(err.contains("not a program"), "{err}");
+    assert_eq!(std::fs::read_to_string(&program).unwrap(), "notes");
+    std::fs::remove_file(&program).unwrap();
+    std::fs::create_dir(&program).unwrap();
+    let err = compile_file(&write, &program, &record, &Cancel::default(), &log).unwrap_err();
+    assert!(err.contains("a folder has that name"), "{err}");
+    assert!(program.is_dir());
 }
 
 #[test]

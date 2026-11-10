@@ -13,16 +13,16 @@ use crate::metrics::{
 };
 use crate::{Elevated, theme};
 
-/// The edge color of a panel: `border_focused` when it holds focus, else
-/// the hairline `border`. Always 1 px, so focus never moves anything.
-pub fn panel_border(focused: bool, cx: &App) -> Hsla {
-    let c = &theme(cx).colors;
-    if focused { c.border_focused } else { c.border }
+/// The edge color of a panel: the hairline `border`, focused or not.
+/// Focus shows inside the panel (the caret, the active tab's pill, the
+/// selected row), never as a coloured frame.
+pub fn panel_border(cx: &App) -> Hsla {
+    theme(cx).colors.border
 }
 
-/// A floating panel: `panel` fill, 1 px edge (amber when `focused`),
-/// radius 10, children clipped. Panels never have shadows.
-pub fn panel(focused: bool, cx: &App) -> Div {
+/// A floating panel: `panel` fill, 1 px `border` edge, radius 10, children
+/// clipped. Panels never have shadows.
+pub fn panel(cx: &App) -> Div {
     div()
         .flex()
         .flex_col()
@@ -30,7 +30,7 @@ pub fn panel(focused: bool, cx: &App) -> Div {
         .min_h_0()
         .bg(theme(cx).colors.panel())
         .border_1()
-        .border_color(panel_border(focused, cx))
+        .border_color(panel_border(cx))
         .rounded(PANEL_RADIUS)
         .overflow_hidden()
 }

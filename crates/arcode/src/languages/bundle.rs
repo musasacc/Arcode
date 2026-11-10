@@ -4,6 +4,7 @@
 //! associations of the configuration and the built-in snippets.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 
 use arcode_config::Config;
 use arcode_project::{InstallAction, LanguagePack, Os};
@@ -173,7 +174,8 @@ fn server_row(pack: &LanguagePack, config: &Config, name: &str) -> ServerRow {
 /// Whether a server can be started.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Availability {
-    /// The user installed it (on `PATH`, or the configured path exists).
+    /// The user installed it (on `PATH`, or the configured path exists;
+    /// rustup's placeholder for a missing component does not count).
     Installed,
     /// Not installed, but Arcode's bundled copy is used.
     Bundled,
@@ -184,12 +186,13 @@ pub enum Availability {
     Missing,
 }
 
-/// The availability of each server command: the configured path, `PATH`,
-/// then the bundled servers (blocks: a `PATH` walk per command and a
-/// look for Java; call it off the UI thread).
-pub fn installed_commands(rows: &[PackRow]) -> Vec<(String, Availability)> {
+/// The availability of each server command: the configured path, `PATH`
+/// (where a rustup placeholder does not count), then the bundled servers
+/// (blocks: a `PATH` walk per command, maybe `rustup which`, and a look
+/// for Java; call it off the UI thread).
+pub fn installed_commands(rows: &[PackRow], root: Option<&Path>) -> Vec<(String, Availability)> {
     let cx = crate::lsp_bridge::bundled::launch_context();
-    availability(rows, &|command| {
+    availability(rows, root, &|command| {
         let launch = crate::lsp_bridge::bundled::launch(command, &cx)?;
         Some(
             launch
@@ -201,9 +204,12 @@ pub fn installed_commands(rows: &[PackRow]) -> Vec<(String, Availability)> {
 
 /// [`installed_commands`] with an explicit bundle lookup, which returns
 /// [`Availability::Bundled`] or [`Availability::NeedsRuntime`] for
-/// commands the bundle has.
+/// commands the bundle has. Commands are looked up as the servers of the
+/// project at `root` look them up (its toolchain file picks the Rust
+/// toolchain), like the server status and the missing-servers list.
 pub fn availability(
     rows: &[PackRow],
+    root: Option<&Path>,
     bundled: &dyn Fn(&str) -> Option<Availability>,
 ) -> Vec<(String, Availability)> {
     let commands: BTreeSet<&str> = rows
@@ -213,14 +219,18 @@ pub fn availability(
     commands
         .into_iter()
         .map(|c| {
-            let path = std::path::Path::new(c);
+            let path = Path::new(c);
             let state = if path.is_absolute() || c.contains(['/', '\\']) {
                 if path.is_file() {
                     Availability::Installed
                 } else {
                     Availability::Missing
                 }
-            } else if arcode_project::packs::find_executable(c).is_some() {
+            } else if matches!(
+                crate::lsp_bridge::bundled::find_server(c, root),
+                crate::lsp_bridge::bundled::Found::Installed(_)
+            ) {
+                // A rustup placeholder is not installed.
                 Availability::Installed
             } else {
                 bundled(c).unwrap_or(Availability::Missing)
@@ -296,7 +306,7 @@ mod tests {
     #[test]
     fn bundled_servers_count_as_available() {
         let rows = pack_rows(&Config::default());
-        let found = availability(&rows, &|c| match c {
+        let found = availability(&rows, None, &|c| match c {
             "marksman" | "taplo" => Some(Availability::Bundled),
             "jdtls" => Some(Availability::NeedsRuntime("needs Java".into())),
             _ => None,

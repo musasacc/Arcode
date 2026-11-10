@@ -50,6 +50,7 @@ impl ServerConfig {
             env: self.env.clone(),
             initialization_options: self.initialization_options.clone(),
             features: self.features,
+            missing: None,
         }
     }
 }

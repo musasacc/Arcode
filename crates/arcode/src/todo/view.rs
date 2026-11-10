@@ -225,7 +225,7 @@ impl TodoView {
             }) => {
                 let label = relative_label(store.root(), path);
                 let (name, dir) = split_path(std::path::Path::new(&label));
-                let (file_icon_name, file_icon_color) = file_icon(&name, &c);
+                let file_icon = file_icon(&label, cx).size(icon_size::ROW);
                 base.child(
                     icon(if *collapsed {
                         IconName::ChevronRight
@@ -235,11 +235,7 @@ impl TodoView {
                     .size(px(14.))
                     .color(c.text_muted),
                 )
-                .child(
-                    icon(file_icon_name)
-                        .size(icon_size::ROW)
-                        .color(file_icon_color),
-                )
+                .child(file_icon)
                 // The badge follows the name, as in the Problems tab.
                 .child(
                     crate::sidebar::name_then_hint(

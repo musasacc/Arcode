@@ -24,7 +24,7 @@ use crate::title_bar;
 /// square, so a child that fills the panel (a view background, a row band)
 /// would otherwise square off the 10 px corners and cover the edge's arcs.
 /// Two quads, no listeners (clicks pass through).
-pub(crate) fn corner_caps(focused: bool, cx: &App) -> Div {
+pub(crate) fn corner_caps(cx: &App) -> Div {
     let c = &theme(cx).colors;
     let radius = arcode_ui_kit::metrics::PANEL_RADIUS;
     // Absolute children sit in the padding box, 1 px inside the edge.
@@ -53,7 +53,7 @@ pub(crate) fn corner_caps(focused: bool, cx: &App) -> Div {
                 .bottom(edge)
                 .rounded(radius)
                 .border_1()
-                .border_color(panel_border(focused, cx)),
+                .border_color(panel_border(cx)),
         )
 }
 
@@ -97,7 +97,7 @@ impl Workspace {
         cx.notify();
     }
 
-    fn render_sidebar(&self, framed: bool, cx: &mut Context<Self>) -> Div {
+    fn render_sidebar(&self, cx: &mut Context<Self>) -> Div {
         let content = match (self.activity, &self.file_tree) {
             (Activity::Files, Some(tree)) => tree.clone().into_any_element(),
             (Activity::Files, None) => sidebar::no_folder(cx).into_any_element(),
@@ -125,13 +125,13 @@ impl Workspace {
             .h_full()
             .pr(GAP)
             .child(
-                panel(framed, cx)
+                panel(cx)
                     .relative()
                     .track_focus(&self.shell.sidebar_focus)
                     .flex_1()
                     .h_full()
                     .child(content)
-                    .child(corner_caps(framed, cx)),
+                    .child(corner_caps(cx)),
             )
             .child(
                 handle("sidebar-resize", CursorStyle::ResizeLeftRight)
@@ -163,14 +163,14 @@ impl Workspace {
             .h(frame::bottom_slot(self.bottom_panel_height))
             .pt(GAP)
             .child(
-                panel(framed, cx)
+                panel(cx)
                     .relative()
                     .track_focus(&self.shell.bottom_focus)
                     .flex_1()
                     .w_full()
                     .child(self.bottom_panel.clone())
                     .child(self.prefs.anchors.recorder(TourTarget::TerminalPanel))
-                    .child(corner_caps(framed, cx)),
+                    .child(corner_caps(cx)),
             )
             .child(
                 handle("panel-resize", CursorStyle::ResizeUpDown)
@@ -189,7 +189,7 @@ impl Workspace {
     }
 
     /// The editor panel: every split pane lives in it, divided by 1 px
-    /// hairlines (no accent line over the active pane: the ember mark on
+    /// hairlines (no accent line over the active pane: the `pill` fill of
     /// its active tab shows where you are).
     fn render_editor_panel(&self, framed: bool, cx: &mut Context<Self>) -> Div {
         let c = theme(cx).colors.clone();
@@ -198,9 +198,10 @@ impl Workspace {
             if ix > 0 {
                 row = row.child(div().w(px(1.)).h_full().flex_none().bg(c.border));
             }
-            // The ember mark goes on the framed panel's active pane.
-            let ember = framed && ix == self.active_pane;
-            pane.update(cx, |pane, _| pane.set_framed(ember));
+            // Only the focused panel's active pane shows its active tab in
+            // the `pill` fill.
+            let focused = framed && ix == self.active_pane;
+            pane.update(cx, |pane, _| pane.set_framed(focused));
             row = row.child(
                 div()
                     .relative()
@@ -210,7 +211,7 @@ impl Workspace {
                     .child(pane.clone()),
             );
         }
-        panel(framed, cx)
+        panel(cx)
             .relative()
             .track_focus(&self.shell.editor_focus)
             .flex_1()
@@ -218,7 +219,7 @@ impl Workspace {
             .w_full()
             .children(self.render_package_banner(cx))
             .child(row)
-            .child(corner_caps(framed, cx))
+            .child(corner_caps(cx))
     }
 }
 
@@ -274,8 +275,8 @@ impl Render for Workspace {
                 .child(self.prefs.anchors.recorder(TourTarget::ActivityBar));
             let show_sidebar = self.sidebar_visible || self.sliding_closed(Slider::Sidebar);
             let show_panel = self.bottom_panel_visible || self.sliding_closed(Slider::Panel);
-            // Focus moves the frame only on focus events (they redraw);
-            // nothing animates it.
+            // The panel in focus (it changes only on focus events, which
+            // redraw): its active tab gets the `pill` fill.
             let framed = self.shell.update_frame(
                 self.sidebar_visible,
                 self.bottom_panel_visible,
@@ -290,7 +291,7 @@ impl Render for Workspace {
                 .pr(GAP)
                 .child(bar)
                 .when(show_sidebar, |el| {
-                    let sidebar = self.render_sidebar(framed == FramedPanel::Sidebar, cx);
+                    let sidebar = self.render_sidebar(cx);
                     let slot = frame::sidebar_slot(self.sidebar_width);
                     el.child(self.slide_wrap(Slider::Sidebar, sidebar, slot, cx))
                 })

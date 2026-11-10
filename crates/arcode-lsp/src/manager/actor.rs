@@ -18,9 +18,9 @@ use crate::client::{LspClient, ServerSpec};
 use crate::event::{EventSink, LspEvent, PositionEncoding};
 use crate::sync::TextChange;
 
-/// Adjusts a server's process spec right before it starts; see
-/// [`super::LspManager::set_launch_hook`].
-pub type LaunchHook = Arc<dyn Fn(&mut ServerSpec) + Send + Sync>;
+/// Adjusts a server's process spec right before it starts in the given
+/// root folder; see [`super::LspManager::set_launch_hook`].
+pub type LaunchHook = Arc<dyn Fn(&mut ServerSpec, &Path) + Send + Sync>;
 
 /// Produces a document's text for `didOpen`.
 pub(crate) type MakeOpenText = dyn Fn() -> String + Send + Sync;
@@ -173,7 +173,7 @@ pub(crate) fn spawn(
         if let Some(after) = after {
             let _ = tokio::time::timeout(REPLACE_WAIT, after).await;
         }
-        let mut spec = launch_spec(&config, hook).await;
+        let mut spec = launch_spec(&config, &root, hook).await;
         let instance = Instance {
             name: config.name.clone(),
             events,
@@ -255,16 +255,18 @@ async fn drain(mut rx: mpsc::UnboundedReceiver<Command>) {
     }
 }
 
-/// The process spec of `config`, adjusted by `hook` on a blocking thread.
-async fn launch_spec(config: &ServerConfig, hook: Option<LaunchHook>) -> ServerSpec {
+/// The process spec of `config` at `root`, adjusted by `hook` on a
+/// blocking thread.
+async fn launch_spec(config: &ServerConfig, root: &Path, hook: Option<LaunchHook>) -> ServerSpec {
     let spec = config.spec();
     let Some(hook) = hook else {
         return spec;
     };
     let fallback = spec.clone();
+    let root = root.to_path_buf();
     tokio::task::spawn_blocking(move || {
         let mut spec = spec;
-        hook(&mut spec);
+        hook(&mut spec, &root);
         spec
     })
     .await

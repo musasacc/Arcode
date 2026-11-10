@@ -228,7 +228,7 @@ impl GitPanel {
         let c = theme(cx).colors.clone();
         let (name, dir) = split_path(&entry.path);
         let (letter, letter_color) = status_letter(entry, group, &c);
-        let (file_icon_name, icon_color) = file_icon(&name, &c);
+        let file_icon = file_icon(&entry.path, cx).size(icon_size::ROW);
         let path = entry.path.clone();
         let deleted = matches!(letter, "D");
         let p1 = path.clone();
@@ -303,7 +303,7 @@ impl GitPanel {
             .rounded(ROW_RADIUS)
             .cursor_pointer()
             .hover(|s| s.bg(c.hover))
-            .child(icon(file_icon_name).size(icon_size::ROW).color(icon_color))
+            .child(file_icon)
             // A long name ends in "…"; the folder after it gives way first.
             .child(crate::sidebar::name_then_hint(
                 div()

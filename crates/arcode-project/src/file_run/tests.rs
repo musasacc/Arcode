@@ -7,13 +7,13 @@ use super::*;
 use crate::{RunKind, RunSource, debug_target};
 
 /// Tools that "find" the listed programs (at `/usr/bin/<name>`).
-struct Fake {
+pub(super) struct Fake {
     programs: HashSet<&'static str>,
     node: Option<(u32, u32)>,
 }
 
 impl Fake {
-    fn with(programs: &[&'static str]) -> Self {
+    pub(super) fn with(programs: &[&'static str]) -> Self {
         Self {
             programs: programs.iter().copied().collect(),
             node: None,
@@ -40,13 +40,13 @@ impl Tools for Fake {
 }
 
 /// A project folder with a separate build folder.
-struct Dirs {
+pub(super) struct Dirs {
     _tmp: tempfile::TempDir,
-    root: PathBuf,
-    build: PathBuf,
+    pub(super) root: PathBuf,
+    pub(super) build: PathBuf,
 }
 
-fn dirs() -> Dirs {
+pub(super) fn dirs() -> Dirs {
     let tmp = tempfile::tempdir().unwrap();
     let base = fs::canonicalize(tmp.path()).unwrap();
     let root = base.join("proj");
@@ -60,7 +60,7 @@ fn dirs() -> Dirs {
 }
 
 impl Dirs {
-    fn write(&self, rel: &str, text: &str) -> PathBuf {
+    pub(super) fn write(&self, rel: &str, text: &str) -> PathBuf {
         let path = self.root.join(rel);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, text).unwrap();
@@ -73,7 +73,7 @@ impl Dirs {
                 file,
                 language_id,
                 project_root: Some(&self.root),
-                build_dir: &self.build,
+                output: ProgramOutput::Cache(&self.build),
             },
             tools,
         )
@@ -392,7 +392,7 @@ fn a_file_outside_the_project_runs_in_its_own_folder() {
             file: &file,
             language_id: "python",
             project_root: None,
-            build_dir: &d.build,
+            output: ProgramOutput::Cache(&d.build),
         },
         &Fake::with(&["python3"]),
     )

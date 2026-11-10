@@ -7,6 +7,7 @@ mod assets;
 mod color_key;
 mod components;
 mod effects;
+mod file_logo;
 mod font_fallback;
 mod icon;
 pub mod metrics;
@@ -20,6 +21,7 @@ pub use assets::{
 pub use color_key::ColorKey;
 pub use components::*;
 pub use effects::{Elevated, debounce, font_choices, looks_monospace, low_end};
+pub use file_logo::{FileGlyph, FileIcon, FileLogo, LogoStyle, file_glyph, logo_rasterizations};
 pub use font_fallback::{apply_glyph_fallbacks, glyph_advance, keep_font_runs_distinct};
 pub use icon::{Icon, IconName, icon};
 pub use metrics::{TypeScale, type_scale};

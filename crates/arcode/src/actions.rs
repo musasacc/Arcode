@@ -362,6 +362,7 @@ pub fn bind_keys(cx: &mut App) {
     crate::debugger::bp_dialog::bind_keys(cx);
     crate::debugger::panel::bind_keys(cx);
     crate::text_prompt::bind_keys(cx);
+    crate::theme_editor::new_theme::bind_keys(cx);
     crate::languages::actions::bind_keys(cx);
     crate::prefs::bind_keys(cx);
     crate::packages::bind_keys(cx);

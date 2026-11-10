@@ -84,8 +84,8 @@ pub struct BottomPanel {
     todo: Option<(Entity<TodoStore>, Entity<TodoView>, Subscription)>,
     /// The Debug tab (set by the workspace).
     debug: Option<Entity<DebugPanel>>,
-    /// Whether the workspace frames the panel (the ember mark on the
-    /// active tab); `None` until told, then focus decides.
+    /// Whether the workspace counts this as focused (its active tab in the
+    /// `pill` fill); `None` until told, then focus decides.
     framed: Option<bool>,
     /// The header is wide enough for the tab labels (measured when drawn).
     tab_labels: bool,
@@ -152,8 +152,9 @@ impl BottomPanel {
         cx.notify();
     }
 
-    /// Sets whether the panel wears the focus frame (read at the next
-    /// render, which follows in the same frame: no notify).
+    /// Sets whether the panel holds focus, which gives its active tab the
+    /// `pill` fill (read at the next render, which follows in the same
+    /// frame: no notify).
     pub fn set_framed(&mut self, framed: bool) {
         self.framed = Some(framed);
     }

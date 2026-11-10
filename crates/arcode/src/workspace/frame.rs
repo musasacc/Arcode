@@ -1,7 +1,9 @@
 //! The floating panels of the workbench (docs/DESIGN.md 6.1, 6.4): which
-//! one wears the focus frame, and the resize arithmetic of the handles
-//! that live in the canvas gaps between them. Also the debugger state the
-//! title bar shows (the Paused chip and Continue).
+//! one counts as focused (the "framed" panel: its active tab gets the
+//! `pill` fill; panel edges never change colour), and the resize
+//! arithmetic of the handles that live in the canvas gaps between them.
+//! Also the debugger state the title bar shows (the Paused chip and
+//! Continue).
 
 use std::cell::Cell;
 use std::path::Path;
@@ -51,7 +53,7 @@ impl PanelFocus {
     }
 }
 
-/// The panel to frame. A panel holding focus wins. While an overlay (the
+/// The panel to frame (count as focused). A panel holding focus wins. While an overlay (the
 /// palette, a picker, a dialog) holds it, the previous panel keeps the
 /// frame, so overlays never steal it. Focus on the bare workspace root
 /// frames the editor, the panel the workspace shortcuts act on, so the

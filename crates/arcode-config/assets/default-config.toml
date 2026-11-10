@@ -15,10 +15,12 @@ font_size = 14.0
 # Font weight: 400 is regular, 700 bold (100 - 900). A font without that
 # weight uses its nearest one; the bundled JetBrains Mono has 400 and 700.
 font_weight = 400
-# Line height as a multiple of the font size (0.5 - 4.0).
-line_height = 1.5
-# Programming ligatures such as -> and !=.
-ligatures = true
+# Line height as a multiple of the font size (0.5 - 4.0). The default
+# gives 14 px code a 22 px line.
+line_height = 1.6
+# Programming ligatures such as -> and !=. Off by default: they draw pairs
+# such as #[, => and != as one shape.
+ligatures = false
 # Width of a tab stop in columns (1 - 32).
 tab_size = 4
 # Insert spaces when pressing Tab.
@@ -66,8 +68,10 @@ inline_diagnostics = "errors"
 # variables, unreachable code) faded. Deprecated code is always struck
 # through.
 fade_unused = true
-# Show a minimap (the file scaled down) at the right edge of file editors;
-# click or drag it to scroll. Always hidden in low-end mode.
+# Show a minimap (the file scaled down) at the right edge of file editors
+# whose file is longer than the editor; a short file gets the full width.
+# Hover it to see the code there at full size, click or drag it to scroll.
+# Always hidden in low-end mode.
 minimap = true
 # Width of the minimap in pixels (40 - 240).
 minimap_width = 96
@@ -112,12 +116,17 @@ show_perf_stats = true
 # and in a narrow window, a single menu button holds them; a tap on Alt
 # opens them either way. macOS always uses its own menu bar.
 menu_bar = true
+# Icons next to file names in the file tree, tabs, pickers and lists:
+# "logos" shows the logo of the file's language (Rust, Python, Go, ...)
+# where Arcode has one, "plain" the monochrome file icons.
+file_icons = "logos"
 # How text edges are blended (Linux only; applied when Arcode starts).
 # Gamma 1.0 - 2.2: higher draws light text on dark themes heavier.
 text_gamma = 1.8
 # Contrast 0 - 8: higher thickens dark and mid-tone text (light themes,
-# muted text); light text is left as it is.
-text_contrast = 1.0
+# muted text); light text is left as it is. 1.0 is the renderer's own
+# default, which draws dark text on light themes thin.
+text_contrast = 2.0
 
 [terminal]
 # Shell program. Unset: $SHELL on Linux/macOS, PowerShell on Windows.
@@ -131,8 +140,10 @@ args = []
 scrollback = 10000
 
 [git]
-# Added / modified / deleted bars in the editor gutter (vs the index).
-gutter = true
+# Added / modified / deleted bars (vs the index) in the editor gutter and
+# the minimap. Off by default; the file tree and the Source Control view
+# show changed files either way.
+gutter = false
 # Author, date and summary of the cursor line, shown at its end.
 inline_blame = true
 # How long the cursor rests on a line before its blame appears (ms).
@@ -192,6 +203,19 @@ adapters = {}
 # Example: { "lldb-dap" = "/usr/bin/lldb-dap-18" }
 adapter_paths = {}
 
+[run]
+# Where Run Current File and Debug Current File put a program compiled
+# from one source file (rustc, gcc, clang):
+#   "next_to_source": beside the file (test.rs -> test, test.exe on
+#     Windows), run from the file's folder; it shows in the file tree, and
+#     git lists it as untracked unless ignored. A folder, a file that is
+#     not a program, or a program Arcode did not build is never
+#     overwritten: the program goes to the cache instead. The debug files
+#     compilers write beside it (test.pdb on Windows, a test.dSYM folder
+#     on macOS) follow the same rule.
+#   "cache": one folder per source file in Arcode's cache.
+output = "next_to_source"
+
 [plugins]
 # Master switch for plugin network access. Off: every plugin request is
 # refused. On: a plugin sends only when you click, and asks before it
@@ -239,8 +263,10 @@ application_id = ""
 # vscode-html-language-server, vscode-css-language-server,
 # bash-language-server, yaml-language-server, marksman, jdtls,
 # lua-language-server, ruby-lsp, intelephense. A command is looked up on
-# PATH, then in the language servers bundled with Arcode (all of these but
-# ruby-lsp and intelephense); a path is used as given. The Languages page
+# PATH (rustup's rust-analyzer placeholder, there even without the
+# component, does not count), then in the language servers bundled with
+# Arcode (all of these but ruby-lsp and intelephense); a path is used as
+# given. The Languages page
 # (Plugins view) shows which are installed or bundled and how to install
 # the rest. A new table defines a new server; keys in an existing one
 # override it.
@@ -258,5 +284,6 @@ application_id = ""
 #
 # Saving this file applies LSP changes at once: only servers whose settings
 # changed are restarted (a file with a TOML syntax error keeps the running
-# setup). A missing server is reported once; nothing is ever downloaded or
-# installed automatically.
+# setup). A missing server is reported once, with an Install button that
+# runs its install command in a terminal tab; nothing is ever downloaded or
+# installed without that click.

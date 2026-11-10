@@ -1,6 +1,7 @@
 //! Pill tabs (docs/DESIGN.md 6.6, 6.8): editor tabs, bottom panel tabs and
-//! terminal sessions. No underline, no top bar: the active tab is a `pill`
-//! filled chip, and the focused pane's active tab carries the ember mark.
+//! terminal sessions. No underline, no top bar, no marks: the active tab of
+//! the focused pane is a `pill` filled chip; in other panes it takes the
+//! quieter `hover` fill.
 
 use std::rc::Rc;
 
@@ -11,7 +12,10 @@ use gpui::{
 
 use super::tab_layout::{TabMetrics, TabSize, TabTrailing, tab_trailing};
 use crate::metrics::{CONTROL_RADIUS, WEIGHT_MEDIUM, type_scale};
-use crate::{IconName, Tooltip, badge, ember, icon, theme, truncated, unsaved_ring};
+use crate::{
+    FileGlyph, IconName, ThemeColors, Tooltip, badge, file_glyph, icon, theme, truncated,
+    unsaved_ring,
+};
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
@@ -21,7 +25,7 @@ type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 pub struct PillTab {
     id: ElementId,
     label: SharedString,
-    icon: Option<(IconName, Option<Hsla>)>,
+    icon: Option<(FileGlyph, Option<Hsla>)>,
     active: bool,
     focused: bool,
     dirty: bool,
@@ -68,18 +72,26 @@ impl PillTab {
     /// A leading icon (15 px; 14 in panel tabs, 13 in session pills),
     /// tinted `color` or muted.
     pub fn icon(mut self, icon: IconName, color: Option<Hsla>) -> Self {
-        self.icon = Some((icon, color));
+        self.icon = Some((FileGlyph::Icon(icon), color));
         self
     }
 
-    /// The selected tab: `pill` fill, `text`, Medium.
+    /// A leading file icon, sized like [`PillTab::icon`]: a plain icon or a
+    /// language logo (colour logos ignore `color`).
+    pub fn file_glyph(mut self, glyph: FileGlyph, color: Option<Hsla>) -> Self {
+        self.icon = Some((glyph, color));
+        self
+    }
+
+    /// The selected tab: filled (see [`PillTab::focused`]), `text`, Medium.
     pub fn active(mut self, active: bool) -> Self {
         self.active = active;
         self
     }
 
-    /// The tab's pane or panel has focus: the active tab gets the ember
-    /// mark before its icon. Ignored on inactive tabs.
+    /// The tab's pane or panel has focus: the active tab gets the `pill`
+    /// fill; without focus it gets the quieter `hover` fill. Ignored on
+    /// inactive tabs.
     pub fn focused(mut self, focused: bool) -> Self {
         self.focused = focused;
         self
@@ -192,11 +204,7 @@ impl PillTab {
             icon: icon_size,
             pad: pad_l,
         } = self.size.metrics(&scale);
-        let active_fill = if self.size == TabSize::Session {
-            c.hover
-        } else {
-            c.pill
-        };
+        let active_fill = active_fill(self.size, self.focused, &c);
         let label_color =
             self.label_color
                 .unwrap_or(if self.active { c.text } else { c.text_muted });
@@ -266,10 +274,9 @@ impl PillTab {
                 el.bg(active_fill).font_weight(WEIGHT_MEDIUM)
             })
             .when(!self.active, |el| el.hover(|s| s.bg(c.hover)))
-            .when(self.active && self.focused, |el| el.child(ember()))
-            .when_some(self.icon, |el, (name, color)| {
+            .when_some(self.icon, |el, (glyph, color)| {
                 el.child(
-                    icon(name)
+                    file_glyph(glyph)
                         .size(icon_size)
                         .color(color.unwrap_or(c.text_muted)),
                 )
@@ -312,6 +319,16 @@ impl PillTab {
     }
 }
 
+/// The fill of an active tab: `pill` in the focused pane or panel,
+/// `hover` elsewhere (terminal-session pills always `hover`).
+fn active_fill(size: TabSize, focused: bool, c: &ThemeColors) -> Hsla {
+    if focused && size != TabSize::Session {
+        c.pill
+    } else {
+        c.hover
+    }
+}
+
 impl RenderOnce for PillTab {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         self.build(cx)
@@ -343,5 +360,25 @@ mod tests {
         );
         assert_eq!(pill_tab("t", "x").panel().size, TabSize::Panel);
         assert_eq!(pill_tab("t", "x").compact().size, TabSize::Session);
+    }
+
+    /// Focus fills the active tab with `pill`; the active tab of a pane
+    /// without focus is quieter, and no tab carries a mark.
+    #[test]
+    fn only_the_focused_active_tab_is_pill_filled() {
+        let registry = arcode_config::ThemeRegistry::builtin();
+        for appearance in [
+            arcode_config::Appearance::Dark,
+            arcode_config::Appearance::Light,
+        ] {
+            let theme = std::sync::Arc::new(registry.fallback(appearance).clone());
+            let c = crate::theme::UiTheme::new(theme).colors;
+            assert_eq!(active_fill(TabSize::Editor, true, &c), c.pill);
+            assert_eq!(active_fill(TabSize::Panel, true, &c), c.pill);
+            assert_eq!(active_fill(TabSize::Editor, false, &c), c.hover);
+            assert_eq!(active_fill(TabSize::Panel, false, &c), c.hover);
+            assert_eq!(active_fill(TabSize::Session, true, &c), c.hover);
+            assert_ne!(c.pill, c.hover);
+        }
     }
 }

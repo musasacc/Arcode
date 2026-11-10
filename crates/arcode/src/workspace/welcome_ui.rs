@@ -51,12 +51,12 @@ impl Workspace {
             .min_h_0()
             .px(GAP)
             .child(
-                panel(false, cx)
+                panel(cx)
                     .relative()
                     .flex_1()
                     .min_h_0()
                     .child(self.welcome.clone())
-                    .child(super::render::corner_caps(false, cx)),
+                    .child(super::render::corner_caps(cx)),
             )
             .when(show_panel, |el| {
                 let panel = self.render_bottom_panel(bottom_focused, cx);

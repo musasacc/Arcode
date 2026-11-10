@@ -12,6 +12,8 @@ test-support = []
 
 [dependencies]
 gpui.workspace = true
+image.workspace = true
+resvg.workspace = true
 arcode-config.workspace = true
 anyhow.workspace = true
 log.workspace = true

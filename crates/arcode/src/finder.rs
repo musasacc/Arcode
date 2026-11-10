@@ -4,17 +4,16 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use arcode_ui_kit::{IconName, theme, truncated};
+use arcode_ui_kit::{IconName, truncated};
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, KeyBinding, ScrollStrategy,
     Subscription, Task, UniformListScrollHandle, Window, actions, prelude::*, uniform_list,
 };
 
-use crate::file_icons::file_icon;
 use crate::fuzzy::{FileMatch, ranges_within, rank};
 use crate::picker_frame::{
     PALETTE_W, count_status, empty_state, footer, input_row, match_style, picker_frame,
-    picker_list, picker_row, row_detail, row_icon, row_label, scroll_strategy,
+    picker_list, picker_row, row_detail, row_file_icon, row_label, scroll_strategy,
 };
 use crate::text_field::{TextChanged, TextField};
 
@@ -186,7 +185,6 @@ impl Finder {
     }
 
     fn render_row(&self, ix: usize, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let c = theme(cx).colors.clone();
         let m = &self.matches[ix];
         let path = self.files.get(m.index).map(String::as_str).unwrap_or("");
         let split = path.rfind('/').map_or(0, |i| i + 1);
@@ -204,10 +202,9 @@ impl Finder {
         let dir_text = truncated(dir_trimmed.to_string())
             .start()
             .highlights(highlight(0, dir_trimmed.len()));
-        let (icon_name, icon_color) = file_icon(name, &c);
         let selected = ix == self.selected;
         picker_row(ix, selected, cx)
-            .child(row_icon(icon_name, selected, Some(icon_color), cx))
+            .child(row_file_icon(path, selected, cx))
             .child(row_label(name_text, !dir_trimmed.is_empty()))
             .child(row_detail(dir_text, cx))
             .on_click(cx.listener(move |finder, _, _, cx| finder.confirm_index(ix, cx)))

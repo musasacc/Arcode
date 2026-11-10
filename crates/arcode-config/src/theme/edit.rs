@@ -125,6 +125,13 @@ impl ThemeEdit {
         }
     }
 
+    /// The theme was renamed to `name` (its file too): the edits stay, and
+    /// the start and the working theme take the new name.
+    pub fn rename(&mut self, name: &str) {
+        self.start.name = name.to_owned();
+        self.working.name = name.to_owned();
+    }
+
     /// Records a save as `name`: the saved colours become the new start,
     /// and later saves go to that (user) theme.
     pub fn saved_as(&mut self, name: &str) {
@@ -328,6 +335,11 @@ mod tests {
         let mut e = edit("Arcode Chalk");
         e.set(&TokenRef::ui("accent"), Color::rgb(1, 2, 3));
         assert_eq!(e.renamed("My Chalk").name, "My Chalk");
+        let mut moved = e.clone();
+        moved.rename("Moved");
+        assert_eq!(moved.start().name, "Moved");
+        assert_eq!(moved.working().name, "Moved");
+        assert_eq!(moved.is_dirty(), e.is_dirty(), "a rename is not an edit");
         e.saved_as("My Chalk");
         assert!(!e.is_dirty());
         assert!(!e.is_builtin());

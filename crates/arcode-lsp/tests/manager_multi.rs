@@ -353,7 +353,8 @@ fn launch_hook_runs_at_every_start() {
     let (manager, rx) = LspManager::new(vec![configured], languages(&["alpha"]));
     let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
     let seen = calls.clone();
-    manager.set_launch_hook(Arc::new(move |spec| {
+    manager.set_launch_hook(Arc::new(move |spec, root| {
+        assert!(root.is_dir(), "{}", root.display());
         seen.lock()
             .unwrap()
             .push((spec.command.clone(), std::thread::current().id()));

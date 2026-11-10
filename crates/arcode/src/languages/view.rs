@@ -1,18 +1,21 @@
 //! The Languages page (Plugins activity): one card per language pack with
 //! its languages, language servers (installed, bundled with Arcode or
-//! missing, with the command to install a missing one, to copy), snippets,
-//! run commands and an enable switch.
-//! Nothing is downloaded or installed from here.
+//! missing, with the command to install a missing one, to copy or to run
+//! with the Install button), snippets, run commands and an enable switch.
+//! Nothing is downloaded or installed unless Install is clicked; it runs
+//! the command in a terminal tab (see `lsp_bridge/install.rs`).
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 use arcode_ui_kit::{IconName, icon, icon_button, section_header, settings, spacer, switch, theme};
 use gpui::{
-    App, ClipboardItem, Context, EventEmitter, IntoElement, SharedString, Subscription, Task,
-    Window, div, prelude::*, px,
+    App, Context, EventEmitter, IntoElement, SharedString, Subscription, Task, Window, div,
+    prelude::*, px,
 };
 
-use super::bundle::{Availability, PackRow, ServerRow, installed_commands, pack_rows};
+use super::bundle::{Availability, PackRow, installed_commands, pack_rows};
+use super::server_row::render_server;
 
 /// Messages for the workspace (shown as toasts).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,6 +36,9 @@ pub struct LanguagesView {
     write_task: Option<Task<()>>,
     /// Shown as a tab of the Plugins page, which draws the header.
     embedded: bool,
+    /// The open project: its toolchain file picks the Rust toolchain
+    /// whose rust-analyzer counts.
+    root: Option<PathBuf>,
     _settings: Subscription,
 }
 
@@ -61,6 +67,7 @@ impl LanguagesView {
             check_task: None,
             write_task: None,
             embedded: false,
+            root: None,
             _settings: sub,
         }
     }
@@ -69,6 +76,23 @@ impl LanguagesView {
     pub fn set_embedded(&mut self, embedded: bool, cx: &mut Context<Self>) {
         self.embedded = embedded;
         cx.notify();
+    }
+
+    /// Sets the open project; a page already checked checks again, so it
+    /// tells what the servers of that project would find.
+    pub fn set_root(&mut self, root: Option<PathBuf>, cx: &mut Context<Self>) {
+        if self.root != root {
+            self.root = root;
+            if self.checked {
+                self.check_servers(cx);
+            }
+        }
+    }
+
+    /// The project the servers are checked for.
+    #[cfg(test)]
+    pub fn root(&self) -> Option<&std::path::Path> {
+        self.root.as_deref()
     }
 
     /// The rows shown.
@@ -92,9 +116,9 @@ impl LanguagesView {
     /// Looks every server command up on `PATH` and in the bundled servers,
     /// in the background.
     pub fn check_servers(&mut self, cx: &mut Context<Self>) {
-        let rows = self.rows.clone();
+        let (rows, root) = (self.rows.clone(), self.root.clone());
         self.checking = true;
-        let work = cx.background_spawn(async move { installed_commands(&rows) });
+        let work = cx.background_spawn(async move { installed_commands(&rows, root.as_deref()) });
         self.check_task = Some(cx.spawn(async move |this, cx| {
             let found = work.await;
             this.update(cx, |view, cx| {
@@ -145,92 +169,6 @@ impl LanguagesView {
             self.expanded.insert(id.to_string());
         }
         cx.notify();
-    }
-
-    fn render_server(&self, pack: &str, ix: usize, server: &ServerRow, cx: &App) -> gpui::Div {
-        let c = theme(cx).colors.clone();
-        let state = self.availability(&server.command);
-        let (glyph, color, label) = match &state {
-            Some(Availability::Installed) => (IconName::CircleCheck, c.success, "installed"),
-            Some(Availability::Bundled) => (IconName::Package, c.success, "bundled"),
-            Some(Availability::NeedsRuntime(_)) => {
-                (IconName::TriangleAlert, c.warning, "bundled, cannot start")
-            }
-            Some(Availability::Missing) => (IconName::CircleX, c.warning, "not installed"),
-            None => (IconName::CircleDot, c.text_muted, "checking…"),
-        };
-        let hint = server
-            .install_command
-            .clone()
-            .or_else(|| server.install_note.clone());
-        let runtime_note = match &state {
-            Some(Availability::NeedsRuntime(note)) => Some(note.clone()),
-            _ => None,
-        };
-        div()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .gap_x_1()
-                    .child(icon(glyph).size(px(12.)).color(color))
-                    .child(div().text_color(c.text).child(server.name.clone()))
-                    .child(div().text_color(c.text_muted).child(label)),
-            )
-            .when(state == Some(Availability::Missing), |el| {
-                el.when_some(hint, |el, hint| {
-                    let copy = SharedString::from(hint.clone());
-                    let mono = settings(cx).editor.font_family.clone();
-                    el.child(
-                        div()
-                            .flex()
-                            .items_start()
-                            .gap_1()
-                            .ml(px(16.))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .px_1()
-                                    .rounded(px(5.))
-                                    .bg(c.pill)
-                                    .text_color(c.text_muted)
-                                    .when(server.install_command.is_some(), |el| {
-                                        el.font_family(mono)
-                                    })
-                                    .child(hint),
-                            )
-                            .child(
-                                icon_button(
-                                    SharedString::from(format!("copy-{pack}-{ix}")),
-                                    IconName::Copy,
-                                )
-                                .size(px(20.))
-                                .tooltip("Copy")
-                                .on_click(move |_, _, cx| {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(
-                                        copy.to_string(),
-                                    ))
-                                }),
-                            ),
-                    )
-                })
-            })
-            .when_some(runtime_note, |el, note| {
-                el.child(
-                    div()
-                        .ml(px(16.))
-                        .px_1()
-                        .rounded(px(5.))
-                        .bg(c.pill)
-                        .text_color(c.text_muted)
-                        .child(note),
-                )
-            })
     }
 
     fn render_card(&self, row: &PackRow, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -297,7 +235,7 @@ impl LanguagesView {
             .servers
             .iter()
             .enumerate()
-            .map(|(ix, s)| self.render_server(&row.id, ix, s, cx))
+            .map(|(ix, s)| render_server(self.availability(&s.command), &row.id, ix, s, cx))
             .collect();
         let details = expanded.then(|| render_details(row, cx));
         div()

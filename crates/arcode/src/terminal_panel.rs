@@ -39,6 +39,8 @@ pub struct TerminalPanel {
     subscriptions: Vec<(EntityId, Subscription)>,
     /// Fixed tab names (terminals started for a run command or a debuggee).
     names: HashMap<EntityId, SharedString>,
+    /// What runs when a program tab's program exits or its tab is closed.
+    on_exit: HashMap<EntityId, OnExit>,
     /// The last command started in a named terminal (the run readout).
     last_run: Option<LastRun>,
 }
@@ -60,6 +62,7 @@ impl TerminalPanel {
             focus_handle: cx.focus_handle(),
             subscriptions: Vec::new(),
             names: HashMap::new(),
+            on_exit: HashMap::new(),
             last_run: None,
         }
     }
@@ -75,6 +78,7 @@ impl TerminalPanel {
             self.last_run = None;
             self.active = 0;
             self.error = None;
+            self.programs_closed(cx);
             cx.notify();
         }
     }
@@ -199,6 +203,7 @@ impl TerminalPanel {
         if self.active > ix || self.active >= self.terminals.len() {
             self.active = self.active.saturating_sub(1);
         }
+        self.program_closed(id, code, cx);
         cx.notify();
     }
 
@@ -376,23 +381,5 @@ impl Render for TerminalPanel {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{short_title, truncate};
-
-    #[test]
-    fn shell_titles_are_shortened() {
-        assert_eq!(short_title("me@laptop: /srv/www/demo"), "demo");
-        assert_eq!(short_title("me@host: ~"), "~");
-        assert_eq!(short_title("me@host: ~/code/app/"), "app");
-        assert_eq!(short_title("/"), "/");
-        assert_eq!(short_title("C:\\Users\\me\\proj"), "proj");
-        assert_eq!(short_title("vim main.rs"), "vim main.rs");
-        assert_eq!(short_title("Terminal"), "Terminal");
-    }
-
-    #[test]
-    fn long_titles_are_truncated() {
-        assert_eq!(truncate("bash", 24).as_ref(), "bash");
-        assert_eq!(truncate("abcdef", 4).as_ref(), "abc…");
-    }
-}
+#[path = "terminal_panel_tests.rs"]
+mod tests;

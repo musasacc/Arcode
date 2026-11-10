@@ -7,10 +7,13 @@ pull or push in Arcode. Use the terminal for those (`git pull`,
 
 ## In the editor
 
-- **Change bars** in the gutter mark added, modified and deleted lines
-  compared to the staged version of the file. Click a bar to see the old
-  text, with **Stage**, **Unstage** and **Revert** buttons for that single
-  hunk. Turn the bars off with `[git] gutter = false`.
+- **Change bars** in the gutter (and matching marks at the left edge of
+  the minimap) show added, modified and deleted lines compared to the
+  staged version of the file. They are off by default: turn them on with
+  **Settings > Editor > Git > Change bars** or `[git] gutter = true`. Click
+  a bar to see the old text, with **Stage**, **Unstage** and **Revert**
+  buttons for that single hunk. With the bars off, the file tree and the
+  Source Control view still show which files changed.
 - **Inline blame** shows the author, date and summary of the cursor line
   at its end, after the cursor rests for half a second
   (`[git] inline_blame`, `inline_blame_delay_ms`). Low-end mode turns it
@@ -55,7 +58,7 @@ thread. It never runs a command that contacts a remote.
 
 ```toml
 [git]
-gutter = true                 # change bars in the gutter
+gutter = false                # change bars in the gutter and minimap
 inline_blame = true           # blame of the cursor line
 inline_blame_delay_ms = 500
 ```

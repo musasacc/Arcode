@@ -178,17 +178,20 @@ impl Editor {
             digits,
         );
         let gutter_width = gutter.width;
-        let minimap_width = self.minimap_width(bounds.size.width, gutter_width, &style);
+        let blocks = BlockMap::new(self.ext.block_lines(), line_count);
+        let viewport_h = (bounds.size.height - BOTTOM_PAD).max(px(1.));
+        let total_rows = blocks.total_rows(line_count);
+        let overflows = crate::minimap::overflows(total_rows, lh, viewport_h);
+        let minimap_width = self.minimap_width(bounds.size.width, gutter_width, overflows, &style);
+        self.minimap_frame_start(minimap_width > Pixels::ZERO, window, cx);
         let text_bounds = Bounds::new(
             point(bounds.left() + gutter_width, bounds.top()),
             size(
                 (bounds.size.width - gutter_width - minimap_width - SCROLLBAR_WIDTH).max(px(1.)),
-                (bounds.size.height - BOTTOM_PAD).max(px(1.)),
+                viewport_h,
             ),
         );
-        let blocks = BlockMap::new(self.ext.block_lines(), line_count);
-        let viewport_h = text_bounds.size.height;
-        let content_h = lh * blocks.total_rows(line_count) as f32;
+        let content_h = lh * total_rows as f32;
         let max_scroll_y = if content_h <= viewport_h {
             Pixels::ZERO
         } else {
@@ -215,6 +218,7 @@ impl Editor {
         let last_row = first_row + (viewport_h / lh).ceil() as usize + 1;
         let first = blocks.row_kind(first_row, line_count).line();
         let last = (blocks.row_kind(last_row, line_count).line() + 1).min(line_count);
+        let scale = window.scale_factor();
         let minimap = (minimap_width > Pixels::ZERO).then(|| {
             let scroll = ScrollState {
                 scroll_y: self.scroll_y,
@@ -222,8 +226,7 @@ impl Editor {
                 viewport_h,
                 line_height: lh,
             };
-            let total_rows = blocks.total_rows(line_count);
-            let geometry = Self::minimap_geometry(bounds, minimap_width, total_rows, scroll);
+            let geometry = Self::minimap_geometry(bounds, minimap_width, total_rows, scroll, scale);
             let lines = lines_for_rows(&blocks, geometry.rows_in_view(), line_count);
             (geometry, lines)
         });
@@ -231,7 +234,7 @@ impl Editor {
         self.ensure_view_highlights(first..last, minimap_lines, cx);
         let lines = self.shape_lines(first..last, &style, window, cx);
         let minimap =
-            minimap.map(|(geometry, lines)| self.minimap_layout(geometry, lines, &style, cx));
+            minimap.map(|(g, lines)| self.minimap_layout(g, lines, &blocks, &style, scale, cx));
 
         let mut max_width = lines
             .iter()

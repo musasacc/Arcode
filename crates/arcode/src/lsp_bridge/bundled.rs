@@ -1,26 +1,66 @@
-//! The language servers bundled with Arcode: the bundle is looked up the
-//! first time a server starts (next to the executable, then in the local
-//! data folder), and every configured server that is neither a path nor on
-//! `PATH` runs from it. Node-based servers run with the bundled Node.js,
-//! jdtls with the user's Java. All of it runs off the UI thread: in the
-//! language server runtime as each server starts (so a restart sees a Java
-//! installed since), and in the background for the Languages page.
+//! The language servers bundled with Arcode, and what "installed" means
+//! for a server command.
+//!
+//! The bundle is looked up when a server starts (next to the executable,
+//! then in the local data folder); while none is found it is looked for
+//! again at later starts, so a bundle fetched while Arcode runs is used
+//! without a restart. Every configured server that is neither a path nor
+//! installed runs from it. Node-based servers run with the bundled
+//! Node.js, jdtls with the user's Java.
+//!
+//! "Installed" means on `PATH`, except for rustup's placeholders: rustup
+//! puts a `rust-analyzer` on `PATH` even without the component, which only
+//! prints an error (see `arcode_project::server_install::rustup`). Such a
+//! server counts as not installed: its bundled copy runs, or it fails as
+//! "not installed" without being started. A configured path always runs
+//! as given.
+//!
+//! All of it runs off the UI thread: in the language server runtime as
+//! each server starts (so a restart sees a Java or a server installed
+//! since), and in the background for the Languages page.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use arcode_lsp::{LaunchHook, ServerSpec};
 use arcode_project::bundled::{
     Bundle, Launch, LaunchContext, ServerSource, bundle_dirs, resolve_server,
 };
 use arcode_project::packs::find_executable;
+use arcode_project::server_install::rustup::{self, ProxyCheck};
 
-/// The bundle of this installation, if there is one. Looked up once: a
-/// bundle fetched while Arcode runs is used after a restart.
-pub fn bundle() -> Option<&'static Bundle> {
-    static BUNDLE: OnceLock<Option<Bundle>> = OnceLock::new();
-    BUNDLE.get_or_init(find_bundle).as_ref()
+/// How long "no bundle" is believed before looking again.
+const RECHECK: Duration = Duration::from_secs(5);
+
+/// The last bundle lookup.
+struct Lookup {
+    found: Option<Arc<Bundle>>,
+    checked: Option<Instant>,
+}
+
+static LOOKUP: Mutex<Lookup> = Mutex::new(Lookup {
+    found: None,
+    checked: None,
+});
+
+/// The bundle of this installation, if there is one. A bundle once found
+/// is kept; while there is none, it is looked for again after a few
+/// seconds (or at once after [`recheck_bundle`]).
+pub fn bundle() -> Option<Arc<Bundle>> {
+    let mut lookup = LOOKUP.lock().unwrap_or_else(|e| e.into_inner());
+    if lookup.found.is_none() && lookup.checked.is_none_or(|t| t.elapsed() >= RECHECK) {
+        lookup.found = find_bundle().map(Arc::new);
+        lookup.checked = Some(Instant::now());
+    }
+    lookup.found.clone()
+}
+
+/// Makes the next [`bundle`] look again when none was found (after an
+/// install, which may have fetched one).
+pub fn recheck_bundle() {
+    LOOKUP.lock().unwrap_or_else(|e| e.into_inner()).checked = None;
 }
 
 fn find_bundle() -> Option<Bundle> {
@@ -52,12 +92,51 @@ fn state_dir() -> PathBuf {
 /// bundled copy needs is missing or too old). Filled as servers start.
 pub type RuntimeNotes = Arc<Mutex<HashMap<String, String>>>;
 
-/// The hook that points each server the user has not installed at its
-/// bundled copy as it starts, keeping `notes` up to date.
+/// What a server command is on this machine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Found {
+    /// Installed: runs from here.
+    Installed(PathBuf),
+    /// Only rustup's placeholder is on `PATH`; why it cannot run.
+    Placeholder(String),
+    /// Not on `PATH`.
+    Missing,
+}
+
+/// Looks server `command` up on `PATH`; for a rustup placeholder asks
+/// rustup (in `root`, whose toolchain file picks the toolchain) whether
+/// its component is installed. Blocks for up to a few seconds.
+pub fn find_server(command: &str, root: Option<&Path>) -> Found {
+    classify(command, find_executable(command), root)
+}
+
+/// [`find_server`] for `command` found at `path` (`None`: not on `PATH`).
+pub fn classify(command: &str, path: Option<PathBuf>, root: Option<&Path>) -> Found {
+    let Some(path) = path else {
+        return Found::Missing;
+    };
+    match rustup::check_proxy(command, &path, root, rustup::WHICH_TIMEOUT) {
+        // Only a missing component makes it a placeholder. Any other
+        // failure (e.g. the project's toolchain file names a toolchain that
+        // is not installed) runs the proxy: rustup then does what it does
+        // when run (installs that toolchain, or says why it cannot).
+        ProxyCheck::Missing(said) => match arcode_lsp::rustup_missing_component(&said) {
+            Some(reason) => Found::Placeholder(reason),
+            None => Found::Installed(path),
+        },
+        ProxyCheck::NotProxy | ProxyCheck::Installed(_) | ProxyCheck::Unknown => {
+            Found::Installed(path)
+        }
+    }
+}
+
+/// The hook that prepares each server as it starts (see [`prepare`]),
+/// keeping `notes` up to date.
 pub fn launch_hook(notes: RuntimeNotes) -> LaunchHook {
-    Arc::new(move |spec: &mut ServerSpec| {
-        let note = resolve_spec(spec, bundle(), &|command| {
-            find_executable(command).is_some()
+    Arc::new(move |spec: &mut ServerSpec, root: &Path| {
+        let bundle = bundle();
+        let note = prepare(spec, bundle.as_deref(), &|command| {
+            find_server(command, Some(root))
         });
         let mut notes = notes.lock().unwrap_or_else(|e| e.into_inner());
         match note {
@@ -67,27 +146,50 @@ pub fn launch_hook(notes: RuntimeNotes) -> LaunchHook {
     })
 }
 
-/// Points `spec` at its bundled copy when its command is not a path, not
-/// on `PATH` (`on_path`) and in `bundle`. Returns what to tell the user if
-/// it fails to start (a missing runtime).
-pub fn resolve_spec(
+/// Prepares `spec` to start: a command that is not a path and not
+/// installed (`find`) runs from `bundle` when the bundle has it; a rustup
+/// placeholder without a bundled copy is marked missing, so it fails as
+/// "not installed" without running. Returns what to tell the user if the
+/// bundled copy fails to start (a missing runtime).
+pub fn prepare(
     spec: &mut ServerSpec,
     bundle: Option<&Bundle>,
-    on_path: &dyn Fn(&str) -> bool,
+    find: &dyn Fn(&str) -> Found,
 ) -> Option<String> {
-    let bundle = bundle?;
-    // Only commands the bundle has cost a PATH lookup.
-    bundle.manifest().command(&spec.command)?;
-    let resolved = resolve_server(&spec.command, &spec.args, on_path, |command| {
-        bundle.launch(command, &LaunchContext::current(state_dir()))
-    });
-    if resolved.source != ServerSource::Bundled {
+    if is_path(&spec.command) {
         return None;
     }
-    log::debug!("{}: bundled {}", spec.name, resolved.command);
-    spec.command = resolved.command;
-    spec.args = resolved.args;
-    resolved.note
+    let bundle = bundle.filter(|b| b.manifest().command(&spec.command).is_some());
+    // Only commands the bundle has, or rustup provides, cost a lookup.
+    if bundle.is_none() && !rustup::is_proxied(&spec.command) {
+        return None;
+    }
+    let found = find(&spec.command);
+    if let Some(bundle) = bundle {
+        let installed = matches!(found, Found::Installed(_));
+        let resolved = resolve_server(
+            &spec.command,
+            &spec.args,
+            |_| installed,
+            |command| bundle.launch(command, &LaunchContext::current(state_dir())),
+        );
+        if resolved.source == ServerSource::Bundled {
+            log::debug!("{}: bundled {}", spec.name, resolved.command);
+            spec.command = resolved.command;
+            spec.args = resolved.args;
+            return resolved.note;
+        }
+    }
+    if let Found::Placeholder(reason) = found {
+        log::info!("{}: {reason}", spec.name);
+        spec.missing = Some(reason);
+    }
+    None
+}
+
+/// Whether `command` names a file rather than a program on `PATH`.
+fn is_path(command: &str) -> bool {
+    command.contains(['/', '\\']) || Path::new(command).is_absolute()
 }
 
 /// How the bundled `command` would start with `cx`, if the bundle has it.
@@ -101,112 +203,5 @@ pub fn launch_context() -> LaunchContext {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::fs;
-
-    use arcode_project::bundled::MANIFEST_FILE;
-
-    use super::*;
-
-    const MANIFEST: &str = r#"
-schema = 1
-[node]
-version = "24.0.0"
-license = "MIT"
-homepage = "https://nodejs.org"
-platforms = {}
-[[server]]
-name = "pyright"
-version = "1.1.400"
-languages = ["python"]
-license = "MIT"
-homepage = "https://example.org"
-source = "npm"
-packages = ["pyright@1.1.400"]
-commands = [{ name = "pyright-langserver", node = "lib/npm/node_modules/pyright/langserver.index.js" }]
-[[server]]
-name = "rust-analyzer"
-version = "2026-01-01"
-languages = ["rust"]
-license = "MIT"
-homepage = "https://example.org"
-source = "archive"
-commands = [{ name = "rust-analyzer", exec = "bin/rust-analyzer" }]
-"#;
-
-    fn bundle() -> (tempfile::TempDir, Bundle) {
-        let dir = tempfile::tempdir().unwrap();
-        let exe = if cfg!(windows) { ".exe" } else { "" };
-        for file in [
-            format!("node/bin/node{exe}"),
-            format!("node/node{exe}"),
-            "lib/npm/node_modules/pyright/langserver.index.js".into(),
-            format!("bin/rust-analyzer{exe}"),
-        ] {
-            let path = dir.path().join(file);
-            fs::create_dir_all(path.parent().unwrap()).unwrap();
-            fs::write(path, "").unwrap();
-        }
-        fs::write(dir.path().join(MANIFEST_FILE), MANIFEST).unwrap();
-        let bundle = Bundle::load(dir.path()).unwrap().unwrap();
-        (dir, bundle)
-    }
-
-    fn spec(name: &str, command: &str) -> ServerSpec {
-        ServerSpec {
-            args: vec!["--stdio".into()],
-            ..ServerSpec::new(name, command)
-        }
-    }
-
-    #[test]
-    fn missing_servers_run_from_the_bundle() {
-        let (dir, bundle) = bundle();
-        let mut servers = [
-            spec("pyright-langserver", "pyright-langserver"),
-            spec("rust-analyzer", "rust-analyzer"),
-            spec("custom", "/opt/rust-analyzer"),
-            spec("typos", "typos-lsp"),
-        ];
-        // rust-analyzer is installed by the user; pyright is not.
-        for server in &mut servers {
-            let note = resolve_spec(server, Some(&bundle), &|c| c == "rust-analyzer");
-            assert_eq!(note, None);
-        }
-        let node = bundle.node(arcode_project::packs::Os::current());
-        assert_eq!(servers[0].command, node.to_string_lossy());
-        assert_eq!(
-            servers[0].args,
-            [
-                dir.path()
-                    .join("lib/npm/node_modules/pyright/langserver.index.js")
-                    .to_string_lossy()
-                    .into_owned(),
-                "--stdio".to_string()
-            ]
-        );
-        assert_eq!(servers[1].command, "rust-analyzer");
-        assert_eq!(servers[2].command, "/opt/rust-analyzer");
-        assert_eq!(servers[3].command, "typos-lsp");
-        // Without a bundle nothing changes.
-        let mut plain = spec("pyright-langserver", "pyright-langserver");
-        resolve_spec(&mut plain, None, &|_| false);
-        assert_eq!(plain.command, "pyright-langserver");
-    }
-
-    #[test]
-    fn the_hook_keeps_notes_per_server() {
-        let notes = RuntimeNotes::default();
-        notes
-            .lock()
-            .unwrap()
-            .insert("jdtls".into(), "needs Java".into());
-        let hook = launch_hook(notes.clone());
-        // Unit tests see no bundle: nothing changes, and a server that
-        // starts without a problem drops its old note.
-        let mut jdtls = spec("jdtls", "jdtls");
-        hook(&mut jdtls);
-        assert_eq!(jdtls.command, "jdtls");
-        assert!(notes.lock().unwrap().is_empty());
-    }
-}
+#[path = "bundled_tests.rs"]
+mod tests;

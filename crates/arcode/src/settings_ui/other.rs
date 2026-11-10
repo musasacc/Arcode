@@ -3,7 +3,7 @@
 use arcode_ui_kit::{IconName, button, settings, theme, type_scale};
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
-use super::widgets::{picker_button, stepped, stepper};
+use super::widgets::{picker_button, segmented, stepped, stepper};
 use super::{SettingsEvent, SettingsPage, Steps, group_title};
 use crate::prefs::pickers::FontTarget;
 
@@ -105,6 +105,7 @@ pub(super) fn render_advanced(page: &SettingsPage, cx: &mut Context<SettingsPage
                 .icon(IconName::Sun)
                 .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::ShowWelcome))),
         );
+    let run_output = run_output_choice(page, config.run.output, cx);
     div()
         .child(group_title("Run and debug", cx))
         .child(page.bool_row(
@@ -119,6 +120,13 @@ pub(super) fn render_advanced(page: &SettingsPage, cx: &mut Context<SettingsPage
             "",
             "debug.open_panel_on_start",
             config.debug.open_panel_on_start,
+            cx,
+        ))
+        .child(page.keyed_row(
+            "Compiled programs",
+            "Where Run Current File puts a program built from one file (rustc, gcc): next to the file, where the file tree and git show it, or in Arcode's cache.",
+            "run.output",
+            run_output,
             cx,
         ))
         .child(group_title("Large files", cx))
@@ -154,6 +162,29 @@ pub(super) fn render_advanced(page: &SettingsPage, cx: &mut Context<SettingsPage
                 .child(path),
         )
         .child(div().w_full().max_w(px(600.)).child(actions))
+}
+
+/// The `run.output` choice: next to the source or in the cache.
+fn run_output_choice(
+    page: &SettingsPage,
+    output: arcode_config::RunOutput,
+    cx: &Context<SettingsPage>,
+) -> Div {
+    use arcode_config::RunOutput;
+    let writer = page.writer();
+    segmented(
+        "run-output",
+        &["Next to the file", "Cache"],
+        RunOutput::ALL
+            .iter()
+            .position(|o| *o == output)
+            .unwrap_or(0),
+        move |ix, _, cx| {
+            let choice = RunOutput::ALL[ix.min(RunOutput::ALL.len() - 1)];
+            writer.set("run.output", choice.as_str(), cx)
+        },
+        cx,
+    )
 }
 
 /// Stepper over `editor.large_file_bytes`, shown and stepped in MiB.

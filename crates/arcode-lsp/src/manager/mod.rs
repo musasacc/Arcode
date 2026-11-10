@@ -139,7 +139,8 @@ impl LspManager {
     }
 
     /// Sets `hook` to adjust the process spec of every server instance
-    /// right before it starts (and again at each restart), on a blocking
+    /// right before it starts (and again at each restart), given the
+    /// instance's root folder, on a blocking
     /// thread of the manager's runtime: the place for lookups that touch
     /// the file system, such as finding the program to run. Configurations
     /// keep their configured commands, so [`LspManager::reconfigure`]

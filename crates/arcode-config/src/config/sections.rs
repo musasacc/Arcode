@@ -5,6 +5,7 @@ use std::fmt;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::completion::CompletionSettings;
+use super::file_icons::FileIcons;
 use super::inline_diagnostics::InlineDiagnostics;
 use crate::lenient::impl_section;
 
@@ -37,7 +38,8 @@ pub struct EditorSettings {
     pub font_weight: u16,
     /// Line height as a multiple of the font size.
     pub line_height: f32,
-    /// Enable programming ligatures.
+    /// Enable programming ligatures (off by default: they merge pairs such
+    /// as `#[`, `=>` and `!=` into one shape).
     pub ligatures: bool,
     /// Width of a tab stop in columns.
     pub tab_size: usize,
@@ -112,8 +114,8 @@ impl Default for EditorSettings {
             .to_vec(),
             font_size: 14.0,
             font_weight: Self::DEFAULT_FONT_WEIGHT,
-            line_height: 1.5,
-            ligatures: true,
+            line_height: 1.6,
+            ligatures: false,
             tab_size: 4,
             insert_spaces: true,
             detect_indentation: true,
@@ -205,7 +207,7 @@ impl EditorSettings {
             &mut self.line_height,
             0.5,
             4.0,
-            1.5,
+            defaults.line_height,
             "editor.line_height",
             warnings,
         );
@@ -351,6 +353,8 @@ pub struct UiSettings {
     /// or in a narrow window, one menu button holds them. Linux and
     /// Windows; macOS always uses its native menu bar.
     pub menu_bar: bool,
+    /// Icons next to file names: language logos or the plain icons.
+    pub file_icons: FileIcons,
     /// Gamma used to blend text edges (1.0 - 2.2). Higher draws light text
     /// on dark backgrounds heavier. Linux only; read at startup.
     pub text_gamma: f32,
@@ -372,6 +376,7 @@ impl Default for UiSettings {
             animation_ms: 120,
             show_perf_stats: true,
             menu_bar: true,
+            file_icons: FileIcons::Logos,
             text_gamma: Self::DEFAULT_TEXT_GAMMA,
             text_contrast: Self::DEFAULT_TEXT_CONTRAST,
         }
@@ -389,6 +394,7 @@ impl_section!(UiSettings {
     animation_ms,
     show_perf_stats,
     menu_bar,
+    file_icons,
     text_gamma,
     text_contrast,
 });

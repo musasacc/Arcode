@@ -168,3 +168,67 @@ fn font_weight_reaches_the_editor_style(cx: &mut TestAppContext) {
     let text = std::fs::read_to_string(&path).expect("read");
     assert!(text.contains("font_weight = 700"), "{text}");
 }
+
+/// Appearance → File icons: the filter finds the row by the words people
+/// use for it, and "Plain" writes `ui.file_icons = "plain"`.
+#[gpui::test]
+fn file_icons_row_writes_the_setting(cx: &mut TestAppContext) {
+    crate::test_support::init(cx);
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("config.toml");
+    cx.update(|cx| cx.set_global(ConfigPathOverride(path.clone())));
+    let (page, cx) = cx.add_window_view(|_, cx| SettingsPage::new(WeakEntity::new_invalid(), cx));
+    for query in ["language logos", "file tree icon", "devicon"] {
+        page.update(cx, |page, cx| {
+            page.filter.update(cx, |f, cx| f.set_text(query, cx))
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear());
+        assert!(
+            cx.debug_bounds("setting-row-File icons").is_some(),
+            "`{query}` does not find the row"
+        );
+    }
+    let plain = cx
+        .debug_bounds("ui-file-icons-1")
+        .expect("the Plain segment")
+        .center();
+    cx.simulate_click(plain, gpui::Modifiers::none());
+    cx.run_until_parked();
+    cx.update(|_, cx| {
+        assert_eq!(
+            arcode_ui_kit::settings(cx).ui.file_icons,
+            arcode_config::FileIcons::Plain
+        )
+    });
+    let text = std::fs::read_to_string(&path).expect("read");
+    assert!(text.contains("file_icons = \"plain\""), "{text}");
+}
+
+/// Rows show their label only: the `config.toml` key is in the label's
+/// tooltip ("In config.toml: ui.theme"), and the filter still finds the
+/// row by its key.
+#[gpui::test]
+fn row_labels_keep_the_key_in_their_tooltip(cx: &mut TestAppContext) {
+    crate::test_support::init(cx);
+    let dir = tempfile::tempdir().expect("tempdir");
+    cx.update(|cx| cx.set_global(ConfigPathOverride(dir.path().join("config.toml"))));
+    let (_page, cx) = cx.add_window_view(|_, cx| SettingsPage::new(WeakEntity::new_invalid(), cx));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear());
+    let label = cx
+        .debug_bounds("setting-label-ui.theme")
+        .expect("the Mode row's label is drawn");
+    // Just the word "Mode": the key no longer follows it.
+    assert!(label.size.width < px(60.), "{label:?}");
+    assert_eq!(
+        super::widgets::key_tooltip("editor.minimap"),
+        "In config.toml: editor.minimap"
+    );
+    assert!(super::filter::row_matches(
+        &["ui.theme".to_owned()],
+        "Mode",
+        "",
+        Some("ui.theme")
+    ));
+}

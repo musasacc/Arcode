@@ -136,17 +136,21 @@ switches (`diagnostics`, `completion`, `hover`, `signature_help`,
   that kills the groups first (`arcode_lsp::kill_servers_on_signals`).
 - **Status bar**: one entry per started server of the active file's
   language with its state (`lsp_bridge::status_view`). Clicking one opens
-  a menu with the configured command, Restart Server
+  a menu with the configured command, Install (or How to Install) for a
+  server that is not installed, Restart Server
   (`LspManager::restart_server`; the file is reopened on the new
   instance) and Show Server Log, a read-only tab with the last 2000 lines
   of its stderr / `window/logMessage` and status changes; lines logged
   while it is open are appended (`LogFeed`, notified once per event
   batch). Clicking the entry again, Escape or a click elsewhere closes the
   menu. The palette has "LSP: Restart Language Servers" and "LSP: Show
-  Language Server Log" for the active file.
-- **Missing servers**: a server whose executable is not found shows "not
-  installed" and a one-time toast with its configured command. Nothing is
-  downloaded or installed.
+  Language Server Log" for the active file, and "LSP: Show Missing
+  Language Servers" for the project.
+- **Missing servers**: a server whose executable is not found (or is only
+  rustup's placeholder) shows "not installed" and a one-time toast with
+  an Install or How to Install button (`lsp_bridge::install`, see
+  "Bundled language servers"). Nothing is downloaded or installed unless
+  the button is clicked.
 
 `cargo build -p arcode-lsp --example fake_spell_server` builds a tiny
 second server (flags the word `teh`, answers hover on it, offers a quick
@@ -708,17 +712,39 @@ User-facing behaviour and the `.arcode/launch.toml` format are in
   turns a run command into a build (`cargo ... --message-format=json`,
   `test`/`bench` get `--no-run`), a program, a Python module or a Delve
   mode; `executables_from_cargo_json` reads the built executable.
-- **Single files.** `arcode_project::file_command` builds Run Current
+- **Single files.** `arcode_project::file_run` builds Run Current
   File's command from the editor's language and the toolchain on `PATH`
   (`Tools`, faked in tests). Compiled languages get a
-  `RunCommand::compile` step that writes the program into
-  `<cache_dir>/run/<hash of the path>/` (`command_line` chains both;
-  PowerShell gets `a; if ($?) { b }`), and `debug_target` turns that step
-  into the build of a native debug target (`RunSource::File`). The
-  workspace (`workspace/run_file.rs`) computes it on the background
-  executor; the Run button, Ctrl+F5 and F5 fall back to it when there is
-  no run command or launch configuration, and every dead end is a toast
-  with a button (`show_toast_with_action`).
+  `RunCommand::compile` step (`command_line` chains both; PowerShell gets
+  `a; if ($?) { b }`), and `debug_target` turns that step into the build
+  of a native debug target (`RunSource::File`). Where the program goes is
+  `ProgramOutput`: by default (`run.output = "next_to_source"`) next to
+  the source as `<stem>` (`<stem>.exe` on Windows), compiled and run from
+  the file's folder with relative paths (`rustc ... test.rs -o test &&
+  ./test`); with `"cache"` into `<cache_dir>/run/<hash of the path>/`
+  from the project folder. A name next to the source is only written over
+  when `BuiltPrograms` (the text file `<cache_dir>/run/built-programs`)
+  holds it: a terminal run records the path and the time its build
+  started (`record_build_started`; a file modified within
+  `BUILD_WINDOW` of it counts) and then checks once a second until the
+  program is written, recording its exact modification time
+  (`finish_started_build`); when the terminal's run is seen to end
+  without the program (`LastRun::has_ended`, in the terminal the build
+  started in) the build failed and `abandon_started_build` drops its
+  stamp. A debug build records the time once it is built
+  (`record_built`). A failed build keeps the last program's time. A
+  folder, a file that is not executable or another program sends the
+  program to the cache, and so do the compiler's debug files beside the
+  program (`debug_files`: `<stem>.pdb`/`.ilk` on Windows, `<stem>.dSYM`
+  on macOS) when Arcode did not build the program (`NameTaken::DebugFiles`);
+  `FileRun::note` says so in
+  a toast; `prepare.rs` checks again before a debug build. The workspace
+  (`workspace/run_file.rs`) computes it on the background executor, also
+  again for a gutter Run on a loose `main` (whose command was made when
+  the file was parsed); the Run button, Ctrl+F5 and F5 fall back to it
+  when there is no run command or launch configuration, and every dead
+  end is a toast with a button (`show_toast_with_action`). The program
+  shows in the file tree through the project watcher like any new file.
 - **`Debugger`** (`crates/arcode/src/debugger/`, one entity per
   workspace) owns the `BreakpointBook`, the launch choices (loaded in the
   background, reloaded when launch.toml or a package file is saved or
@@ -789,10 +815,20 @@ spawns the server).
 Nothing of this runs on the UI thread. The bridge gives the manager a
 launch hook (`LspManager::set_launch_hook`, from
 `lsp_bridge::bundled::launch_hook`) that `arcode-lsp` runs on a blocking
-thread of its runtime each time a server instance starts or restarts: it
-looks the bundle up once (`bundled::bundle`, a `OnceLock`), then rewrites
-that start's `ServerSpec`, with a `PATH` lookup only for commands the
-bundle has. The manager keeps the configured `ServerConfig`s, so a
+thread of its runtime each time a server instance starts or restarts,
+with the instance's root folder: it looks the bundle up (`bundled::bundle`
+keeps a bundle once found and looks again a few seconds later, or after an
+install, while there is none), then rewrites that start's `ServerSpec`,
+with a `PATH` lookup only for commands the bundle has or rustup provides.
+rustup's placeholder (`~/.cargo/bin/rust-analyzer` without the component;
+`arcode_project::server_install::rustup`: a link to rustup, then `rustup
+which` in the root, 5 s at most) is not "installed": the bundled copy
+runs, or the hook sets `ServerSpec::missing` and the start fails as not
+installed without spawning anything. As a fallback for proxies it cannot
+recognise (a configured path), `arcode-lsp` keeps reading stderr for a
+moment when a server exits or closes its pipes, and a rustup `Unknown
+binary` line turns the failure into the same "not installed" reason
+(`arcode_lsp::is_not_installed`). The manager keeps the configured `ServerConfig`s, so a
 settings reload compares what the user wrote and costs no lookups. A
 bundled server whose runtime is missing or too old (jdtls without Java
 21, the version read from the JDK's `release` file) leaves a note that
@@ -800,6 +836,21 @@ the bridge shows instead of the generic failure message. The Languages
 page checks availability in the background (`languages::bundle::
 installed_commands`): installed, "bundled", "bundled, cannot start" (with
 that note) or missing; only missing servers get an install command.
+
+A server reported as not installed gets an install button
+(`lsp_bridge::install`): `arcode_project::server_install` picks one
+command by what is on `PATH` (npm, pipx, pip, rustup, go, cargo, gem, or
+apt-get/dnf/pacman/brew/winget for native servers), or the server's
+homepage. The command runs only on a click, as the program of a new
+terminal tab (`TerminalPanel::run_program`, no shell); its exit code comes
+back through `OnExit`, and on success the bridge restarts every server
+that was not installed. Closing the tab (or the project) before the
+program exits runs `OnExit` with `None` too, so the bridge never stays
+"installing". Only a missing component makes a rustup proxy a
+placeholder (`arcode_lsp::rustup_missing_component` on `rustup which`'s
+answer); any other failure, such as a toolchain file naming a toolchain
+that is not installed, runs the proxy. The Languages page looks servers
+up for the open project (`LanguagesView::set_root`), like the bridge.
 
 Some servers go online on their own in ways their settings cannot stop.
 `arcode-lsp` (`client::offline`) handles those by name: taplo is started
@@ -1064,7 +1115,18 @@ going outside the strip. `Theme::to_toml_string` writes the layout of the
 built-in files and `save_user_theme` writes `<themes dir>/<slug>.toml`
 (or the user theme's own file), refusing a built-in name; the saved theme
 is inserted into the `Themes` registry before the settings that select it
-are written. A page with unsaved work registers a close guard
+are written. New Theme (`theme_editor/new_theme.rs`, the dialog;
+`workspace/theme_manage.rs`) writes a copy of the chosen theme with the
+same `save_user_theme`, selects it like Save As and opens the editor on
+it (`open_theme_editor_on`). Rename and Delete (`workspace/theme_remove.rs`)
+use `rename_user_theme` (the file's `name` key changed with `toml_edit`,
+the file moved to the new slug; replacing a theme deletes every other
+file defining the new name in any spelling, whatever the file is called)
+and `delete_user_theme`, update the registry in place
+(`ThemeRegistry::remove_user_theme`, `remove_user_themes_named`), write the
+settings from `rename_edits` / `delete_edits`, and tell an open editor
+(`theme_renamed` keeps its edits; `theme_deleted` starts over on the
+theme now in use). Built-in names are refused by all of them. A page with unsaved work registers a close guard
 (`pane::set_close_guard`), asked by `Pane::close_page`; the editor asks
 with the app's Save / Don't Save / Cancel prompt and closes itself with
 `close_page_now`. Saving a `*.toml` of the themes folder in an editor tab
@@ -1181,15 +1243,42 @@ socket closes with the process and Discord drops the activity).
 `arcode-editor/src/minimap`: a column left of the scrollbar, shown when
 `editor.minimap` is on, low-end mode is off, the host allowed it
 (`Editor::set_minimap_allowed`; the pane allows it for every tab except
-diffs, so panel inputs and plugin code views have none) and the text
-area left beside it is at least three minimap widths wide. Every display row is 2 px tall and
-every column 1 px wide; a line is drawn as one quad per run of non-blank
-chars with the same syntax colour (no glyphs).
+diffs, so panel inputs and plugin code views have none), the document
+overflows the editor (its display rows are taller than the view, i.e. it
+can scroll down; `minimap::overflows`) and the text area left beside it
+is at least three minimap widths wide. A short file gets the full width.
+The overflow test looks at the height alone, never at the width the
+minimap takes, so showing or hiding it cannot change the answer and the
+decision cannot flip between frames; it is made in every layout pass, so
+typing, pasting, deleting, resizing and font size changes take effect in
+the next frame. (If soft wrap is ever implemented, it must keep this
+property, e.g. by counting wrapped rows at the width with the minimap.)
+
+Every char is drawn as a tiny glyph (`glyphs.rs`): a cell of one device
+pixel by two at 1x, `round(scale)` by `round(2 * scale)` above, whose
+pixels follow the char's outline (capitals and ascenders reach the top,
+lower case only the x-height, `.` sits at the bottom, quotes at the top;
+narrow chars are lighter or half width; from 1.5x the last pixel row is
+left empty between lines). `raster.rs` writes those patterns in the
+char's syntax colour into a BGRA buffer, and `tiles.rs` turns 64 display
+rows at a time into a GPUI image painted as one sprite. Each tile keeps a
+hash of its rows' text and spans: while the buffer version and highlight
+cache id stay, a tile is reused as is; when they change, only tiles whose
+hash changed are rasterized again (typing rebuilds the edited lines'
+tile, new highlights only tiles whose colours changed). Any change of
+theme draws every tile again: the cache is keyed by `UiTheme::id`, a
+number no other theme value of the process gets (not the theme's address,
+which a theme made after the old one was freed can reuse while the theme
+editor changes colours under the same name). Tiles more than
+two away from the view are retired; retired images are dropped from the
+sprite atlas at the next layout (the frame on screen may still show
+them), and all of them when the editor is released.
 
 Cost is bounded by the minimap's height, not the file. `geometry.rs`
 maps rows to y: when the file fits, row 0 is at the top; otherwise the
-minimap scrolls proportionally with the editor (VS Code's model), so only
-about `height / 2` rows are ever looked at. The highlight cache is
+minimap scrolls proportionally with the editor (VS Code's model), its
+offset rounded to whole device pixels, so only about `height / 2` rows
+are ever looked at. The highlight cache is
 extended to the minimap's lines (`ensure_view_highlights`), in one pass
 for the text's and the minimap's lines together, and the job started
 after an edit asks for both too: highlights covering only the text's
@@ -1201,12 +1290,18 @@ costs the lines that came into view, not the whole view again.
 Background highlights are looked up from as far above the view as the
 longest highlight of their set reaches (`ExtState::highlight_reach`), so
 a long multi-line highlight that starts far above still shows.
-`rows.rs` keeps the blocks of the lines in view plus 64 on each side
-between frames, keyed by buffer version, highlight cache id, theme, tab
-size and width, so an idle redraw only paints. Clicking a row centers it
-(the cursor stays), dragging moves the scroll by the slider's ratio, the
-wheel scrolls the editor, and hover changes redraw only on enter and
-leave.
+Clicking a row centers it (the cursor stays), dragging moves the scroll
+by the slider's ratio and the wheel scrolls the editor. Hovering shows a
+preview (`preview.rs`): built during prepaint from that frame's layout
+and drawn with `defer_draw`, left of the minimap, with up to 15 lines
+around the hovered row in the editor's font, numbers and syntax colours,
+the hovered line level with the mouse, clamped to the editor and the
+window. It has no hitbox and no focus handle. Hover state redraws only
+when the mouse enters or leaves the minimap or moves to another row, and
+the preview is hidden while dragging. A `MouseExitEvent` (the mouse left
+the window, maybe straight from the minimap) clears the hover; Windows
+only reports that through the window's hover state, so the preview also
+checks `Window::is_window_hovered` there.
 
 ## Large files
 
@@ -1258,9 +1353,11 @@ On Linux GPUI blends glyph edges with a gamma and a contrast it reads from
 creates a window's renderer. `ui.text_gamma` and `ui.text_contrast` are
 exported as those variables by `text_rendering::export_env` in `app::run`,
 right after the configuration is read and before any thread exists
-(`set_var` is unsafe once threads run), and only when they differ from
-GPUI's defaults (1.8 and 1.0); at the default a value set outside Arcode
-applies. Programs started from Arcode inherit the variables, so Arcode
+(`set_var` is unsafe once threads run). A setting changed from Arcode's
+default is exported; at Arcode's default a value set outside Arcode
+applies, and otherwise the default is exported only where it differs from
+GPUI's own (the contrast: Arcode 2.0, GPUI 1.0; the gamma is 1.8 in
+both). Programs started from Arcode inherit the variables, so Arcode
 also records in `ARCODE_TEXT_RENDERING_OUTER` which ones it set and what
 they were before; an Arcode started from Arcode's terminal takes those
 back instead of mistaking them for the user's

@@ -293,6 +293,7 @@ impl Debugger {
             return;
         };
         let text = editor.read(cx).buffer().text().clone();
+        let output = config.run.output;
         let weak = editor.downgrade();
         let task = cx.spawn(async move |this, cx| {
             if !delay.is_zero() {
@@ -300,7 +301,7 @@ impl Debugger {
             }
             let found = cx
                 .background_spawn(async move {
-                    super::runnables::find_runnables(language, &text, &path, &root)
+                    super::runnables::find_runnables(language, &text, &path, &root, output)
                 })
                 .await;
             this.update(cx, |d, cx| {

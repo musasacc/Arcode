@@ -1,9 +1,9 @@
 //! Appearance: theme (cards with a live preview on hover), dark and light
-//! themes, UI size, animations, low-end mode and the menu bar.
+//! themes, UI size, animations, low-end mode, file icons and the menu bar.
 
-use arcode_config::{Appearance, ThemeChoice, low_end_edits};
+use arcode_config::{Appearance, FileIcons, ThemeChoice, low_end_edits};
 use arcode_ui_kit::{ButtonStyle, IconName, button, settings, theme, type_scale};
-use gpui::{Context, Div, SharedString, div, prelude::*, px};
+use gpui::{App, Context, Div, SharedString, div, prelude::*, px};
 
 use super::theme_card::{CardKind, card_subtitle, theme_card};
 use super::widgets::{picker_button, segmented, setting_row};
@@ -16,6 +16,20 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
     let ui = &config.ui;
     let c = theme(cx).colors.clone();
     let registry = cx.global::<Themes>().0.clone();
+    let writer = page.writer();
+    let file_icons = segmented(
+        "ui-file-icons",
+        &["Language logos", "Plain"],
+        FileIcons::ALL
+            .iter()
+            .position(|f| *f == ui.file_icons)
+            .unwrap_or(0),
+        move |ix, _, cx| {
+            let choice = FileIcons::ALL[ix.min(FileIcons::ALL.len() - 1)];
+            writer.set("ui.file_icons", choice.as_str(), cx)
+        },
+        cx,
+    );
 
     let mut choices = vec![(ThemeChoice::System, "Follow system".to_owned())];
     choices.extend(
@@ -148,11 +162,21 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
         .child(setting_row(
             "All themes",
             format!(
-                "Change any colour in the theme editor, or pick another theme. Your own themes are .toml files in {themes_dir}."
+                "Make a theme of your own, change any colour in the theme editor, or pick another theme. Your own themes are .toml files in {themes_dir}."
             ),
             div()
                 .flex()
+                .flex_wrap()
                 .gap(px(8.))
+                .child(
+                    button("new-theme", "New Theme…")
+                        .icon(IconName::Plus)
+                        .style(ButtonStyle::Secondary)
+                        .tooltip("Make a theme of your own, starting from any theme")
+                        .on_click(|_, window, cx| {
+                            window.dispatch_action(Box::new(crate::theme_editor::NewTheme), cx)
+                        }),
+                )
                 .child(
                     button("edit-theme", "Edit Theme…")
                         .style(ButtonStyle::Secondary)
@@ -174,6 +198,7 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
                 ),
             cx,
         ))
+        .children(user_theme_rows(&registry, cx))
         .child(group_title("Interface", cx))
         .child(page.number_row(
             "UI size",
@@ -209,6 +234,13 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
             low_end_switch,
             cx,
         ))
+        .child(page.keyed_row(
+            "File icons",
+            "Next to file names in the file tree, tabs and lists: the logo of the file's language, or plain monochrome icons.",
+            "ui.file_icons",
+            file_icons,
+            cx,
+        ))
         .child(page.bool_row(
             "Show performance stats",
             "Startup time and memory use in the footer.",
@@ -226,4 +258,55 @@ pub(super) fn render(page: &SettingsPage, cx: &mut Context<SettingsPage>) -> Div
                 cx,
             ))
         })
+}
+
+/// A row for each of the user's own themes, with Rename… and Delete…
+/// (built-in themes cannot be renamed or deleted).
+fn user_theme_rows(registry: &arcode_config::ThemeRegistry, cx: &App) -> Vec<Div> {
+    registry
+        .themes()
+        .iter()
+        .filter(|t| registry.is_user_theme(&t.name))
+        .map(|t| {
+            let mode = match t.appearance {
+                Appearance::Dark => "Your theme · dark",
+                Appearance::Light => "Your theme · light",
+            };
+            let name = SharedString::from(t.name.clone());
+            let (rename, delete) = (name.clone(), name.clone());
+            let controls = div()
+                .flex()
+                .gap(px(8.))
+                .child(
+                    button(
+                        SharedString::from(format!("rename-theme-{name}")),
+                        "Rename…",
+                    )
+                    .style(ButtonStyle::Ghost)
+                    .on_click(move |_, window, cx| {
+                        let name = rename.clone();
+                        window.dispatch_action(
+                            Box::new(crate::theme_editor::RenameTheme { name }),
+                            cx,
+                        )
+                    }),
+                )
+                .child(
+                    button(
+                        SharedString::from(format!("delete-theme-{name}")),
+                        "Delete…",
+                    )
+                    .icon(IconName::Trash)
+                    .style(ButtonStyle::Ghost)
+                    .on_click(move |_, window, cx| {
+                        let name = delete.clone();
+                        window.dispatch_action(
+                            Box::new(crate::theme_editor::DeleteTheme { name }),
+                            cx,
+                        )
+                    }),
+                );
+            setting_row(name, mode, controls, cx)
+        })
+        .collect()
 }

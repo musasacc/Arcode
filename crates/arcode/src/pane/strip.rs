@@ -12,7 +12,7 @@
 
 use arcode_ui_kit::metrics::{CONTROL_H_PANEL, TAB_STRIP_H};
 use arcode_ui_kit::{
-    IconName, icon, icon_button, list_row, popover, theme, truncated, unsaved_ring,
+    IconName, file_glyph, icon, icon_button, list_row, popover, theme, truncated, unsaved_ring,
 };
 use gpui::{
     AnyElement, Bounds, Context, Pixels, Window, anchored, canvas, deferred, div, point,
@@ -21,7 +21,6 @@ use gpui::{
 
 use super::{Pane, PaneEvent};
 use crate::actions::{SplitRight, shortcut_label};
-use crate::file_icons::file_icon;
 
 /// Below this pane width the breadcrumb is hidden.
 pub const BREADCRUMB_MIN_PANE_WIDTH: Pixels = px(520.);
@@ -248,17 +247,13 @@ impl Pane {
             let title = self.title_of(editor, cx);
             let e = editor.read(cx);
             let dirty = e.is_dirty() && !self.titles.contains_key(&editor.entity_id());
-            let (glyph, tint) = if self.titles.contains_key(&editor.entity_id()) {
-                (IconName::GitCompare, c.accent_alt)
-            } else {
-                file_icon(&title, &c)
-            };
+            let (glyph, tint) = self.tab_glyph(editor, &title, cx);
             let selected = self.active_page.is_none() && ix == self.active;
             list = list.child(
                 list_row(("tab-menu-item", ix), selected, cx)
                     .mx(px(0.))
                     .h(px(26.))
-                    .child(icon(glyph).size(px(15.)).color(tint))
+                    .child(file_glyph(glyph).size(px(15.)).color(tint))
                     .child(
                         div()
                             .flex_1()
